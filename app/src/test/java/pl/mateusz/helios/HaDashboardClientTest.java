@@ -24,6 +24,10 @@ public class HaDashboardClientTest {
         volatile boolean broken,ignoreCalls,rejectCalls,rejectToken;
         final BlockingQueue<JSONObject> calls=new LinkedBlockingQueue<>();
         final BlockingQueue<JSONObject> custom=new LinkedBlockingQueue<>();
+        final BlockingQueue<JSONObject> connects=new LinkedBlockingQueue<>();
+        final BlockingQueue<JSONObject> device=new LinkedBlockingQueue<>();
+        volatile boolean rejectConnect;
+        volatile int connectId=-1;
         final Map<WebSocket,Integer> lastId=new ConcurrentHashMap<>();
         volatile int entitiesId=-1,customSubscriptionId=-1,updatesId=-1;
         Server(){super(new InetSocketAddress("127.0.0.1",0));}
@@ -51,6 +55,13 @@ public class HaDashboardClientTest {
                     if(rejectCalls)response.put("error",new JSONObject().put("code","not_found").put("message","Encja nie istnieje"));
                     ws.send(response.toString());return;
                 }
+                if(type.equals("helios/connect")){
+                    connects.add(request);connectId=id;
+                    if(rejectConnect){ws.send(new JSONObject().put("id",id).put("type","result").put("success",false).put("error",new JSONObject().put("code","unauthorized").put("message","Nieznane urządzenie")).toString());return;}
+                    ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).toString());
+                    sendEvent(id,new JSONObject().put("type","connected").put("device_id","dev1").put("area_id","bedroom"));return;
+                }
+                if(type.equals("helios/state")||type.equals("helios/result")){device.add(request);ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).toString());return;}
                 if(type.equals("helios/echo")){custom.add(request);ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).put("result",request.opt("value")).toString());return;}
                 if(type.equals("helios/subscribe")){customSubscriptionId=id;ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).toString());sendEvent(id,new JSONObject().put("type","hello"));return;}
                 if(type.equals("helios/rejected")){ws.send(new JSONObject().put("id",id).put("type","result").put("success",false).put("error",new JSONObject().put("code","unauthorized").put("message","Odmowa")).toString());return;}
@@ -69,6 +80,7 @@ public class HaDashboardClientTest {
         }
         void sendEvent(int id,JSONObject event)throws Exception{client.send(new JSONObject().put("id",id).put("type","event").put("event",event).toString());}
         void sendEntityChange(String json)throws Exception{sendEvent(entitiesId,new JSONObject(json));}
+        void sendCommand(String requestId,String command,JSONObject args)throws Exception{sendEvent(connectId,new JSONObject().put("type","command").put("request_id",requestId).put("command",command).put("args",args));}
         void reload()throws Exception{sendEvent(updatesId,new JSONObject("{\"data\":{\"url_path\":\"helios-clock\"}}"));}
     }
     private Server server;

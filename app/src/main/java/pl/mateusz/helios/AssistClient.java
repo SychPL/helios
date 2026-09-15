@@ -9,6 +9,8 @@ import java.io.*;
 import java.net.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /** One user-triggered Assist session; audio is never captured while idle. */
 public final class AssistClient {
@@ -16,10 +18,13 @@ public final class AssistClient {
     private final Context ctx;
     private final JSONObject config;
     private final Listener listener;
-    private volatile boolean closed, finishAudio;
-    public AssistClient(Context ctx,JSONObject config,Listener listener){this.ctx=ctx.getApplicationContext();this.config=config;this.listener=listener;}
+    private final Supplier<String> deviceId;
+    private volatile boolean closed, finishAudio, noFollowUp;
+    public AssistClient(Context ctx,JSONObject config,Supplier<String> deviceId,Listener listener){this.ctx=ctx.getApplicationContext();this.config=config;this.deviceId=deviceId;this.listener=listener;}
     public void run(){runVoice();}
     public void cancel(){closed=true;finishAudio=true;}
+    /** Lets the current answer finish but starts no further follow-up run (device context changed or removed). */
+    public void cancelFollowUp(){noFollowUp=true;}
     public void finishSpeech(){finishAudio=true;}
     private void state(String text){listener.onState(text);}
     private void log(String event,String detail){
@@ -88,10 +93,14 @@ public final class AssistClient {
             socket.send(new JSONObject().put("type","auth").put("access_token",config.getString("token")).toString());
             if(!socket.next(SystemClock.elapsedRealtime()+10000).optString("type").equals("auth_ok"))throw new IOException("HA authentication failed");
             try{tone=new ToneGenerator(AudioManager.STREAM_MUSIC,70);}catch(RuntimeException ignored){}
-            String conversationId=null;long followUp=0;int run=1;
+            AudioManager audio=(AudioManager)ctx.getSystemService(Context.AUDIO_SERVICE);
+            audio.requestAudioFocus(focus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+            String conversationId=null;long followUp=0;int run=1;String sessionDevice=deviceId.get();
             while(!closed){
-                Events events=runOnce(socket,base,run++,conversationId,followUp,tone);
+                Events events=runOnce(socket,base,run++,conversationId,followUp,tone,sessionDevice);
                 if(events==null)break;
+                // The room context changed mid-conversation: finish here, never continue an old conversation under a new device.
+                if(noFollowUp||!Objects.equals(sessionDevice,deviceId.get())){log("follow_up_cancelled","device changed or removed");break;}
                 conversationId=events.conversationId;
                 // ponytail: after every answer listen again without the wake word; HA's continue_conversation only lengthens the window.
                 followUp=events.continueConversation?15000:6000;
@@ -100,16 +109,19 @@ public final class AssistClient {
         }catch(Exception e){log("test_error",e.getClass().getSimpleName()+": "+e.getMessage());state("Błąd: "+e.getMessage());}
         finally{
             if(tone!=null)tone.release();
+            ((AudioManager)ctx.getSystemService(Context.AUDIO_SERVICE)).abandonAudioFocus(focus);
             if(socket!=null)socket.close();log("ready","microphone_off");
         }
     }
+    private final AudioManager.OnAudioFocusChangeListener focus=change->{};
     /** Returns the run's events after playback, or null when a follow-up window passed without speech. */
-    private Events runOnce(Socket socket,URI base,int run,String conversationId,long followUp,ToneGenerator tone) throws Exception {
+    private Events runOnce(Socket socket,URI base,int run,String conversationId,long followUp,ToneGenerator tone,String device) throws Exception {
         AudioRecord recorder=null;long sampleCount=0;double sumSq=0;finishAudio=false;
         try{
             JSONObject request=new JSONObject().put("id",run).put("type","assist_pipeline/run").put("pipeline",config.getString("pipeline"))
                     .put("start_stage","stt").put("end_stage","tts").put("timeout",60).put("input",new JSONObject().put("sample_rate",16000));
             if(conversationId!=null)request.put("conversation_id",conversationId);
+            if(device!=null)request.put("device_id",device);
             socket.send(request.toString());
             Events events=new Events();long setupDeadline=SystemClock.elapsedRealtime()+20000;
             while(!events.sttReady){events.accept(socket.next(setupDeadline));if(events.ended)throw new IOException("Pipeline ended before microphone");}
@@ -152,10 +164,7 @@ public final class AssistClient {
     private void play(String url) throws Exception {
         if(closed)throw new IOException("Cancelled");
         MediaPlayer player=new MediaPlayer();AtomicBoolean finished=new AtomicBoolean(),failed=new AtomicBoolean();
-        AudioManager audio=(AudioManager)ctx.getSystemService(Context.AUDIO_SERVICE);
-        AudioManager.OnAudioFocusChangeListener focus=change->{};
         try{
-            audio.requestAudioFocus(focus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
             player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
             player.setOnPreparedListener(p->{if(!closed){p.start();log("playback_started","");}});
             player.setOnCompletionListener(p->finished.set(true));
@@ -165,6 +174,6 @@ public final class AssistClient {
             while(!closed&&!finished.get()&&SystemClock.elapsedRealtime()<deadline)SystemClock.sleep(50);
             if(closed||failed.get()||!finished.get())throw new IOException("Playback failed or cancelled");
             log("playback_completed","");
-        }finally{player.release();audio.abandonAudioFocus(focus);}
+        }finally{player.release();}
     }
 }

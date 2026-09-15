@@ -48,6 +48,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private final ServiceConnection serviceConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             service=((HeliosService.Local)binder).service();
+            service.setOnDeviceLost(()->{if(voice!=null)voice.cancelFollowUp();});
             if(pendingProvision!=null){JSONObject received=pendingProvision;pendingProvision=null;applyProvisioning(received);}
             if(resumed)attachHa();
         }
@@ -85,7 +86,13 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         dashboard=new DashboardView(this);setContentView(dashboard);
-        navigation=new NavigationMenu(this,()->config,this::manualTalk,()->{if(voice!=null)voice.cancel();});
+        navigation=new NavigationMenu(this,()->config,new NavigationMenu.Actions(){
+            public void talk(){manualTalk();}
+            public void cancel(){if(voice!=null)voice.cancel();}
+            public void pair(){pairDialog();}
+            public void device(){deviceDialog();}
+            public void refresh(){refreshPairing();}
+        });
         dashboard.onBrandHold(()->navigation.show());
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
         if(saved!=null)try{config=new JSONObject(saved);}catch(Exception ignored){}
@@ -232,7 +239,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     // --- voice ---
     private void startVoice(){
         if(busy||config==null||!resumed)return;busy=true;stopWake();recording=false;
-        voice=new AssistClient(this,config,this);
+        voice=new AssistClient(this,config,()->service==null?null:service.deviceId(),this);
         final AssistClient current=voice;
         audio.execute(()->{try{current.run();}finally{main.post(()->{busy=false;recording=false;if(isDestroyed())return;main.postDelayed(this::startWake,1000);});}});
     }
@@ -264,11 +271,94 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             });
         });
     }
+    /** Maps AssistClient events onto the telemetry voice state; null leaves the state unchanged. */
+    static String voiceState(String event){
+        switch(event){
+            case "microphone_started":return "listening";
+            case "microphone_released":return "processing";
+            case "playback_started":return "responding";
+            case "test_error":return "error";
+            case "ready":case "wake_listening":return "idle";
+            default:return null;
+        }
+    }
+    // --- device screens: no IME dependency, every dialog has a visible cancel ---
+    private void pairDialog(){
+        if(service==null||ha()==null){Toast.makeText(this,"Najpierw sparuj zegar z HA",Toast.LENGTH_SHORT).show();return;}
+        closePanel();
+        float d=getResources().getDisplayMetrics().density;int pad=Math.round(12*d);
+        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackgroundColor(0xFF242C25);
+        TextView title=new TextView(this);title.setText("Kod parowania z integracji Helios w HA");title.setTextColor(0xFFF1EFE6);title.setTextSize(16);column.addView(title);
+        TextView code=new TextView(this);code.setText("");code.setTextColor(0xFFF1EFE6);code.setTextSize(32);code.setGravity(Gravity.CENTER);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(56*d)));
+        String[][] keys={{"1","2","3"},{"4","5","6"},{"7","8","9"},{"⌫","0","OK"}};
+        for(String[] rowKeys:keys){
+            LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
+            for(String key:rowKeys){
+                Button b=new Button(this);b.setText(key);b.setTextSize(22);b.setAllCaps(false);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(88*d),Math.round(56*d));p.rightMargin=Math.round(6*d);p.bottomMargin=Math.round(6*d);row.addView(b,p);
+                b.setOnClickListener(v->{
+                    String current=code.getText().toString();
+                    if(key.equals("⌫")){if(!current.isEmpty())code.setText(current.substring(0,current.length()-1));}
+                    else if(key.equals("OK")){if(current.length()==6){service.pair(current);closePanel();dashboard.setMessage("Paruję z HA…");}}
+                    else if(current.length()<6)code.setText(current+key);
+                });
+            }
+        }
+        Button cancel=new Button(this);cancel.setText("Anuluj");cancel.setAllCaps(false);cancel.setOnClickListener(v->closePanel());column.addView(cancel,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        Dialog dialog=new Dialog(this);panel=dialog;dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);dialog.show();
+    }
+    private void deviceDialog(){
+        if(service==null)return;
+        closePanel();
+        float d=getResources().getDisplayMetrics().density;int pad=Math.round(12*d);
+        DockController dock=service.dock();DeviceVolume volume=service.volume();
+        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackgroundColor(0xFF242C25);column.setMinimumWidth(Math.round(360*d));
+        TextView volumeLabel=new TextView(this);volumeLabel.setTextColor(0xFFF1EFE6);volumeLabel.setText("Głośność urządzenia: "+volume.percent()+"%");column.addView(volumeLabel);
+        android.widget.SeekBar volumeBar=new android.widget.SeekBar(this);volumeBar.setMax(100);volumeBar.setProgress(volume.percent());column.addView(volumeBar,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        volumeBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){volumeLabel.setText("Głośność urządzenia: "+p+"%");}
+            public void onStartTrackingTouch(android.widget.SeekBar s){}
+            public void onStopTrackingTouch(android.widget.SeekBar s){int applied=volume.set(s.getProgress());volumeLabel.setText("Głośność urządzenia: "+applied+"%");service.publish();}
+        });
+        boolean lampAvailable=dock.unavailable()==null&&!Boolean.FALSE.equals(dock.dockConnected());
+        TextView lampLabel=new TextView(this);lampLabel.setTextColor(0xFFF1EFE6);lampLabel.setPadding(0,pad,0,0);
+        lampLabel.setText(lampAvailable?"Lampka docka":"Lampka docka: "+(dock.unavailable()!=null?dock.unavailable():"dock odłączony"));column.addView(lampLabel);
+        android.widget.Switch lamp=new android.widget.Switch(this);lamp.setText("Włączona");lamp.setTextColor(0xFFF1EFE6);lamp.setChecked(Boolean.TRUE.equals(dock.ledOn()));lamp.setEnabled(lampAvailable);column.addView(lamp,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        TextView brightLabel=new TextView(this);brightLabel.setTextColor(0xFFF1EFE6);brightLabel.setText("Jasność: "+(dock.ledBrightness()==null?"—":dock.ledBrightness()+"/10"));column.addView(brightLabel);
+        android.widget.SeekBar bright=new android.widget.SeekBar(this);bright.setMax(9);bright.setProgress(dock.ledBrightness()==null?6:dock.ledBrightness()-1);bright.setEnabled(lampAvailable);column.addView(bright,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        lamp.setOnCheckedChangeListener((b,on)->network.execute(()->{try{if(on)dock.turnOn();else dock.turnOff();}catch(Exception e){main.post(()->Toast.makeText(this,"Lampka: "+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}}));
+        bright.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){brightLabel.setText("Jasność: "+(p+1)+"/10");}
+            public void onStartTrackingTouch(android.widget.SeekBar s){}
+            public void onStopTrackingTouch(android.widget.SeekBar s){int level=s.getProgress()+1;network.execute(()->{try{dock.setBrightness(level);if(lamp.isChecked())dock.turnOn();}catch(Exception e){main.post(()->Toast.makeText(MainActivity.this,"Lampka: "+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}});}
+        });
+        Button close=new Button(this);close.setText("Zamknij");close.setAllCaps(false);close.setOnClickListener(v->closePanel());column.addView(close,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        Dialog dialog=new Dialog(this);panel=dialog;dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);dialog.show();
+    }
+    /** Re-fetches the pairing document; HA changes need explicit confirmation, unchanged sections are left alone. */
+    private void refreshPairing(){
+        dashboard.setMessage("Pobieram parowanie…");
+        network.execute(()->{
+            try{
+                if(BuildConfig.PROVISION_URL.isEmpty())throw new IOException("Brak adresu parowania");
+                JSONObject received=get(BuildConfig.PROVISION_URL,null);
+                main.post(()->{
+                    if(config!=null&&!HeliosService.sameHa(config,received)){
+                        closePanel();
+                        panel=new AlertDialog.Builder(this).setMessage("Parowanie zmienia połączenie z HA ("+received.optString("url","")+"). Zastosować?")
+                            .setPositiveButton("Zastosuj",(x,w)->{panel=null;applyProvisioning(received);}).setNegativeButton("Anuluj",(x,w)->{panel=null;dashboard.setMessage("");}).setOnCancelListener(x->{panel=null;dashboard.setMessage("");}).create();
+                        panel.show();
+                    }else applyProvisioning(received);
+                });
+            }catch(Exception error){main.post(()->dashboard.setMessage("Odświeżenie nieudane: "+error.getMessage()));}
+        });
+    }
     @Override public void onState(String text){main.post(()->{if(!isDestroyed())dashboard.setMessage(text);});}
     @Override public void onEvent(String event,String detail){
         main.post(()->{
             if(event.equals("microphone_started")){recording=true;}
             if(event.equals("microphone_released")){recording=false;}
+            String state=voiceState(event);if(state!=null&&service!=null)service.setVoiceState(state);
         });
         try{
             JSONObject row=new JSONObject().put("time_ms",System.currentTimeMillis()).put("event",event).put("detail",detail);

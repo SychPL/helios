@@ -26,8 +26,9 @@ final class NavigationMenu {
     private final java.util.function.Supplier<org.json.JSONObject> connection;
     private Dialog dialog;
     private String status="";
-    private final Runnable talk,cancel;
-    NavigationMenu(Activity activity,java.util.function.Supplier<org.json.JSONObject> connection,Runnable talk,Runnable cancel){this.activity=activity;this.connection=connection;this.talk=talk;this.cancel=cancel;}
+    interface Actions {void talk();void cancel();void pair();void device();void refresh();}
+    private final Actions actions;
+    NavigationMenu(Activity activity,java.util.function.Supplier<org.json.JSONObject> connection,Actions actions){this.activity=activity;this.connection=connection;this.actions=actions;}
     private int dp(int n){return Math.round(n*activity.getResources().getDisplayMetrics().density);}
     void show(){
         if(dialog!=null&&dialog.isShowing())return;
@@ -42,8 +43,11 @@ final class NavigationMenu {
         TextView diagnostics=new TextView(activity);diagnostics.setTextColor(0xFF9EA59B);diagnostics.setTextSize(13);diagnostics.setPadding(dp(8),0,dp(8),dp(8));
         org.json.JSONObject cfg=connection.get();
         diagnostics.setText("Helios "+BuildConfig.VERSION_NAME+"\nHA: "+(cfg==null?"brak parowania":cfg.optString("url",""))+"\n"+status);rows.addView(diagnostics);
-        button(rows,"Rozmowa z Nabu",()->{close();talk.run();});
-        button(rows,"Anuluj rozmowę",()->{close();cancel.run();});
+        button(rows,"Rozmowa z Nabu",()->{close();actions.talk();});
+        button(rows,"Anuluj rozmowę",()->{close();actions.cancel();});
+        button(rows,"Urządzenie: głośność i lampka",()->{close();actions.device();});
+        button(rows,"Paruj z HA (kod)",()->{close();actions.pair();});
+        button(rows,"Odśwież parowanie",()->{close();actions.refresh();});
         button(rows,"Konfiguracja ekranu w HA",()->openHa(true));
         button(rows,"Strona główna HA",()->openHa(false));
         button(rows,"Ustawienia zegara",()->open(new Intent(Settings.ACTION_SETTINGS)));
