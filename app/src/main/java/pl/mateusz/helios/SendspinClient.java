@@ -18,6 +18,20 @@ final class SendspinClient {
         final String title,artist,album,artworkUrl;final long progressMs,durationMs;
         Metadata(String title,String artist,String album,String artworkUrl,long progressMs,long durationMs){this.title=title;this.artist=artist;this.album=album;this.artworkUrl=artworkUrl;this.progressMs=progressMs;this.durationMs=durationMs;}
     }
+    /** aiosendspin delta contract: an absent key keeps the value, JSON null clears it, progress is replaced whole or cleared; -1 = no progress. */
+    static final class MetadataState {
+        String title,artist,album,artworkUrl;long progressMs=-1,durationMs=-1;
+        void apply(JSONObject m){
+            title=text(m,"title",title);artist=text(m,"artist",artist);album=text(m,"album",album);artworkUrl=text(m,"artwork_url",artworkUrl);
+            if(m.has("progress")){
+                JSONObject p=m.optJSONObject("progress");
+                progressMs=p==null?-1:p.optLong("track_progress",-1);durationMs=p==null?-1:p.optLong("track_duration",-1);
+            }
+        }
+        private static String text(JSONObject m,String key,String previous){return !m.has(key)?previous:m.isNull(key)?null:m.optString(key,null);}
+        void reset(){title=null;artist=null;album=null;artworkUrl=null;progressMs=-1;durationMs=-1;}
+        Metadata snapshot(){return new Metadata(title,artist,album,artworkUrl,progressMs,durationMs);}
+    }
     interface Listener {
         void onState(State state);
         void onMetadata(Metadata metadata);
@@ -51,6 +65,9 @@ final class SendspinClient {
     private volatile List<String> supportedCommands=Collections.emptyList();
     private volatile int volume=100;private volatile boolean muted;
     private volatile State state=State.NONE;
+    /** Logical UI session, separate from the buffer: starts with the first audio frame after stream/start, ends only on stopped/idle, disconnect or stop(). WebSocket thread only. */
+    private boolean sessionActive;
+    private final MetadataState metadataState=new MetadataState();
     private static final class Chunk {final long serverMicros;final byte[] pcm;Chunk(long serverMicros,byte[] pcm){this.serverMicros=serverMicros;this.pcm=pcm;}}
 
     SendspinClient(String url,String clientId,String name,String softwareVersion,AudioSink sink,Listener listener){
@@ -139,7 +156,7 @@ final class SendspinClient {
             case "server/hello":{
                 JSONArray roles=payload.optJSONArray("active_roles");List<String> active=new ArrayList<>();
                 if(roles!=null)for(int i=0;i<roles.length();i++)active.add(roles.getString(i));
-                s.helloDone=true;clock.reset();
+                s.helloDone=true;clock.reset();metadataState.reset();
                 listener.onConnection(true,active.contains("player@v1")?"connected":"MA nie aktywował roli odtwarzacza");
                 break;}
             case "server/time":{
@@ -153,15 +170,15 @@ final class SendspinClient {
             case "stream/clear":if(affectsPlayer(payload)){queue.clear();queuedBytes=0;sink.flush();}break;
             case "stream/end":if(affectsPlayer(payload)){endRequested=true;endRequestedAt=micros();}break;
             case "group/update":
-                if(payload.has("playback_state")){playbackState=payload.getString("playback_state");refreshState();}
+                if(payload.has("playback_state")){
+                    playbackState=payload.getString("playback_state");
+                    if(playbackState.equals("stopped")||playbackState.equals("idle"))sessionActive=false;
+                    refreshState();
+                }
                 break;
             case "server/state":{
                 JSONObject metadata=payload.optJSONObject("metadata");
-                if(metadata!=null){
-                    JSONObject progress=metadata.optJSONObject("progress");
-                    listener.onMetadata(new Metadata(metadata.optString("title",null),metadata.optString("artist",null),metadata.optString("album",null),metadata.isNull("artwork_url")?null:metadata.optString("artwork_url",null),
-                        progress==null?0:progress.optLong("track_progress",0),progress==null?0:progress.optLong("track_duration",0)));
-                }
+                if(metadata!=null){metadataState.apply(metadata);listener.onMetadata(metadataState.snapshot());}
                 JSONObject controller=payload.optJSONObject("controller");
                 if(controller!=null){
                     JSONArray commands=controller.optJSONArray("supported_commands");List<String> list=new ArrayList<>();
@@ -196,6 +213,7 @@ final class SendspinClient {
             byte[] pcm=Arrays.copyOfRange(frame,9,frame.length);
             if(queuedBytes+pcm.length>BUFFER_CAPACITY){dropped++;return;}
             queue.add(new Chunk(serverMicros,pcm));queuedBytes+=pcm.length;
+            if(!sessionActive){sessionActive=true;refreshState();} // real local audio arrived: the session exists from here on
         }else if(frame[0]==FRAME_ARTWORK_0){
             listener.onArtwork(frame.length>9?Arrays.copyOfRange(frame,9,frame.length):null);
         }
@@ -211,10 +229,10 @@ final class SendspinClient {
         if(streamOpen)sink.stop();
         streamOpen=false;endRequested=false;format=null;
         if(pendingFormat!=null){String[] next=pendingFormat;pendingFormat=null;streamStart(next);}
-        refreshState();
     }
     private void endSession(){
         closeStream();pendingFormat=null;playbackState="stopped";lastWriteMicros=-1;clock.reset();supportedCommands=Collections.emptyList();
+        sessionActive=false;metadataState.reset();
         refreshState();
     }
     /** Playback thread: chunks leave in timestamp order once the clock is known; late ones are dropped, early ones wait. */
@@ -224,7 +242,7 @@ final class SendspinClient {
                 Chunk head=queue.peek();
                 if(head==null){
                     if(endRequested&&streamOpen&&(queue.isEmpty()))closeStream();
-                    Thread.sleep(10);refreshState();continue;
+                    Thread.sleep(10);continue;
                 }
                 if(!clock.known()){Thread.sleep(20);continue;}
                 long target=clock.toLocalMicros(head.serverMicros),now=micros();
@@ -232,18 +250,15 @@ final class SendspinClient {
                 if(now>target+LATE_MICROS){queue.poll();queuedBytes-=head.pcm.length;dropped++;continue;}
                 if(now<target-LEAD_MICROS){Thread.sleep(Math.min(20,(target-LEAD_MICROS-now)/1000+1));continue;}
                 queue.poll();queuedBytes-=head.pcm.length;
-                if(streamOpen){sink.write(head.pcm,0,head.pcm.length);lastWriteMicros=micros();refreshState();}
+                if(streamOpen){sink.write(head.pcm,0,head.pcm.length);lastWriteMicros=micros();}
             }catch(InterruptedException e){break;}
             catch(Exception e){dropped++;}
         }
     }
-    private void refreshState(){
-        State next;
-        boolean recentlyWrote=lastWriteMicros>=0&&micros()-lastWriteMicros<PLAYING_WINDOW_MICROS;
-        if(!streamOpen&&!"paused".equals(playbackState))next=State.NONE;
-        else if("playing".equals(playbackState)&&recentlyWrote)next=State.PLAYING;
-        else if("paused".equals(playbackState)||("playing".equals(playbackState)&&streamOpen))next=State.PAUSED;
-        else next=State.NONE;
+    /** Single publisher of onState (WebSocket thread): stream/end and buffer drain never touch the session, so pause and end may arrive in any order without a NONE in between. */
+    private synchronized void refreshState(){
+        boolean active=sessionActive;String playback=playbackState;
+        State next=!active?State.NONE:"playing".equals(playback)?State.PLAYING:"paused".equals(playback)?State.PAUSED:State.NONE;
         if(next!=state){state=next;listener.onState(next);}
     }
 }

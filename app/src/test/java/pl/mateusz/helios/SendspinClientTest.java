@@ -163,6 +163,50 @@ public class SendspinClientTest {
             assertNotNull(server.goodbyes.poll(3,TimeUnit.SECONDS));
         }finally{client.stop();server.stop(2000);}
     }
+    @Test public void metadataDeltasKeepOmittedFieldsNullClearsAndReconnectStartsEmpty() throws Exception {
+        SendspinClient client=client();
+        try{
+            server.send("server/state",new JSONObject().put("metadata",new JSONObject().put("title","A").put("artist","Art").put("album","Alb").put("artwork_url","/imageproxy?path=x").put("progress",new JSONObject().put("track_progress",1000).put("track_duration",200000))));
+            SendspinClient.Metadata m=metadata.poll(3,TimeUnit.SECONDS);assertEquals("A",m.title);assertEquals("/imageproxy?path=x",m.artworkUrl);assertEquals(1000,m.progressMs);
+            server.send("server/state",new JSONObject().put("metadata",new JSONObject().put("progress",new JSONObject().put("track_progress",2000).put("track_duration",200000))));
+            m=metadata.poll(3,TimeUnit.SECONDS);assertEquals("A",m.title);assertEquals("Art",m.artist);assertEquals("/imageproxy?path=x",m.artworkUrl);assertEquals(2000,m.progressMs);
+            server.send("server/state",new JSONObject().put("metadata",new JSONObject().put("title","B"))); // next track shares the cover: the server does not resend it
+            m=metadata.poll(3,TimeUnit.SECONDS);assertEquals("B",m.title);assertEquals("Alb",m.album);assertEquals("/imageproxy?path=x",m.artworkUrl);assertEquals(2000,m.progressMs);
+            server.send("server/state",new JSONObject().put("metadata",new JSONObject().put("artwork_url",JSONObject.NULL).put("progress",JSONObject.NULL)));
+            m=metadata.poll(3,TimeUnit.SECONDS);assertEquals("B",m.title);assertNull(m.artworkUrl);assertEquals(-1,m.progressMs);assertEquals(-1,m.durationMs);
+            server.client.close(1001,"drop");
+            assertTrue(connections.poll(5,TimeUnit.SECONDS).startsWith("down:"));assertEquals("up:connected",connections.poll(7,TimeUnit.SECONDS));
+            server.send("server/state",new JSONObject().put("metadata",new JSONObject().put("progress",new JSONObject().put("track_progress",5).put("track_duration",10))));
+            m=metadata.poll(3,TimeUnit.SECONDS);assertNull(m.title);assertNull(m.artist);assertNull(m.artworkUrl);assertEquals(5,m.progressMs);
+        }finally{client.stop();server.stop(2000);}
+    }
+    @Test public void sessionNeedsAudioSurvivesStreamEndInBothOrdersAndEndsOnStop() throws Exception {
+        SendspinClient client=client();
+        try{
+            server.send("group/update",new JSONObject().put("playback_state","paused")); // bare paused: another player, or a restart - no local session
+            assertNull(states.poll(500,TimeUnit.MILLISECONDS));
+            server.send("group/update",new JSONObject().put("playback_state","playing")); // playing without local audio: still no session
+            assertNull(states.poll(500,TimeUnit.MILLISECONDS));
+            server.streamStart(48000);Thread.sleep(200);
+            server.audio(serverNow()+300_000,(byte)1);
+            assertEquals(SendspinClient.State.PLAYING,states.poll(3,TimeUnit.SECONDS));
+            server.send("stream/end",new JSONObject());Thread.sleep(600); // buffer drained and closed: still one session
+            assertNull(states.poll(200,TimeUnit.MILLISECONDS));
+            server.send("group/update",new JSONObject().put("playback_state","paused"));
+            assertEquals(SendspinClient.State.PAUSED,states.poll(3,TimeUnit.SECONDS));
+            server.streamStart(48000);Thread.sleep(100);server.audio(serverNow()+300_000,(byte)2);
+            server.send("group/update",new JSONObject().put("playback_state","playing"));
+            assertEquals(SendspinClient.State.PLAYING,states.poll(3,TimeUnit.SECONDS));
+            server.send("group/update",new JSONObject().put("playback_state","paused")); // reverse order: pause first, transport end after
+            assertEquals(SendspinClient.State.PAUSED,states.poll(3,TimeUnit.SECONDS));
+            server.send("stream/end",new JSONObject());Thread.sleep(600);
+            assertNull(states.poll(200,TimeUnit.MILLISECONDS));
+            server.send("group/update",new JSONObject().put("playback_state","stopped"));
+            assertEquals(SendspinClient.State.NONE,states.poll(3,TimeUnit.SECONDS));
+            server.send("group/update",new JSONObject().put("playback_state","paused"));
+            assertNull(states.poll(500,TimeUnit.MILLISECONDS));
+        }finally{client.stop();server.stop(2000);}
+    }
     @Test public void clockOffsetPicksTheSampleWithTheSmallestRoundTrip(){
         ClockOffset clock=new ClockOffset();
         assertFalse(clock.known());

@@ -35,8 +35,8 @@ public final class HeliosService extends Service {
     // --- music (0.6) ---
     interface MusicListener {void onMusic(MusicSnapshot snapshot);}
     static final class MusicSnapshot {
-        final MusicSession.Ui ui;final String title,artist,album,remoteInfo,issue;final byte[] artwork;final int volume;final boolean muted,maConnected,localConnected;final java.util.List<String> commands;
-        MusicSnapshot(MusicSession.Ui ui,String title,String artist,String album,byte[] artwork,int volume,boolean muted,java.util.List<String> commands,boolean maConnected,boolean localConnected,String remoteInfo,String issue){
+        final MusicSession.Ui ui;final String title,artist,album,remoteInfo,issue;final android.graphics.Bitmap artwork;final int volume;final boolean muted,maConnected,localConnected;final java.util.List<String> commands;
+        MusicSnapshot(MusicSession.Ui ui,String title,String artist,String album,android.graphics.Bitmap artwork,int volume,boolean muted,java.util.List<String> commands,boolean maConnected,boolean localConnected,String remoteInfo,String issue){
             this.ui=ui;this.title=title;this.artist=artist;this.album=album;this.artwork=artwork;this.volume=volume;this.muted=muted;this.commands=commands;this.maConnected=maConnected;this.localConnected=localConnected;this.remoteInfo=remoteInfo;this.issue=issue;
         }
     }
@@ -48,7 +48,9 @@ public final class HeliosService extends Service {
     private final AudioManager.OnAudioFocusChangeListener musicFocus=change->main.post(()->{if(session!=null){session.onFocusChange(change);publishMusic();}});
     private boolean musicFocusHeld;
     private String musicTitle,musicArtist,musicAlbum,remoteInfo,musicIssue,lenovoPlayerId,playerName="Helios";
-    private byte[] musicArtwork;
+    private android.graphics.Bitmap musicArtwork;
+    /** Decoded once per cover on the network thread (longest side <= 320); the overlay only swaps the reference. */
+    private final ArtworkLoader<android.graphics.Bitmap> artworkLoader=new ArtworkLoader<>(this::fetchArtwork,bitmap->main.post(()->{musicArtwork=bitmap;publishMusic();}),System::currentTimeMillis);
     private int musicVolume=100;private boolean musicMuted,maConnected,localConnected;
     private java.util.List<String> musicCommands=java.util.Collections.emptyList();
     private MusicListener musicListener;
@@ -155,14 +157,14 @@ public final class HeliosService extends Service {
                     if(session==null)return;
                     MusicSession.Ui before=session.ui();session.onTransport(state);
                     if(state!=SendspinClient.State.NONE&&before==MusicSession.Ui.NONE)requestMusicFocus();
-                    if(state==SendspinClient.State.NONE){abandonMusicFocus();musicArtwork=null;}
+                    if(state==SendspinClient.State.NONE){abandonMusicFocus();artworkLoader.clear();}
                     publishMusic();
                 });}
-                public void onMetadata(SendspinClient.Metadata m){main.post(()->{musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;publishMusic();});fetchArtwork(m.artworkUrl);}
+                public void onMetadata(SendspinClient.Metadata m){main.post(()->{musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;publishMusic();});artworkLoader.request(m.artworkUrl);}
                 public void onController(java.util.List<String> commands,Integer groupVolume,Boolean groupMuted){main.post(()->{musicCommands=commands;publishMusic();});}
-                public void onArtwork(byte[] jpeg){main.post(()->{musicArtwork=jpeg;publishMusic();});}
+                public void onArtwork(byte[] jpeg){} // artwork@v1 is not advertised (MA 2.10.3 closes on it); covers come by URL
                 public void onPlayer(int volume,boolean muted){main.post(()->{musicVolume=volume;musicMuted=muted;publishMusic();});}
-                public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("sendspin_"+(connected?"connected":"down"),detail==null?"":detail);main.post(()->{localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;publishMusic();});}
+                public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("sendspin_"+(connected?"connected":"down"),detail==null?"":detail);if(!connected)artworkLoader.clear();main.post(()->{localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;publishMusic();});}
             });
             sendspin.start();
         }
@@ -172,35 +174,40 @@ public final class HeliosService extends Service {
         });
         ma.start();
     }
-    private volatile String artworkUrlInFlight;
     /** Cover art only from the MA host (image proxy or a same-host URL); other hosts are ignored so the token never leaks and nothing foreign is fetched. */
-    private void fetchArtwork(String url){
-        if(url==null||url.isEmpty()){main.post(()->{musicArtwork=null;publishMusic();});return;}
+    private void fetchArtwork(String url,int generation){
         JSONObject music=connection==null?null:connection.optJSONObject("music_assistant");
         if(music==null)return;
         String base=music.optString("url","").replaceAll("/+$","");
         String target=url.startsWith("http")?url:base+(url.startsWith("/")?"":"/")+url;
         try{java.net.URI t=new java.net.URI(target),b=new java.net.URI(base);if(t.getHost()==null||!t.getHost().equalsIgnoreCase(b.getHost()))return;}catch(Exception e){return;}
-        artworkUrlInFlight=target;
         network.execute(()->{
-            java.net.HttpURLConnection c=null;
+            java.net.HttpURLConnection c=null;android.graphics.Bitmap result=null;
             try{
                 c=(java.net.HttpURLConnection)new java.net.URL(target).openConnection();c.setConnectTimeout(5000);c.setReadTimeout(8000);c.setInstanceFollowRedirects(false);
-                if(c.getResponseCode()!=200)return;
-                try(java.io.InputStream in=c.getInputStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){
-                    byte[] chunk=new byte[8192];int n;while((n=in.read(chunk))!=-1){if(out.size()+n>1048576)return;out.write(chunk,0,n);}
-                    byte[] bytes=out.toByteArray();
-                    main.post(()->{if(target.equals(artworkUrlInFlight)){musicArtwork=bytes;publishMusic();}});
+                if(c.getResponseCode()==200)try(java.io.InputStream in=c.getInputStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){
+                    byte[] chunk=new byte[8192];int n;boolean tooBig=false;
+                    while((n=in.read(chunk))!=-1){if(out.size()+n>1048576){tooBig=true;break;}out.write(chunk,0,n);}
+                    if(!tooBig)result=decodeCover(out.toByteArray());
                 }
             }catch(Exception ignored){}
             finally{if(c!=null)c.disconnect();}
+            artworkLoader.deliver(generation,result);
         });
+    }
+    static android.graphics.Bitmap decodeCover(byte[] bytes){
+        android.graphics.BitmapFactory.Options o=new android.graphics.BitmapFactory.Options();o.inJustDecodeBounds=true;
+        android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,o);
+        if(o.outWidth<=0||o.outHeight<=0)return null;
+        int sample=1;while(Math.max(o.outWidth,o.outHeight)/sample>320)sample*=2;
+        android.graphics.BitmapFactory.Options d=new android.graphics.BitmapFactory.Options();d.inSampleSize=sample;
+        return android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,d);
     }
     private void stopMusic(){
         if(sendspin!=null){sendspin.stop();sendspin=null;}
         if(ma!=null){ma.stop();ma=null;}
         if(sink!=null){sink.stop();sink=null;}
-        abandonMusicFocus();session=null;lenovoPlayerId=null;maConnected=false;localConnected=false;remoteInfo=null;musicArtwork=null;musicTitle=null;musicArtist=null;musicAlbum=null;
+        abandonMusicFocus();session=null;lenovoPlayerId=null;maConnected=false;localConnected=false;remoteInfo=null;artworkLoader.clear();musicArtwork=null;musicTitle=null;musicArtist=null;musicAlbum=null;
         publishMusic();
     }
     private void findLenovo(){

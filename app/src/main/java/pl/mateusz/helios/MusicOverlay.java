@@ -1,7 +1,6 @@
 package pl.mateusz.helios;
 
 import android.content.Context;
-import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
@@ -20,7 +19,7 @@ final class MusicOverlay extends FrameLayout {
     static final int HANDLE=72;
     private final Button handle;
     private final LinearLayout panel;
-    private final ImageView artwork;
+    private final ImageView artwork;private android.graphics.Bitmap shownArtwork;
     private final TextView title,artist,status;
     private final Button previous,playPause,next,stop,hide;
     private final SeekBar volume;
@@ -83,8 +82,7 @@ final class MusicOverlay extends FrameLayout {
         volume.setEnabled(snapshot.maConnected);
         if(!seeking&&(volumeOnPanel<0||volumeOnPanel==snapshot.volume)){volume.setProgress(snapshot.volume);volumeOnPanel=-1;}
         mute.setChecked(snapshot.muted);
-        if(snapshot.artwork!=null){try{artwork.setImageBitmap(BitmapFactory.decodeByteArray(snapshot.artwork,0,snapshot.artwork.length));}catch(Exception e){artwork.setImageBitmap(null);}}
-        else artwork.setImageBitmap(null);
+        if(snapshot.artwork!=shownArtwork){shownArtwork=snapshot.artwork;artwork.setImageBitmap(shownArtwork);} // decoded once in the service; here only the reference changes
     }
     /** Geometry in 800x480 units: handle at the right edge, vertically centered under the bar; panel covers the right half. */
     void arrange(float s,float ox,float oy){
