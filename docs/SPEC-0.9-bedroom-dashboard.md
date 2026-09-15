@@ -1,6 +1,6 @@
-# SPEC 0.9 — rolety sypialni, światło kontekstowe i pogoda na jutro
+# SPEC 0.9 - rolety sypialni, światło kontekstowe i pogoda na jutro
 
-Status: **projekt do recenzji; bez implementacji, publikacji w HA i instalacji APK**. 15 września 2026. Numer dokumentu nie ustala numeru wydania aplikacji.
+Status: **projekt po recenzji (Claude Code, 15 września 2026), gotowy do planu**; bez publikacji w HA i instalacji APK do czasu odbioru. Encje z tabeli w pkt 2 potwierdzone w żywym HA 15 września 2026 (obie rolety `supported_features: 15`, grupa światła z dwoma członkami, `weather.forecast_dom` z prognozą dzienną, `sun.sun`); trzy pomocniki `helios_*` nie istnieją, nazwy są wolne. Numer dokumentu nie ustala numeru wydania aplikacji.
 
 ## 1. Cel i decyzje
 
@@ -27,7 +27,7 @@ Podczas odczytu HA w tej sesji znaleziono poniższe encje. Przed wdrożeniem pon
 | Światła głównej sypialni | `light.bedroom_a_all` |
 | Członkowie grupy światła | `light.bedroom_a_light_swiatlo`, `light.bedroom_a_light_swiatlo_2` |
 | Pogoda i źródło prognozy dziennej | `weather.forecast_dom` |
-| Dzień/noc | `sun.sun` — sprawdzić dostępność przed publikacją |
+| Dzień/noc | `sun.sun` - sprawdzić dostępność przed publikacją |
 
 Nie używać lampki docka zegara ani encji sypialni dzieci. Nie tworzyć grupy rolet, ponieważ użytkownik chce wybierać je osobno. W odczytanej odpowiedzi `weather.get_forecasts` źródło zwróciło prognozę dzienną również na następny dzień; nie jest to gwarancja jej późniejszej dostępności.
 
@@ -46,7 +46,7 @@ Zachować siatkę 4×3, skalowanie, pasek i paletę z [SPEC 0.8a](SPEC-0.8a-rend
 | Blaszak | 3 | 3 | 1×1 | Bez zmiany |
 | Wiking był | 4 | 3 | 1×1 | Bez zmiany |
 
-Ukryte światło zostawia puste pole, nie przesuwa pozostałych kafelków. Nie nakładać dwóch warunkowych kafelków pogody w tym samym miejscu — walidator odrzuca nakładanie niezależnie od widoczności.
+Ukryte światło zostawia puste pole, nie przesuwa pozostałych kafelków. Nie nakładać dwóch warunkowych kafelków pogody w tym samym miejscu - walidator odrzuca nakładanie niezależnie od widoczności.
 
 Uchwyt muzyki zasłania część pola światła w kolumnie 4/wierszu 2. Dotyk uchwytu obsługuje wyłącznie muzykę, odsłonięta część kafelka wyłącznie światło; ukryty kafelek nie ma aktywnego obszaru dotyku. Rozwinięta muzyka nadal przykrywa dashboard, nie zmieniając siatki.
 
@@ -54,7 +54,7 @@ Uchwyt muzyki zasłania część pola światła w kolumnie 4/wierszu 2. Dotyk uc
 
 ### 4.1. Wygląd i nawigacja
 
-Kafelek ma ikonę `window-shutter`, tytuł „Rolety” i dwa krótkie wiersze, np. „A: zamknięta”, „B: 40%”. Procent oznacza otwarcie, nie zamknięcie. `opening`/`closing` pokazują „otwieranie”/„zamykanie”; brak stanu pokazuje „brak danych”, nie 0%.
+Kafelek ma ikonę `window-shutter`, tytuł „Rolety” i dwa krótkie wiersze w polach istniejącego kafelka 1×1: wartość (24-28, pomiar) dla pierwszej rolety, np. „A: zamknięta”, opis (17) dla drugiej, np. „B: 40%”. Procent oznacza otwarcie, nie zamknięcie. `opening`/`closing` pokazują „otwieranie”/„zamykanie”; brak stanu pokazuje „brak danych”, nie 0%.
 
 Dotknięcie otwiera jeden modalny panel **Rolety sypialni**, zawierający od razu dwa osobne wiersze: nazwa, aktualny stan/pozycja i kontrolki **Otwórz / Stop / Zamknij**. Nie wymaga kolejnego wejścia w roletę A lub B. Bez zbiorczego przycisku dla obu.
 
@@ -67,8 +67,8 @@ Panel jest nieprzezroczysty, w aktywnym motywie, nad muzyką. Otwieranie zwija p
 - Każda kontrolka wywołuje wyłącznie `cover.open_cover`, `cover.stop_cover` lub `cover.close_cover` dla encji danego wiersza. Nazwy usług nie pochodzą z YAML.
 - Aktualizacje stanu/pozycji obu rolet docierają przez istniejącą subskrypcję HA, również przy otwartym panelu. Odpowiedź usługi nie jest dowodem osiągnięcia pozycji; nie aktualizować pozycji optymistycznie.
 - Niedostępność jednej rolety wyłącza wyłącznie jej kontrolki. Druga działa dalej. Otwieranie/zamykanie/stop wymagają odpowiedniej funkcji z `supported_features`; brak wsparcia wyłącza daną kontrolkę.
-- Otwarcie/zamknięcie mają istniejącą blokadę oczekującego wywołania, ale klucz obejmuje encję i usługę. Wywołanie dla A nie blokuje B. Timeout 10 s, brak automatycznych powtórzeń i kolejki offline.
-- Stop nie wymaga potwierdzenia i nie jest blokowany przez oczekujące otwarcie/zamknięcie ani poprzedni Stop. Odpowiedzi muszą być rozliczane po identyfikatorach wywołań, bez nadpisania callbacku. Stop nadal wymaga aktualnego połączenia i dostępnej encji wspierającej tę funkcję.
+- Otwarcie/zamknięcie mają blokadę oczekującego wywołania z kluczem `encja:usługa` (dziś `MainActivity.call` używa `id kafelka:usługa`, co dla dwóch rolet w jednym kafelku jest za szerokie i wymaga zmiany). Wywołanie dla A nie blokuje B. Timeout 10 s, brak automatycznych powtórzeń i kolejki offline.
+- Stop nie wymaga potwierdzenia i nie jest blokowany przez oczekujące otwarcie/zamknięcie ani przez poprzedni Stop: dla `stop_cover` blokada nie obowiązuje wcale, każde dotknięcie wysyła osobne wywołanie (dziś `call()` odrzuciłby drugi Stop, dopóki pierwszy nie wróci). Odpowiedzi są rozliczane po identyfikatorach wywołań (`HaDashboardClient.request` już to robi), bez nadpisania callbacku. Stop nadal wymaga aktualnego połączenia i dostępnej encji wspierającej tę funkcję.
 - Nowy typ nie przyjmuje `confirmation`; w tym przyroście sterowanie domowymi roletami jest bez potwierdzeń. Dotychczasowy pojedynczy typ `cover` zachowuje własne zasady.
 - Utrata HA lub podmiana konfiguracji zamyka panel, unieważnia jego powiązania i nie wykonuje żadnego polecenia. Po reconnect panel sam się nie otwiera. Kafelek pozostaje na miejscu, z oznaczeniem nieaktualności.
 
@@ -88,7 +88,7 @@ Za zamknięcie uznawać wyłącznie stan `closed`, nie `closing` ani arbitralny 
 
 Kafelek korzysta z istniejącego typu `light`, encji `light.bedroom_a_all` i `visible_when` na `on`. To przycisk grupy dwóch świateł sypialni, nie lampki zegara. Dotyk wykonuje pojedyncze `light.toggle`; stan włączony oznacza, że przynajmniej jeden członek grupy świeci. Przed wdrożeniem zweryfikować tę semantykę i skład istniejącej grupy, nie zmieniając jej ustawień bez potrzeby.
 
-Zmiana widoczności nigdy nie wysyła komendy do światła. W dzień, przy otwartych roletach, przycisk znika nawet wtedy, gdy światło pozostało włączone — brak dodatkowego warunku „światło jest włączone”. Nie dodawać sypialni automatycznie do dolnego licznika obserwowanych świateł.
+Zmiana widoczności nigdy nie wysyła komendy do światła. W dzień, przy otwartych roletach, przycisk znika nawet wtedy, gdy światło pozostało włączone - brak dodatkowego warunku „światło jest włączone”. Nie dodawać sypialni automatycznie do dolnego licznika obserwowanych świateł.
 
 Przy niedostępnym pomocniku i działającym HA kafelek jest ukryty zgodnie z istniejącymi zasadami. Przy niedostępnym świetle, ale prawdziwym warunku, kafelek jest widoczny i nieaktywny. Przy utracie całego połączenia HA zamrozić ostatnią widoczność, przyciemnić dane i wyłączyć akcje.
 
@@ -97,13 +97,15 @@ Przy niedostępnym pomocniku i działającym HA kafelek jest ukryty zgodnie z is
 ### 6.1. Prezentacja i wybór trybu
 
 - 00:00–17:59: obecny widok pogody, tytuł z konfiguracji („Pogoda”), bieżąca temperatura i opis warunków. Dotychczasowe `temperature_entity`, jeśli ustawione, działa tylko w tym trybie.
-- 18:00–23:59: tytuł **Jutro**, temperatura maksymalna z prefiksem „maks.”, pod spodem polski opis warunków i opcjonalnie temperatura minimalna z prefiksem „min.”. Jednostka jest jawna; nie zakładać °C. Brak minimum pomija wyłącznie minimum. Nie pokazywać aktualnego wiatru jako prognozy na jutro.
+- 18:00-23:59: tytuł **Jutro**, temperatura maksymalna z prefiksem „maks.” (44), pod spodem jedna linia opisu (18): polski opis warunków i opcjonalnie „ · min. 9°C”. Jednostka jest jawna; nie zakładać °C. Brak minimum pomija wyłącznie minimum. Nie pokazywać aktualnego wiatru jako prognozy na jutro. Kafelek 2×1 (388×132) mieści dokładnie te trzy linie; nie dodawać czwartej.
 - Pora jest liczona w HA, w jego strefie (`Europe/Warsaw` dla tego domu), przez pomocnik `binary_sensor.helios_pogoda_jutro_tryb`. Aplikacja nie oblicza zachodu słońca ani nie ustala własnego harmonogramu.
-- Pomocnik trybu jest niezależny od dostępności prognozy. Wieczorem jej brak pokazuje **Jutro — brak prognozy**, nigdy bieżących warunków pod nagłówkiem „Jutro”. Nieznany tryb przy aktywnym HA daje „Pogoda — brak danych o trybie”, zamiast zgadywania pory.
+- Pomocnik trybu jest niezależny od dostępności prognozy. Wieczorem jej brak pokazuje **Jutro - brak prognozy**, nigdy bieżących warunków pod nagłówkiem „Jutro”. Nieznany tryb przy aktywnym HA daje „Pogoda - brak danych o trybie”, zamiast zgadywania pory.
 
 ### 6.2. Pobieranie i kontrakt danych
 
-Prognozę pobiera HA, nie zegar: `weather.get_forecasts`, `type: daily`, źródło `weather.forecast_dom`. Mechanizm wdrożeniowy ma być trwały (np. trigger-based template w pakiecie YAML), nie jednorazowe ustawienie stanu przez REST. Nie zakładać, że formularz pomocnika w UI obsługuje akcję z `response_variable`.
+Prognozę pobiera HA, nie zegar: `weather.get_forecasts`, `type: daily`, źródło `weather.forecast_dom`. Mechanizm wdrożeniowy jest trwały: trigger-based template sensor w pakiecie YAML. Pomocniki tworzone w UI nie mają `action`/`response_variable`, więc YAML jest jedyną drogą; **warunek wstępny wdrożenia**: dostęp do `configuration.yaml` (File editor/SSH) i włączone `homeassistant: packages:`. Brak tego dostępu to bramka, nie powód do jednorazowego ustawiania stanu przez REST.
+
+W trigger-based template sensorze błąd akcji przerywa cały przebieg i sensor zachowuje poprzedni stan, więc bez dodatkowej ochrony stary rekord `ready` przeżyłby `valid_until`. Wymagane: akcja `weather.get_forecasts` z `continue_on_error: true`, stan i atrybuty liczone z zapisanego rekordu (zmienna/`this.attributes`) niezależnie od powodzenia akcji, a wyzwalacze `time_pattern` co godzinę oraz `time` 18:00 i 00:00 zawsze przeliczają `valid_until`.
 
 Odświeżanie: start HA, co godzinę, dodatkowo 18:00, północ oraz powrót źródła z niedostępności. Nakładające się wyzwolenia scalają się w jedno pobranie, bez równoległych zapytań. Tylko jedno źródło danych, bez nowego WS i bez nowego dostawcy pogody.
 
@@ -135,14 +137,14 @@ Ten przyrost wprowadza **`helios.version: 4`**, ponieważ starszy parser nie zna
 
 Dozwolone pola: wspólna geometria i `id`, `type`, opcjonalne `title`, `icon`, `visible_when` oraz wymagane `covers`. W tym przyroście `covers` zawiera **dokładnie dwie** pozycje `{entity, title}`; obie wymagane, różne encje `cover.*`, tytuł 1–40 znaków. Brak dowolnych dzieci, kolejnych podmenu i pól akcji. Domyślny tytuł „Rolety”, ikona `window-shutter`. Pojedyncze `entity`, `tap_action`, `confirmation`, `attribute` są niedozwolone dla tego typu.
 
-Podmenu nie zajmuje kolejnych komórek i nie zwiększa liczby kafelków. Do subskrybowanych encji dodać obie rolety, z atrybutami `current_position` i `supported_features`. Zmiany obu muszą aktualizować kafelek i otwarty panel, nie tylko encję główną kafelka.
+Podmenu nie zajmuje kolejnych komórek i nie zwiększa liczby kafelków. Do subskrybowanych encji dodać obie rolety, z atrybutami `current_position` i `supported_features`; ta sama lista atrybutów obowiązuje istniejące typy `cover` i `garage` (jedna `COVER_ATTRIBUTES` dla domeny, bez dwóch kontraktów). Zmiany obu muszą aktualizować kafelek i otwarty panel, nie tylko encję główną kafelka.
 
 ### 7.2. Rozszerzenie `weather`
 
 Dwa opcjonalne, ale występujące **razem**, pola wyłącznie od schematu 4:
 
 - `forecast_entity`: encja `sensor.*` o kontrakcie z pkt 6.2.
-- `forecast_when`: obiekt `{entity, state}` o walidacji identycznej z `visible_when`; określa wybór prognozy, nie ukrywa kafelka. Stan znany zgodny wybiera jutro, znany niezgodny pogodę bieżącą, brak stanu nie pozwala wybrać trybu.
+- `forecast_when`: obiekt `{entity, state}` o walidacji identycznej z `visible_when`; określa wybór prognozy, nie ukrywa kafelka. Stan znany zgodny wybiera jutro, znany niezgodny pogodę bieżącą; brak stanu, `unknown` i `unavailable` nie pozwalają wybrać trybu (komunikat z pkt 6.1).
 
 Do subskrypcji dodać encję trybu oraz prognozy; dla prognozy zatrzymywać wyłącznie siedem atrybutów z tabeli. Bez obu pól weather działa jak dotąd, również w schemacie 4. Pola nie są dozwolone dla innych typów. Nie dopuszczać `icon` na weather.
 
@@ -221,9 +223,9 @@ Zachować dotychczasowe limity, walidację geometrii, rejestr ikon i atomową po
 
 ## 10. Odniesienia
 
-- [SPEC 0.5 — bazowy kontrakt dashboardu](SPEC-0.5-ha-configurable-dashboard.md).
-- [SPEC 0.8a — geometria, muzyka i paleta](SPEC-0.8a-renderer-music.md), [SPEC 0.8b — wygląd poza YAML](SPEC-0.8b-backgrounds.md).
-- [Dashboard uwagi — wdrożenie i wykluczenia](../artifacts/attention-dashboard-20260915.md).
+- [SPEC 0.5 - bazowy kontrakt dashboardu](SPEC-0.5-ha-configurable-dashboard.md).
+- [SPEC 0.8a - geometria, muzyka i paleta](SPEC-0.8a-renderer-music.md), [SPEC 0.8b - wygląd poza YAML](SPEC-0.8b-backgrounds.md).
+- [Dashboard uwagi - wdrożenie i wykluczenia](../artifacts/attention-dashboard-20260915.md).
 - HA udostępnia prognozy przez `weather.get_forecasts`; bieżący stan encji weather nie jest prognozą. [Oficjalna dokumentacja Weather](https://www.home-assistant.io/integrations/weather/).
 - Trwałe obliczenia i wyzwalane pobrania można oprzeć na encjach template; dokładny sposób wdrożenia wymaga weryfikacji na instalacji użytkownika. [Oficjalna dokumentacja Template](https://www.home-assistant.io/integrations/template/).
 - Reguła zmroku korzysta ze stanu słońca dla lokalizacji HA. [Oficjalna dokumentacja Sun](https://www.home-assistant.io/integrations/sun/).
