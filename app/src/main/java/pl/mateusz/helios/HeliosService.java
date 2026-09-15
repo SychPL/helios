@@ -31,6 +31,7 @@ public final class HeliosService extends Service {
     private DeviceVolume volume;
     private volatile String voiceState="idle",deviceId;
     private Runnable onDeviceLost;
+    private Consumer<String> onDeviceChanged;
     private final HaDashboardClient.Listener cache=new HaDashboardClient.Listener(){
         @Override public void onDashboard(JSONObject raw,DashboardSpec spec,Map<String,EntityStates.Entity> states,String issue){
             if(raw!=null&&issue==null)getSharedPreferences("helios",MODE_PRIVATE).edit().putString("dashboard_v2",raw.toString()).apply();
@@ -68,6 +69,7 @@ public final class HeliosService extends Service {
     void pair(String code){if(device!=null)device.pair(code);}
     void setVoiceState(String state){if(!state.equals(voiceState)){voiceState=state;publish();}}
     void setOnDeviceLost(Runnable action){onDeviceLost=action;}
+    void setOnDeviceChanged(Consumer<String> action){onDeviceChanged=action;}
     void publish(){if(device!=null)device.publish();}
 
     private void startHa(){
@@ -78,6 +80,7 @@ public final class HeliosService extends Service {
         device=new HeliosDeviceClient(ha,installationId,this::telemetry,this::execute,(id,area)->main.post(()->{
             boolean lost=deviceId!=null&&id==null;deviceId=id;
             if(lost&&onDeviceLost!=null)onDeviceLost.run();
+            if(onDeviceChanged!=null)onDeviceChanged.accept(id);
         }));
         device.start();ha.start();
     }

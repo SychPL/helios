@@ -49,6 +49,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             service=((HeliosService.Local)binder).service();
             service.setOnDeviceLost(()->{if(voice!=null)voice.cancelFollowUp();});
+            service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage("Sparowano z HA");main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
             if(pendingProvision!=null){JSONObject received=pendingProvision;pendingProvision=null;applyProvisioning(received);}
             if(resumed)attachHa();
         }
@@ -73,7 +74,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private TextView panelTitle;
     private DashboardSpec.Item panelItem;
     private AssistClient voice;
-    private boolean resumed,busy,recording,pendingVoice;
+    private boolean resumed,busy,recording,pendingVoice,pairing;
     private final Runnable tick=new Runnable(){public void run(){
         Date now=new Date();
         String date=new SimpleDateFormat("EEEE, d MMMM",new Locale("pl","PL")).format(now);
@@ -299,7 +300,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 b.setOnClickListener(v->{
                     String current=code.getText().toString();
                     if(key.equals("⌫")){if(!current.isEmpty())code.setText(current.substring(0,current.length()-1));}
-                    else if(key.equals("OK")){if(current.length()==6){service.pair(current);closePanel();dashboard.setMessage("Paruję z HA…");}}
+                    else if(key.equals("OK")){if(current.length()==6){pairing=true;service.pair(current);closePanel();dashboard.setMessage("Paruję z HA…");main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("Kod odrzucony lub HA nie odpowiada");}},15000);}}
                     else if(current.length()<6)code.setText(current+key);
                 });
             }

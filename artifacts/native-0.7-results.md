@@ -1,0 +1,13 @@
+# Helios 0.7.0 - integracja Home Assistant (etap 1 planu)
+
+- Spec: docs/SPEC-0.7-home-assistant-integration.md; plan: docs/PLAN-0.6-0.7-implementation.md (T1.1-T1.7), zatwierdzony przez Codex.
+- `HeliosService` (foreground) trzyma jedno gniazdo WS do HA: jeden rosnący licznik `id`, `request`/`subscribe` dla modułów, `attach`/`detach` z odtworzeniem najnowszego snapshotu, `probe()` przed zapisem nowego parowania; aktywność tylko podpina słuchacza.
+- `HeliosDeviceClient`: `helios/connect` z `installation_id`, telemetria łączona do 10/s, komendy z allowlisty (`lamp.*`, `audio.set_device_volume`) związane z generacją subskrypcji, `busy` per zasób, `device_id` czyszczony przy końcu kanału.
+- `DockController` (binder OEM: lampka, listener docka i ładowania, `linkToDeath`, backoff), `DeviceVolume` (`STREAM_MUSIC`, polling 3 s), `AssistClient` z `device_id` per uruchomienie i przerwaniem dopowiedzeń po zmianie urządzenia; audio focus rozmowy raz na sesję, zwalniany w `finally`.
+- Menu: klawiatura numeryczna parowania, dialog "Urządzenie" (głośność, lampka, jasność), "Odśwież parowanie" z potwierdzeniem zmiany HA. Most `tools/native_bridge.py` dołącza `music_assistant` z `.local/ma.json`.
+- HA: `ha/custom_components/helios` (config flow z kodem i krokiem postępu, `helios/connect|state|result`, koordynator z 10 s futures, `sensor`/`binary_sensor`/`light`/`number`). Nie uruchomiony jeszcze na HA 2026.8.3.
+- Build i lint: PASS (0 błędów lint). 21 testów JVM: PASS (9 parser, 7 klient HA w tym współbieżna numeracja `id` i odtworzenie snapshotu po offline, 5 kanał urządzenia). 3 testy pytest helperów HA: PASS.
+- Emulator 800x480, APK UI bez ARM, fałszywy HA (`.local/ui-dashboard-fixture-v2.py` z kanałem helios): `helios/connect` z `installation_id` i `capabilities`, snapshot z `null` dla docka (brak OEM w emulatorze), komendy z fixture: `audio.set_device_volume 55` → `ok` i nowy snapshot (53 % po zaokrągleniu do 15 kroków), `lamp.turn_on` → `error dock_unavailable`, `shell.exec` → `error unknown_command`; klawiatura parowania wysyła `pairing_code` raz; dialog urządzenia zmienia głośność (20 %) i raportuje do HA; po 15 s na ekranie głównym serwis żyje bez ponownego `helios/connect`, powrót do aktywności odtwarza dashboard natychmiast. Zrzuty: `.local/helios-0.7-*.png`.
+- Nie sprawdzono: fizyczny zegar (binder OEM, foreground service na OTA 627), komponent na prawdziwym HA, "zamknij rolety" z kontekstem obszaru (SPEC 0.7 pkt 7 scenariusze 6-7).
+
+SHA256 (app/build/outputs/apk/debug/app-debug.apk): af38f193796543e6237ec104680bbf09199650b571c9835c3b690fa5e144e65a
