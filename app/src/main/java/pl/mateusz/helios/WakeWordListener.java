@@ -17,7 +17,9 @@ final class WakeWordListener {
     private volatile boolean stopped;
     void stop(){stopped=true;}
 
-    boolean listen(Context context,Runnable ready) throws Exception {
+    boolean listen(Context context,Runnable ready) throws Exception {return listen(context,ready,null);}
+    /** diagnostics (optional) receives "wake_level" lines every 15 s: captured RMS and frame count, so silence from a stolen microphone is distinguishable from a model that never fires. */
+    boolean listen(Context context,Runnable ready,java.util.function.Consumer<String> diagnostics) throws Exception {
         AudioRecord recorder=null;
         long engine=0;
         // Keep a strong reference: the native engine retains the model pointer.
@@ -45,13 +47,21 @@ final class WakeWordListener {
             if(recorder.getRecordingState()!=AudioRecord.RECORDSTATE_RECORDING)throw new IllegalStateException("Microphone not recording");
             ready.run();
             short[] frame=new short[160];int offset=0;
+            double energy=0;long frames=0,peak=0,lastReport=SystemClock.elapsedRealtime();
             while(!stopped){
                 int n=recorder.read(frame,offset,frame.length-offset,AudioRecord.READ_NON_BLOCKING);
                 if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
                 offset+=n;
                 if(offset==frame.length){
+                    for(short sample:frame){energy+=(double)sample*sample;if(Math.abs(sample)>peak)peak=Math.abs(sample);}
+                    frames++;
                     if(MicroWakeWord.nativeProcessAudio(engine,frame))return !stopped;
                     offset=0;
+                    long now=SystemClock.elapsedRealtime();
+                    if(diagnostics!=null&&now-lastReport>=15_000){
+                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" session="+recorder.getAudioSessionId());
+                        energy=0;frames=0;peak=0;lastReport=now;
+                    }
                 }
                 if(n==0)SystemClock.sleep(5);
             }

@@ -360,7 +360,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             try{detected=current.listen(this,()->{
                 onEvent("wake_listening","Okay Nabu; local audio only");
                 main.post(()->{if(wakeListener==current&&resumed&&!busy)dashboard.setMessage("");});
-            });}catch(Exception|LinkageError error){failure=error.toString();}
+            },level->onEvent("wake_level",level));}catch(Exception|LinkageError error){failure=error.toString();}
             final boolean found=detected;final String error=failure;
             onEvent("wake_microphone_released",found?"detected":"stopped");
             main.post(()->{
