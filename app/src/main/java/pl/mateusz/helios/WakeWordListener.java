@@ -44,7 +44,9 @@ final class WakeWordListener {
                 throw new SecurityException("Microphone permission required");
             int min=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
             if(min<=0)throw new IllegalStateException("Microphone format unavailable");
-            recorder=new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,16000,
+            // VOICE_RECOGNITION: the hotword/STT path without the AEC/NS chain of VOICE_COMMUNICATION, which on this clock started
+            // delivering ~6x real-time sample streams (diagnosed 2026-09-15); the wake model needs raw 16 kHz audio anyway.
+            recorder=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,
                 AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(min*4,8192));
             if(recorder.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
             recorder.startRecording();
