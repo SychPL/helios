@@ -1,0 +1,31 @@
+title: Helios
+helios:
+  version: 1
+  clock: true
+  weather: weather.forecast_dom
+  indicators:
+    - entity: sensor.camera_garage_garage_gate_classification
+      name: Garaż
+      when: ["open"]
+      clear_when: ["close"]
+      icon: garage-open
+      label: Garaż otwarty
+      color: orange
+views:
+  - title: Zegar
+    path: zegar
+    cards:
+      - type: markdown
+        title: Konfiguracja zegara Helios
+        content: |
+          **Edytuj pulpit → menu ⋮ → Edytor konfiguracji tekstowej.**
+          Zmieniaj sekcję `helios` na początku YAML. Zapis odświeża zegar.
+
+          `when` określa stany ostrzegawcze, a `clear_when` stany poprawne.
+          Pozostałe wartości oraz brak połączenia są oznaczane jako brak danych.
+          Zegar obsługuje do trzech wskaźników. Konfiguracja wymaga Heliosa 0.3.0.
+      - type: entities
+        title: Czujnik garażu
+        entities:
+          - entity: sensor.camera_garage_garage_gate_classification
+            name: Klasyfikacja bramy

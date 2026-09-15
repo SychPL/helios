@@ -11,8 +11,8 @@ android {
         applicationId 'pl.mateusz.helios'
         minSdk 29
         targetSdk 29
-        versionCode 4
-        versionName '0.2.1'
+        versionCode 6
+        versionName '0.4.0'
         buildConfigField 'String', 'PROVISION_URL', groovy.json.JsonOutput.toJson(provisionUrl)
     }
     buildFeatures { buildConfig true }
@@ -25,4 +25,5 @@ dependencies {
     implementation 'org.slf4j:slf4j-api:2.0.13'
     implementation 'org.slf4j:slf4j-nop:2.0.13'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

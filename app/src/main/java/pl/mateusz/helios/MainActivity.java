@@ -19,12 +19,15 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private final ExecutorService diagnostics=Executors.newSingleThreadExecutor();
     private final ExecutorService audio=Executors.newSingleThreadExecutor();
     private WakeWordListener wakeListener;
-    private boolean wakeEnabled;
     private DashboardView dashboard;
     private NavigationMenu navigation;
-    private float edgeX,edgeY;
-    private boolean edgeGesture;
     private JSONObject config;
+    private HaDashboardClient liveDashboard;
+    private int dashboardGeneration;
+    private DashboardSpec dashboardSpec;
+    private Map<String,String> indicatorStates=new HashMap<>();
+    private boolean indicatorsLive;
+    private String dashboardIssue="Łączenie z konfiguracją ekranu w HA…";
     private AssistClient voice;
     private boolean resumed,busy,recording,pendingVoice;
     private long weatherReadAt;
@@ -41,46 +44,25 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         dashboard=new DashboardView(this);setContentView(dashboard);
-        navigation=new NavigationMenu(this);
-        dashboard.menu.setOnClickListener(v->navigation.show());
+        navigation=new NavigationMenu(this,()->config,this::manualTalk,()->{if(voice!=null)voice.cancel();});
         dashboard.onBrandHold(()->navigation.show());
-        wakeEnabled=getSharedPreferences("helios",MODE_PRIVATE).getBoolean("wake_enabled",true);
-        dashboard.wake.setChecked(wakeEnabled);
-        dashboard.wake.setOnCheckedChangeListener((button,enabled)->{
-            wakeEnabled=enabled;
-            getSharedPreferences("helios",MODE_PRIVATE).edit().putBoolean("wake_enabled",enabled).apply();
-            if(enabled){
-                if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)
-                    requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},2);
-                else startWake();
-            }else{stopWake();if(!busy)dashboard.message.setText("Naciśnij, aby porozmawiać.\nNasłuch hasła wyłączony.");}
-        });
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
         if(saved!=null)try{config=new JSONObject(saved);}catch(Exception ignored){}
-        dashboard.talk.setOnClickListener(v->{
-            if(config==null){connect();return;}
-            if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
-            if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},1);return;}
-            startVoice();
-        });
+        String display=getSharedPreferences("helios",MODE_PRIVATE).getString("dashboard_spec",null);
+        if(display!=null)try{dashboardSpec=DashboardSpec.parse(new JSONObject(display));}catch(Exception ignored){}
+        renderIndicators();
+        String menu=getSharedPreferences("helios",MODE_PRIVATE).getString("menu_spec",null);
+        if(menu!=null)try{navigation.configure(MenuSpec.parse(new JSONObject(menu)));}catch(Exception ignored){}
         if(config==null)connect();
     }
-    @Override public void onResume(){super.onResume();resumed=true;tick.run();weatherTick.run();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()));}
-    @Override public void onPause(){resumed=false;stopWake();main.removeCallbacks(tick);main.removeCallbacks(weatherTick);if(voice!=null)voice.cancel();super.onPause();}
+    @Override public void onResume(){super.onResume();resumed=true;tick.run();weatherTick.run();startDashboard();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()));}
+    @Override public void onPause(){resumed=false;stopDashboard();stopWake();main.removeCallbacks(tick);main.removeCallbacks(weatherTick);if(voice!=null)voice.cancel();super.onPause();}
     @Override public void onDestroy(){if(navigation!=null)navigation.close();stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
-    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){
-        float scale=getResources().getDisplayMetrics().density;
-        if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){
-            edgeX=event.getX();edgeY=event.getY();edgeGesture=edgeX>=getWindow().getDecorView().getWidth()-32*scale;
-        }else if(event.getActionMasked()==android.view.MotionEvent.ACTION_MOVE&&edgeGesture){
-            if(Math.abs(event.getY()-edgeY)>48*scale)edgeGesture=false;
-            else if(edgeX-event.getX()>64*scale){
-                edgeGesture=false;
-                android.view.MotionEvent cancel=android.view.MotionEvent.obtain(event);cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);super.dispatchTouchEvent(cancel);cancel.recycle();
-                navigation.show();return true;
-            }
-        }else if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP||event.getActionMasked()==android.view.MotionEvent.ACTION_CANCEL)edgeGesture=false;
-        return super.dispatchTouchEvent(event);
+    private void manualTalk(){
+        if(config==null){connect();return;}
+        if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
+        if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},1);return;}
+        startVoice();
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
         super.onRequestPermissionsResult(request,permissions,grants);
@@ -99,7 +81,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         }finally{c.disconnect();}
     }
     private void connect(){
-        dashboard.message.setText("Łączenie z Twoim Home Assistantem…");dashboard.talk.setEnabled(false);
+        dashboard.message.setText("Łączenie z Twoim Home Assistantem…");
         network.execute(()->{
             try{
                 if(BuildConfig.PROVISION_URL.isEmpty())throw new IOException("No pairing configuration");
@@ -107,39 +89,76 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 if(received.getString("token").isEmpty()||received.getString("pipeline").isEmpty())throw new IOException("Incomplete pairing");
                 new URI(received.getString("url"));
                 getSharedPreferences("helios",MODE_PRIVATE).edit().putString("connection",received.toString()).apply();
-                main.post(()->{config=received;dashboard.talk.setEnabled(true);dashboard.talk.setText("Porozmawiaj");dashboard.message.setText("Naciśnij, aby porozmawiać.");onEvent("configured","Helios "+BuildConfig.VERSION_NAME);refreshWeather();startWake();});
-            }catch(Exception error){main.post(()->{dashboard.connected(false);dashboard.talk.setText("Połącz ponownie");dashboard.talk.setEnabled(true);dashboard.message.setText("Uruchom parowanie na komputerze,\na potem spróbuj ponownie.");});}
+                main.post(()->{config=received;dashboard.message.setText("");onEvent("configured","Helios "+BuildConfig.VERSION_NAME);refreshWeather();startWake();startDashboard();});
+            }catch(Exception error){main.post(()->{dashboard.connected(false);dashboard.message.setText("Uruchom parowanie na komputerze,\na potem spróbuj ponownie.");});}
         });
     }
     private void refreshWeather(){
         if(config==null||isFinishing())return;final JSONObject current=config;
+        final String weather=dashboardSpec==null?current.optString("weather_entity",""):dashboardSpec.weather;
+        dashboard.showWeather(weather!=null&&!weather.isEmpty());
+        if(weather==null||weather.isEmpty())return;
         network.execute(()->{
             try{
-                JSONObject response=get(current.getString("url").replaceAll("/$","")+"/api/states/"+current.optString("weather_entity","weather.forecast_dom"),current.getString("token"));
+                JSONObject response=get(current.getString("url").replaceAll("/$","")+"/api/states/"+weather,current.getString("token"));
                 JSONObject a=response.getJSONObject("attributes");String state=response.getString("state");
                 if(state.equals("unavailable")||state.equals("unknown")||!a.has("temperature"))throw new IOException("Weather unavailable");
                 double temp=a.getDouble("temperature");String unit=a.optString("temperature_unit","°C");
                 String wind=a.has("wind_speed")?String.format(new Locale("pl"),"Wiatr %.0f %s",a.getDouble("wind_speed"),a.optString("wind_speed_unit","")):"";
                 main.post(()->{
-                    weatherReadAt=System.currentTimeMillis();dashboard.connected(true);
+                    if(dashboardSpec!=null&&!weather.equals(dashboardSpec.weather))return;
+                    weatherReadAt=System.currentTimeMillis();
                     dashboard.temperature.setText(String.format(new Locale("pl"),"%.0f%s",temp,unit));dashboard.condition.setText(WeatherLabels.polish(state));dashboard.weatherDetail.setText(wind);
                     dashboard.freshness.setText("Odczyt "+new SimpleDateFormat("HH:mm",Locale.ROOT).format(new Date(weatherReadAt)));
                     onEvent("weather_updated","state="+state+" temperature="+temp+unit);
                 });
-            }catch(Exception error){main.post(()->{dashboard.connected(false);dashboard.freshness.setText(weatherReadAt==0?"Pogoda niedostępna":"Ostatni odczyt "+new SimpleDateFormat("HH:mm",Locale.ROOT).format(new Date(weatherReadAt)));});}
+            }catch(Exception error){main.post(()->{dashboard.freshness.setText(weatherReadAt==0?"Pogoda niedostępna":"Ostatni odczyt "+new SimpleDateFormat("HH:mm",Locale.ROOT).format(new Date(weatherReadAt)));});}
         });
     }
+    private void renderIndicators(){dashboard.updateIndicators(dashboardSpec,indicatorStates,indicatorsLive,dashboardIssue);}
+    private void stopDashboard(){
+        dashboardGeneration++;
+        if(liveDashboard!=null){liveDashboard.stop();liveDashboard=null;}
+        indicatorsLive=false;indicatorStates.clear();
+    }
+    private void startDashboard(){
+        if(config==null||!resumed||liveDashboard!=null)return;
+        final int generation=++dashboardGeneration;
+        indicatorsLive=false;dashboardIssue=dashboardSpec==null?"Łączenie z konfiguracją ekranu w HA…":null;renderIndicators();
+        HaDashboardClient next=new HaDashboardClient(config,new HaDashboardClient.Listener(){
+            private void update(Runnable action){main.post(()->{if(resumed&&liveDashboard!=null&&generation==dashboardGeneration)action.run();});}
+            @Override public void onConfig(JSONObject raw,DashboardSpec spec){
+                update(()->{
+                    dashboardSpec=spec;indicatorsLive=false;indicatorStates.clear();dashboardIssue=null;
+                    getSharedPreferences("helios",MODE_PRIVATE).edit().putString("dashboard_spec",raw.toString()).apply();
+                    renderIndicators();refreshWeather();onEvent("dashboard_configured","indicators="+spec.indicators.size());
+                });
+            }
+            @Override public void onMenu(JSONObject raw,MenuSpec menu){update(()->{
+                getSharedPreferences("helios",MODE_PRIVATE).edit().putString("menu_spec",raw.toString()).apply();navigation.configure(menu);
+            });}
+            @Override public void onMenuError(String reason){update(()->navigation.error(reason));}
+            @Override public void onStates(Map<String,String> states){update(()->{indicatorStates=states;indicatorsLive=true;dashboardIssue=null;dashboard.connected(true);renderIndicators();});}
+            @Override public void onUnavailable(String reason){update(()->{indicatorsLive=false;indicatorStates.clear();dashboardIssue=reason;dashboard.connected(false);renderIndicators();});}
+        });
+        liveDashboard=next;next.start();
+    }
     private void startVoice(){
-        if(busy||config==null||!resumed)return;busy=true;stopWake();recording=false;dashboard.talk.setText("Anuluj");
+        if(busy||config==null||!resumed)return;busy=true;stopWake();recording=false;
         voice=new AssistClient(this,config,this);
         final AssistClient current=voice;
-        audio.execute(()->{try{current.run();}finally{main.post(()->{busy=false;recording=false;if(isDestroyed())return;dashboard.talk.setText("Porozmawiaj");main.postDelayed(this::startWake,1000);});}});
+        audio.execute(()->{try{current.run();}finally{main.post(()->{busy=false;recording=false;if(isDestroyed())return;main.postDelayed(this::startWake,1000);});}});
     }
     private void stopWake(){if(wakeListener!=null){wakeListener.stop();wakeListener=null;}}
     private void startWake(){
-        if(!resumed||isDestroyed()||busy||!wakeEnabled||config==null||wakeListener!=null)return;
+        if(!resumed||isDestroyed()||busy||config==null||wakeListener!=null)return;
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
-            dashboard.message.setText("Naciśnij Porozmawiaj, aby zezwolić na mikrofon.");return;
+            dashboard.message.setText("Mikrofon wymaga zgody. Przytrzymaj HELIOS → Rozmowa.");
+            if(!getSharedPreferences("helios",MODE_PRIVATE).getBoolean("microphone_requested",false)){
+                getSharedPreferences("helios",MODE_PRIVATE).edit().putBoolean("microphone_requested",true).apply();
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},2);
+            }
+            return;
         }
         final WakeWordListener current=new WakeWordListener();wakeListener=current;
         dashboard.message.setText("Uruchamiam nasłuch Okay Nabu…");
@@ -147,22 +166,22 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             boolean detected=false;String failure=null;
             try{detected=current.listen(this,()->{
                 onEvent("wake_listening","Okay Nabu; local audio only");
-                main.post(()->{if(wakeListener==current&&resumed&&!busy)dashboard.message.setText("Powiedz „Okay Nabu”.\nNasłuch lokalny jest włączony.");});
+                main.post(()->{if(wakeListener==current&&resumed&&!busy)dashboard.message.setText("");});
             });}catch(Exception|LinkageError error){failure=error.toString();}
             final boolean found=detected;final String error=failure;
             onEvent("wake_microphone_released",found?"detected":"stopped");
             main.post(()->{
                 if(wakeListener!=current)return;wakeListener=null;
-                if(error!=null){onEvent("wake_error",error);dashboard.message.setText("Nasłuch hasła niedostępny.\nMożesz użyć przycisku Porozmawiaj.");}
-                else if(found&&resumed&&wakeEnabled&&!busy){onEvent("wake_detected","Okay Nabu");startVoice();}
+                if(error!=null){onEvent("wake_error",error);dashboard.message.setText("Nasłuch hasła niedostępny.\nPrzytrzymaj HELIOS → Rozmowa.");}
+                else if(found&&resumed&&!busy){onEvent("wake_detected","Okay Nabu");startVoice();}
             });
         });
     }
     @Override public void onState(String text){main.post(()->{if(!isDestroyed())dashboard.message.setText(text);});}
     @Override public void onEvent(String event,String detail){
         main.post(()->{
-            if(event.equals("microphone_started")){recording=true;dashboard.talk.setText("Zakończ mowę");}
-            if(event.equals("microphone_released")){recording=false;dashboard.talk.setText("Anuluj");}
+            if(event.equals("microphone_started")){recording=true;}
+            if(event.equals("microphone_released")){recording=false;}
         });
         try{
             JSONObject row=new JSONObject().put("time_ms",System.currentTimeMillis()).put("event",event).put("detail",detail);

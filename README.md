@@ -1,18 +1,26 @@
 # Helios — prototyp głosu na Lenovo Smart Clock 2
 
-Natywna aplikacja Android jest w `app/`: zegar, polska data, bieżąca pogoda z HA, przycisk rozmowy i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.2.1. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
+Natywna aplikacja Android jest w `app/`: zegar, polska data, bieżąca pogoda z HA, konfigurowalne wskaźniki i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.4.0. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
 
-## Dashboard 0.2.1
+## Dashboard 0.4.0
 
-Menu wysuwa się z prawej strony po przytrzymaniu napisu HELIOS, naciśnięciu przycisku Menu lub przesunięciu od prawej krawędzi w lewo. Zawiera ustawienia, dostępność/TalkBack, wybór HOME, przeglądarkę, pobranie aktualizacji APK z komputera, listę aplikacji/launcherów, agenta i SSH. Uruchamianie ekranów pochodzi z dotknięcia widocznej aplikacji. Niedostępny ekran pokazuje komunikat; menu ma własny przycisk zamknięcia i przewijaną listę. Aktualizacja nadal wymaga systemowego potwierdzenia instalacji.
+> **Kierunek kolejnej wersji — jeszcze niezaimplementowany:** menu systemowe i górny pasek statusu zegara mają być stałe i lokalne, natomiast treść dashboardu poniżej ma być konfigurowana z Home Assistant. Pierwszy etap to pojedynczy ekran z siatką sześciu typów elementów, konfigurowany w YAML; docelowo preferowana jest edycja wizualna podobna do pulpitów HA. Obecne pobieranie pozycji menu z HA jest sprzeczne z tym kierunkiem. Dokumenty: [SPEC 0.5](docs/SPEC-0.5-ha-configurable-dashboard.md) oraz [wymagania produktowe dashboardu](docs/dashboard-product-requirements.md).
 
-Nasłuch „Okay Nabu” jest domyślnie włączony po udzieleniu uprawnienia mikrofonu; przełącznik na górze zapisuje wybór użytkownika. Działa wyłącznie przy widocznym Heliosie. Audio przed wykryciem hasła jest analizowane lokalnie, bez zapisu i wysyłania. Po wykryciu mikrofon jest zwalniany, a następnie uruchamia się ta sama rozmowa Assist co z przycisku. Jeden executor szereguje nasłuch i rozmowę. Nasłuch wraca sekundę po zakończeniu rozmowy/TTS; wyjście z aplikacji zatrzymuje go. Wersja zawiera silnik ARMv7 oraz przypięty model z wcześniejszego testu (licencje i provenance w assets/wakeword). Rzeczywista skuteczność hasła w tej APK wymaga testu na zegarze.
+Wcześniejsze testy na fizycznym zegarze z OTA 627 potwierdziły także lokalne sterowanie lampką docka oraz zdarzeniową detekcję ładowania telefonu przez fabryczny binder OEM. Nie są to jeszcze elementy dashboardu ani integracja HA; szczegóły i ograniczenia opisuje [nota techniczna lampki docka](docs/lamp-control.md).
+
+Ekran nie ma przycisków Menu ani Porozmawiaj. Menu otwiera wyłącznie przytrzymanie HELIOS. Mała ikona Home Assistant jest niebieska przy połączeniu, szara przy braku aktualnych danych. Status rozmowy pojawia się podczas rozmowy i znika po powrocie nasłuchu. Specyfikacja decyzji i implementacji: [SPEC 0.4](docs/SPEC-0.4-hidden-menu.md).
+
+Konfiguracja ekranu znajduje się po stronie HA w panelu **Helios** (`/helios-clock`), w głównej sekcji YAML `helios`. Menu zegara zawiera skrót do tego panelu. Encje, stany ostrzegawcze i poprawne, podpisy, ikony i kolory nie są wpisane w kod renderera. Zmiana stanu encji lub zapis YAML aktualizuje wskaźniki przez WebSocket. Szczegóły i przykłady: [konfiguracja w HA](docs/ha-dashboard.md).
+
+Cała lista skrótów menu pochodzi z kart Przycisk w zakładce `menu-zegara` panelu HA. Nazwy, kolejność i akcje edytuje się wizualnie w HA. Zapis odświeża także otwarte menu. Ostatnia poprawna definicja pozostaje dostępna offline; jedynie zamknięcie panelu i minimalne menu odzyskiwania przy braku definicji są lokalne. Niedostępny ekran pokazuje komunikat. Aktualizacja nadal wymaga systemowego potwierdzenia instalacji.
+
+Nasłuch „Okay Nabu” jest zawsze włączony po udzieleniu uprawnienia mikrofonu, gdy Helios jest widoczny i nie prowadzi rozmowy. Nie ma ekranowego przełącznika; do wyciszania służy fizyczny przełącznik mikrofonu zegara. Starsza zapisana preferencja wyłączenia nasłuchu jest ignorowana. Audio przed wykryciem hasła jest analizowane lokalnie, bez zapisu i wysyłania. Po wykryciu mikrofon jest zwalniany, a następnie uruchamia się ta sama rozmowa Assist co z przycisku. Jeden executor szereguje nasłuch i rozmowę. Nasłuch wraca sekundę po zakończeniu rozmowy/TTS; wyjście z aplikacji zatrzymuje go. Wersja zawiera silnik ARMv7 oraz przypięty model (licencje i provenance w assets/wakeword).
 
 Wersja 0.1.1 zgłasza Heliosa na liście aplikacji ekranu głównego (HOME). Po instalacji użytkownik może wybrać go w ustawieniach launchera. Aplikacja sama nie zmienia domyślnego ekranu głównego.
 
 - Godzina i data korzystają z czasu/strefy urządzenia.
-- Pogoda pochodzi z `weather.forecast_dom`, jest odczytywana co 2 minuty; przy błędzie zachowany odczyt jest oznaczony jako ostatni.
-- „Porozmawiaj” prosi o uprawnienie mikrofonu przy pierwszym użyciu. Mów po komunikacie „Mów teraz”. W trakcie mowy przycisk kończy wypowiedź; podczas oczekiwania anuluje rozmowę.
+- Encję pogody określa YAML w HA (`weather`); pogoda jest odczytywana co 2 minuty, a przy błędzie zachowany odczyt jest oznaczony jako ostatni. Zmiana encji wywołuje nowy odczyt. `weather: null` ukrywa pogodę.
+- Pierwsze uruchomienie prosi o uprawnienie mikrofonu. Rozmowę uruchamia „Okay Nabu”; mów po komunikacie „Mów teraz”. Opcjonalne pozycje ukrytego menu `Rozmowa` i `Anuluj rozmowę` pozwalają uruchomić, zakończyć wypowiedź lub anulować sesję ręcznie. Można je zmienić/usunąć w HA.
 - Mikrofon 16 kHz/mono/PCM16 ze źródła VOICE_COMMUNICATION jest przesyłany bezpośrednio do Assist WebSocket w HA. Wybrany pipeline używa HA Cloud. TTS odtwarza się po zwolnieniu mikrofonu.
 - Wyjście z aplikacji anuluje rozmowę i zatrzymuje nasłuch hasła.
 - Nie zmienia domyślnego launchera, Google ani ustawień startu po restarcie. Utrzymuje ekran włączony, kiedy jest widoczna. Tryb nocny nie jest jeszcze zaimplementowany.
@@ -21,7 +29,7 @@ Budowanie (własny Gradle wrapper; zależności Java pobierane z Maven Central):
 
 ```powershell
 $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
-./gradlew.bat assembleDebug lintDebug
+./gradlew.bat assembleDebug lintDebug testDebugUnitTest
 ```
 
 Lokalny `local.properties` wskazuje Android SDK. Potrzebne platform 35 i build-tools 36.0.0. Wynik: `app/build/outputs/apk/debug/app-debug.apk`.
