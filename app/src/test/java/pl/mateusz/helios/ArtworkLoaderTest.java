@@ -34,6 +34,14 @@ public class ArtworkLoaderTest {
         loader.request("a");assertEquals(1,fetches.size());
         now=ArtworkLoader.RETRY_AFTER_MS;loader.request("a");assertEquals(2,fetches.size());
     }
+    @Test public void keepOnChangeVariantHoldsTheOldValueUntilTheNewOneArrives(){
+        List<String> seen=new ArrayList<>();
+        ArtworkLoader<String> keep=new ArtworkLoader<>((url,gen)->fetches.add(url+"#"+gen),seen::add,()->now,false);
+        keep.request("a");keep.deliver(1,"A");keep.request("b");
+        assertEquals(Arrays.asList("A"),seen);
+        keep.deliver(2,"B");assertEquals(Arrays.asList("A","B"),seen);
+        keep.clear();assertEquals(Arrays.asList("A","B",null),seen);
+    }
     @Test public void emptyUrlClears(){
         loader.request("a");loader.deliver(1,"A");loader.request(null);
         assertNull(results.get(results.size()-1));

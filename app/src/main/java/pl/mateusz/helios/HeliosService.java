@@ -59,6 +59,12 @@ public final class HeliosService extends Service {
     private final RecentPlays recent=new RecentPlays();
     private Runnable onDeviceLost;
     private Consumer<String> onDeviceChanged;
+    interface AppearanceListener {void onAppearance(Appearance appearance,android.graphics.Bitmap background);}
+    private AppearanceListener appearanceListener;
+    private Appearance appearance=Appearance.solid();
+    private android.graphics.Bitmap background;
+    /** Keyed by imageId|focus: the same image with a new focus is re-cropped from the cache file, never re-fetched; the old bitmap stays until the new one is ready. */
+    private final ArtworkLoader<android.graphics.Bitmap> backgroundLoader=new ArtworkLoader<>(this::fetchBackground,bitmap->main.post(()->{background=bitmap;publishAppearance();}),System::currentTimeMillis,false);
     private java.util.function.BiConsumer<String,String> diagnostics;
     private final HaDashboardClient.Listener cache=new HaDashboardClient.Listener(){
         @Override public void onDashboard(JSONObject raw,DashboardSpec spec,Map<String,EntityStates.Entity> states,String issue){
@@ -84,6 +90,8 @@ public final class HeliosService extends Service {
         audioManager=(AudioManager)getSystemService(Context.AUDIO_SERVICE);
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
         if(saved!=null)try{connection=new JSONObject(saved);}catch(Exception ignored){}
+        String cachedAppearance=getSharedPreferences("helios",MODE_PRIVATE).getString("appearance",null);
+        if(cachedAppearance!=null)try{applyAppearance(new JSONObject(cachedAppearance),false);}catch(Exception ignored){}
         RecentPlays stored=RecentPlays.parse(getSharedPreferences("helios",MODE_PRIVATE).getString("music_recent",null));
         for(int i=stored.entries().size()-1;i>=0;i--)recent.add(stored.entries().get(i));
         if(connection!=null){startHa();startMusic();}
@@ -101,9 +109,93 @@ public final class HeliosService extends Service {
     String deviceId(){return deviceId;}
     boolean devicePaired(){return device!=null&&device.active();}
     void pair(String code){if(device!=null)device.pair(code);}
-    void setVoiceState(String state){if(!state.equals(voiceState)){voiceState=state;publish();}}
+    void setVoiceState(String state){if(!state.equals(voiceState)){voiceState=state;publish();if(state.equals("listening"))blinkLamp();}}
+    /** One short flash of the dock lamp when the clock starts listening for a command; a lit lamp winks off instead. Errors are ignored: the lamp is a hint, not a gate. */
+    private void blinkLamp(){
+        network.execute(()->{
+            try{
+                if(dock.unavailable()!=null)return;
+                boolean wasOn=Boolean.TRUE.equals(dock.ledOn());
+                if(wasOn)dock.turnOff();else dock.turnOn();
+                Thread.sleep(180);
+                if(wasOn)dock.turnOn();else dock.turnOff();
+            }catch(Exception ignored){}
+        });
+    }
     void setOnDeviceLost(Runnable action){onDeviceLost=action;}
     void setOnDeviceChanged(Consumer<String> action){onDeviceChanged=action;}
+    void setAppearanceListener(AppearanceListener listener){appearanceListener=listener;if(listener!=null)listener.onAppearance(appearance,background);}
+    Appearance appearance(){return appearance;}
+    private void publishAppearance(){if(appearanceListener!=null)appearanceListener.onAppearance(appearance,background);}
+    /** Snapshot from HA (or the cached one at start): validated whole, theme applied at once, image after fetch; invalid keeps the last good one. */
+    private void applyAppearance(JSONObject raw,boolean persist){
+        Appearance next;
+        try{next=Appearance.parse(raw);}catch(IllegalArgumentException e){if(diagnostics!=null)diagnostics.accept("appearance_invalid",e.getMessage());return;}
+        if(persist)getSharedPreferences("helios",MODE_PRIVATE).edit().putString("appearance",raw.toString()).apply();
+        appearance=next;Theme.set(Theme.byId(next.theme));
+        if(next.image)backgroundLoader.request(next.key());else{backgroundLoader.clear();}
+        publishAppearance();
+    }
+    /** Pairing moved to another HA or another device: the private photo and its options no longer belong here. */
+    private void resetAppearance(){
+        getSharedPreferences("helios",MODE_PRIVATE).edit().remove("appearance").remove("background_image_id").apply();
+        new java.io.File(getFilesDir(),"background.jpg").delete();
+        appearance=Appearance.solid();Theme.set(Theme.WARM_GRAPHITE);backgroundLoader.clear();publishAppearance();
+    }
+    /** Executor: cache hit decodes the file; otherwise one authenticated GET on the HA origin (no redirects, 2 MiB, 10 s), stored atomically, then decoded to 800x480 with the focus crop. */
+    private void fetchBackground(String key,int generation){
+        String[] parts=key.split("\\|");if(parts.length!=3)return;
+        final String imageId=parts[0];final int fx=Integer.parseInt(parts[1]),fy=Integer.parseInt(parts[2]);
+        final Appearance a=appearance;final JSONObject conn=connection;
+        network.execute(()->{
+            java.io.File cache=new java.io.File(getFilesDir(),"background.jpg");
+            String cachedId=getSharedPreferences("helios",MODE_PRIVATE).getString("background_image_id",null);
+            String why=null;
+            if(!imageId.equals(cachedId)||!cache.isFile()){
+                why=downloadBackground(conn,a,imageId,cache);
+                if(why==null)getSharedPreferences("helios",MODE_PRIVATE).edit().putString("background_image_id",imageId).apply();
+            }
+            android.graphics.Bitmap result=why==null?decodeBackground(cache,fx,fy):null;
+            if(result==null&&why==null)why="decode";
+            if(result!=null&&diagnostics!=null)diagnostics.accept("background_ready",imageId.substring(0,8)+" "+cache.length()+"B focus "+fx+"/"+fy);
+            if(why!=null&&diagnostics!=null)diagnostics.accept("background_error",why);
+            backgroundLoader.deliver(generation,result);
+        });
+    }
+    private String downloadBackground(JSONObject conn,Appearance a,String imageId,java.io.File cache){
+        if(conn==null||a==null||!a.image||!imageId.equals(a.imageId))return "no_connection";
+        java.net.HttpURLConnection c=null;java.io.File tmp=new java.io.File(cache.getPath()+".tmp");
+        try{
+            java.net.URI origin=new java.net.URI(conn.optString("url",""));
+            String target=origin.getScheme()+"://"+origin.getRawAuthority()+a.path; // origin from the pairing only, path from the validated snapshot only
+            c=(java.net.HttpURLConnection)new java.net.URL(target).openConnection();c.setConnectTimeout(5000);c.setReadTimeout(5000);c.setInstanceFollowRedirects(false);
+            c.setRequestProperty("Authorization","Bearer "+conn.optString("token",""));
+            int code=c.getResponseCode();if(code!=200)return "http_"+code;
+            try(java.io.InputStream in=c.getInputStream();java.io.FileOutputStream out=new java.io.FileOutputStream(tmp)){
+                byte[] chunk=new byte[16384];int n;long total=0;
+                while((n=in.read(chunk))!=-1){total+=n;if(total>2*1024*1024){return "too_large";}out.write(chunk,0,n);}
+            }
+            if(!tmp.renameTo(cache)){return "store";}
+            return null;
+        }catch(Exception e){return e.getClass().getSimpleName();}
+        finally{if(c!=null)c.disconnect();tmp.delete();}
+    }
+    static android.graphics.Bitmap decodeBackground(java.io.File file,int fx,int fy){
+        try{
+            android.graphics.BitmapFactory.Options o=new android.graphics.BitmapFactory.Options();o.inJustDecodeBounds=true;
+            android.graphics.BitmapFactory.decodeFile(file.getPath(),o);
+            if(o.outWidth<=0||o.outHeight<=0)return null;
+            int sample=1;while(o.outWidth/(sample*2)>=DashboardView.WIDTH&&o.outHeight/(sample*2)>=DashboardView.HEIGHT)sample*=2;
+            android.graphics.BitmapFactory.Options d=new android.graphics.BitmapFactory.Options();d.inSampleSize=sample;
+            android.graphics.Bitmap src=android.graphics.BitmapFactory.decodeFile(file.getPath(),d);
+            if(src==null)return null;
+            int[] r=CropMath.rect(src.getWidth(),src.getHeight(),DashboardView.WIDTH,DashboardView.HEIGHT,fx,fy);
+            android.graphics.Bitmap crop=android.graphics.Bitmap.createBitmap(src,r[0],r[1],r[2],r[3]);
+            android.graphics.Bitmap out=android.graphics.Bitmap.createScaledBitmap(crop,DashboardView.WIDTH,DashboardView.HEIGHT,true);
+            if(crop!=src)src.recycle();if(out!=crop)crop.recycle();
+            return out;
+        }catch(Exception e){return null;}
+    }
     void setDiagnostics(java.util.function.BiConsumer<String,String> sink){diagnostics=sink;}
     void publish(){if(device!=null)device.publish();}
     /** Our own conversation finished: the sink may resume only if the system grants focus again. */
@@ -182,7 +274,7 @@ public final class HeliosService extends Service {
                     if(state!=SendspinClient.State.NONE&&before==MusicSession.Ui.NONE)requestMusicFocus();
                     if(state==SendspinClient.State.PLAYING&&!musicStatsScheduled){musicStatsScheduled=true;main.postDelayed(musicStats,60_000);}
                     if(state==SendspinClient.State.NONE){abandonMusicFocus();artworkLoader.clear();}
-                    publishMusic();
+                    publishMusic();publish();
                 });}
                 public void onMetadata(SendspinClient.Metadata m){final long at=android.os.SystemClock.elapsedRealtime();main.post(()->{musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;musicProgressMs=m.progressMs;musicDurationMs=m.durationMs;musicProgressAt=at;publishMusic();});artworkLoader.request(m.artworkUrl);}
                 public void onController(java.util.List<String> commands,Integer groupVolume,Boolean groupMuted){main.post(()->{musicCommands=commands;publishMusic();});}
@@ -264,8 +356,15 @@ public final class HeliosService extends Service {
         JSONObject cachedRaw=null;
         if(cached!=null)try{cachedRaw=new JSONObject(cached);}catch(Exception ignored){}
         ha=new HaDashboardClient(connection,cachedRaw);ha.attach(cache);
-        device=new HeliosDeviceClient(ha,installationId,this::telemetry,this::execute,(id,area,name)->main.post(()->{
+        device=new HeliosDeviceClient(ha,installationId,this::telemetry,this::execute,new HeliosDeviceClient.Listener(){
+            public void onAppearance(JSONObject a){main.post(()->applyAppearance(a,true));}
+            public void onDevice(String id,String area,String name){main.post(()->{
             boolean lost=deviceId!=null&&id==null;deviceId=id;
+            if(id!=null){
+                String previous=getSharedPreferences("helios",MODE_PRIVATE).getString("appearance_device",null);
+                if(previous!=null&&!previous.equals(id))resetAppearance(); // a new pairing is a new HA device: the old private photo goes
+                getSharedPreferences("helios",MODE_PRIVATE).edit().putString("appearance_device",id).apply();
+            }
             if(name!=null&&!name.equals(getSharedPreferences("helios",MODE_PRIVATE).getString("device_name",null))){
                 getSharedPreferences("helios",MODE_PRIVATE).edit().putString("device_name",name).apply();
                 if(diagnostics!=null)diagnostics.accept("device_name",name);
@@ -273,12 +372,14 @@ public final class HeliosService extends Service {
             }
             if(lost&&onDeviceLost!=null)onDeviceLost.run();
             if(onDeviceChanged!=null)onDeviceChanged.accept(id);
-        }));
+            });}
+        });
         device.start();ha.start();
     }
     private void stopHa(){if(device!=null){device.stop();device=null;}if(ha!=null){ha.stop();ha=null;}deviceId=null;}
     private Telemetry telemetry(){
-        return new Telemetry(BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE,voiceState,dock.dockConnected(),dock.charging(),dock.ledOn(),dock.ledBrightness(),dock.padVersion(),volume.percent(),(SystemClock.elapsedRealtime()-startedAt)/1000);
+        MusicSession.Ui ui=session==null?MusicSession.Ui.NONE:session.ui();
+        return new Telemetry(BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE,voiceState,dock.dockConnected(),dock.charging(),dock.ledOn(),dock.ledBrightness(),dock.padVersion(),volume.percent(),(SystemClock.elapsedRealtime()-startedAt)/1000,ui==MusicSession.Ui.PLAYING?"playing":ui==MusicSession.Ui.PAUSED?"paused":"none");
     }
     /** Allowlisted hardware commands from HA; the caller already validated names and argument ranges. */
     private String execute(String command,JSONObject args) throws Exception {
@@ -287,6 +388,13 @@ public final class HeliosService extends Service {
             case "lamp.turn_off":if(dock.unavailable()!=null)return "dock_unavailable";dock.turnOff();return null;
             case "lamp.set_brightness":if(dock.unavailable()!=null)return "dock_unavailable";dock.setBrightness(args.getInt("level"));return null;
             case "audio.set_device_volume":volume.set(args.getInt("percent"));return null;
+            case "music.play":case "music.pause":case "music.stop":{ // Assist "wyłącz muzykę" through the HA media_player: the local transport, same path as the panel buttons
+                if(sendspin==null&&ma==null)return "no_music";
+                final String transport=command.substring("music.".length());
+                java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);final String[] error=new String[1];
+                main.post(()->musicCommand(transport,e->{error[0]=e;done.countDown();}));
+                if(!done.await(10,java.util.concurrent.TimeUnit.SECONDS))return "timeout";
+                return error[0]==null?null:error[0].replaceAll("[^A-Za-z0-9_]+","_").toLowerCase(java.util.Locale.ROOT);}
             default:return "unknown_command";
         }
     }
@@ -328,7 +436,7 @@ public final class HeliosService extends Service {
             }
             final boolean restartHa=haChanged,restartMa=maChanged;
             main.post(()->{
-                if(restartHa){stopHa();startHa();}
+                if(restartHa){resetAppearance();stopHa();startHa();}
                 if(restartMa){stopMusic();startMusic();}
                 done.accept(messages.isEmpty()?null:String.join("; ",messages));
             });

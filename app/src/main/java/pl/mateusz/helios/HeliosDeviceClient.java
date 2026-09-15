@@ -17,10 +17,12 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
     interface Listener {
         /** deviceId and areaId are null whenever the channel is not established; name is the HA device name (user rename included). */
         void onDevice(String deviceId,String areaId,String name);
+        /** Full appearance snapshot from the integration (after connected and after every save); raw JSON, validated by the service. */
+        default void onAppearance(JSONObject appearance){}
     }
     static final int PROTOCOL=1;
     static volatile long MIN_PUBLISH_INTERVAL_MS=100;
-    static final List<String> COMMANDS=Arrays.asList("lamp.turn_on","lamp.turn_off","lamp.set_brightness","audio.set_device_volume");
+    static final List<String> COMMANDS=Arrays.asList("lamp.turn_on","lamp.turn_off","lamp.set_brightness","audio.set_device_volume","music.play","music.pause","music.stop");
     private final HaDashboardClient ha;
     private final Supplier<Telemetry> telemetry;
     private final CommandHandler handler;
@@ -60,7 +62,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
         Telemetry now=telemetry.get();
         try{
             JSONObject payload=new JSONObject().put("type","helios/connect").put("protocol",PROTOCOL).put("installation_id",installationId)
-                .put("app_version",now.appVersion).put("version_code",now.versionCode).put("capabilities",new org.json.JSONArray(Arrays.asList("lamp","volume")));
+                .put("app_version",now.appVersion).put("version_code",now.versionCode).put("capabilities",new org.json.JSONArray(Arrays.asList("lamp","volume","music")));
             String code=pairingCode;if(code!=null)payload.put("pairing_code",code);
             ha.subscribe(payload,event->handle(gen,event),reason->ended(gen));
         }catch(Exception e){ended(gen);}
@@ -83,6 +85,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
                 if(listener!=null)listener.onDevice(deviceId,areaId,deviceName);
                 break;
             case "command":execute(gen,event);break;
+            case "appearance":{JSONObject a=event.optJSONObject("appearance");if(a!=null&&listener!=null)listener.onAppearance(a);break;}
             case "replaced":case "removed":ended(gen);break;
             default:break;
         }
@@ -116,7 +119,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
         JSONObject args=event.optJSONObject("args");if(args==null)args=new JSONObject();
         String invalid=validate(command,args);
         if(invalid!=null){result(gen,requestId,"error",invalid);return;}
-        String resource=command.startsWith("lamp.")?"lamp":"volume";
+        String resource=command.startsWith("lamp.")?"lamp":command.startsWith("music.")?"music":"volume";
         if(!busy.add(resource)){result(gen,requestId,"busy",resource);return;}
         final JSONObject finalArgs=args;
         worker.execute(()->{

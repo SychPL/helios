@@ -127,7 +127,7 @@ Wymiana `new Button(...)` na `Theme.button(...)`, tła na `Theme.card(...)`, kol
 
 ---
 
-## Etap B - tła i motyw per urządzenie (SPEC 0.8b), Helios 0.8.7 + ha-helios 0.7.5
+## Etap B - tła i motyw per urządzenie (SPEC 0.8b), Helios 0.8.7 + ha-helios 0.7.5 - KOD ZROBIONY, BRAMKA B0 I ODBIÓR B3 CZEKAJĄ NA UŻYTKOWNIKA (`artifacts/native-0.8.7-results.md`)
 
 ### B0 Bramka: options flow z FileSelector na HA 2026.8.3
 
@@ -175,6 +175,7 @@ Zaufane: HA i MA w LAN, dostęp tokenami zegara; snapshot `appearance` i metadan
 
 ## Changelog rund
 
+- Po zatwierdzeniu, poza planem (odbiór użytkownika 2026-09-15, zrealizowane w 0.8.7): komendy `music.play|pause|stop` z HA (media_player Heliosa: PLAY/PAUSE/STOP/TURN_OFF, allowlista po obu stronach, `music_state` w telemetrii), mignięcie lampki przy rozpoczęciu słuchania komendy, +20 pkt jasności ekranu na 15 s po dotknięciu.
 - Po zatwierdzeniu, w trakcie R3: użytkownik zmienił suwak głośności na suwak pozycji utworu (opis w R3). Fixture MA obsługuje `player_queues/seek` i ticki `progress` co 5 s.
 - Runda 5 (Codex, REJECT, 2×P2): R3 - snapshot nie nadpisuje suwaka podczas gestu ani oczekującej komendy (`pendingVolume`), reset tylko po błędzie/echu/10 s; H3 - zmiana URL natychmiast publikuje pustą okładkę przed pobraniem.
 - Runda 4 (Codex, REJECT, 3×P2): H2 - jeden nadawca `onState` (tylko wątek WS, `refreshState` synchronized, usunięte z `playback()`/`closeStream()`); R3 - błąd/timeout głośności trafia do `MusicSnapshot.issue`, nakładka resetuje suwak ze snapshotu, bez Toastów; R1 - offline bez `setAlpha(.55f)`, tekst `muted` przy pełnej alfie + dopisek „(offline)”, test kontrastu pokrywa `muted` nad zdjęciem.

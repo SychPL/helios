@@ -16,7 +16,9 @@ public final class DashboardView extends FrameLayout {
     public interface Actions { void onTap(DashboardSpec.Item item); }
     static final int WIDTH=800,HEIGHT=480,BAR=52,GAP=8;
     private final TextView brand,status;
-    private final ImageView connection;
+    private final ImageView connection,backdrop;
+    private final View dimLayer,bar;
+    private boolean photo;
     private final Typeface sans,mono;
     private final Paint monoPaint=new Paint(Paint.ANTI_ALIAS_FLAG),sansPaint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Map<String,Tile> tiles=new LinkedHashMap<>();
@@ -32,6 +34,9 @@ public final class DashboardView extends FrameLayout {
         super(context);
         sans=Typeface.createFromAsset(context.getAssets(),"Geist.ttf");mono=Typeface.createFromAsset(context.getAssets(),"GeistMono.ttf");
         monoPaint.setTypeface(mono);sansPaint.setTypeface(sans);
+        backdrop=new ImageView(context);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);backdrop.setVisibility(GONE);addView(backdrop,new LayoutParams(-1,-1));
+        dimLayer=new View(context);dimLayer.setBackgroundColor(0xFF000000);dimLayer.setVisibility(GONE);addView(dimLayer,new LayoutParams(-1,-1));
+        bar=new View(context);addView(bar);
         brand=text("HELIOS",sans);brand.setLetterSpacing(.18f);
         status=text("",sans);status.setMaxLines(1);status.setEllipsize(TextUtils.TruncateAt.END);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         connection=new ImageView(context);connection.setImageResource(R.drawable.ic_home_assistant);addView(connection);
@@ -39,10 +44,17 @@ public final class DashboardView extends FrameLayout {
         applyTheme();connected(false);
     }
     public MusicOverlay musicOverlay(){return overlay;}
+    /** Background photo already cropped to 800x480 (or null for the theme colour) with its black dim in percent; layout untouched (SPEC 0.8b pkt 6). */
+    public void setBackdrop(android.graphics.Bitmap bitmap,int dimPercent){
+        photo=bitmap!=null;
+        backdrop.setImageBitmap(bitmap);backdrop.setVisibility(photo?VISIBLE:GONE);
+        dimLayer.setAlpha(dimPercent/100f);dimLayer.setVisibility(photo?VISIBLE:GONE);
+        for(Tile tile:tiles.values())tile.theme();
+    }
     /** Recolours everything in place: no grid rebuild, no overlay geometry change (SPEC 0.8b pkt 6). */
     public void applyTheme(){
         Theme t=Theme.current();
-        setBackgroundColor(t.background);brand.setTextColor(t.muted);refreshStatus();connected(haConnected);
+        setBackgroundColor(t.background);bar.setBackgroundColor(t.background);brand.setTextColor(t.muted);refreshStatus();connected(haConnected);
         for(Tile tile:tiles.values())tile.theme();
         overlay.applyTheme();
     }
@@ -58,6 +70,7 @@ public final class DashboardView extends FrameLayout {
         if(measuredWidth==0)return;
         float s=Math.min(measuredWidth/(float)WIDTH,measuredHeight/(float)HEIGHT),ox=(measuredWidth-WIDTH*s)/2,oy=(measuredHeight-HEIGHT*s)/2;
         scale=s;
+        box(bar,0,0,WIDTH,BAR,s,ox,oy);
         box(brand,24,10,120,32,s,ox,oy);size(brand,17,s);
         box(status,150,10,560,32,s,ox,oy);size(status,16,s);
         box(connection,744,10,32,32,s,ox,oy);
@@ -133,9 +146,11 @@ public final class DashboardView extends FrameLayout {
             String name=item.entity.substring(item.entity.indexOf('.')+1).replace('_',' ');
             return name.substring(0,1).toUpperCase(new Locale("pl"))+name.substring(1);
         }
+        /** Over a photo: information tiles keep 92% of the surface colour, the clock a 70% black veil (SPEC 0.8b pkt 6); plain colour otherwise. */
+        private int surface(Theme t){return !photo?t.surface:clock?0xB3000000:(0xEB000000|(t.surface&0xFFFFFF));}
         void theme(){
             Theme t=Theme.current();
-            setBackground(Theme.card(t.surface,Theme.RADIUS*scale));
+            setBackground(Theme.card(surface(t),Theme.RADIUS*scale));
             title.setTextColor(t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
             value.setTextColor(live?t.text:t.muted);
             if(item.icon!=null)icon.set(item.icon,iconTint==0?t.muted:iconTint);
@@ -158,7 +173,7 @@ public final class DashboardView extends FrameLayout {
                 float fit=TextFit.size((text,size)->{sansPaint.setTextSize(size);return sansPaint.measureText(text);},value.getText().toString(),inner,24,28);
                 size(value,fit,s);size(detail,17,s);
             }
-            setBackground(Theme.card(Theme.current().surface,Theme.RADIUS*s));
+            setBackground(Theme.card(surface(Theme.current()),Theme.RADIUS*s));
             int spin=Math.round(28*s);LayoutParams sp=new LayoutParams(spin,spin,Gravity.TOP|Gravity.END);sp.topMargin=sp.rightMargin=Math.round(10*s);spinner.setLayoutParams(sp);
         }
         void clock(){value.setText(time);detail.setText(date);detail2.setText(weekday);setContentDescription(time+", "+weekday+", "+date);}

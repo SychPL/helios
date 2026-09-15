@@ -10,10 +10,12 @@ import java.util.function.LongSupplier;
 final class ArtworkLoader<T> {
     interface Fetcher {void fetch(String url,int generation);}
     static long RETRY_AFTER_MS=30_000;
-    private final Fetcher fetcher;private final Consumer<T> onResult;private final LongSupplier clock;
+    private final Fetcher fetcher;private final Consumer<T> onResult;private final LongSupplier clock;private final boolean clearOnChange;
     private int generation;private String currentUrl,failedUrl;private long failedAt;
 
-    ArtworkLoader(Fetcher fetcher,Consumer<T> onResult,LongSupplier clock){this.fetcher=fetcher;this.onResult=onResult;this.clock=clock;}
+    ArtworkLoader(Fetcher fetcher,Consumer<T> onResult,LongSupplier clock){this(fetcher,onResult,clock,true);}
+    /** clearOnChange=false keeps the last delivered value visible while the next one loads (backgrounds: never a flash of plain colour). */
+    ArtworkLoader(Fetcher fetcher,Consumer<T> onResult,LongSupplier clock,boolean clearOnChange){this.fetcher=fetcher;this.onResult=onResult;this.clock=clock;this.clearOnChange=clearOnChange;}
 
     /** New URL: publishes an empty cover at once (never the previous track's image next to the new title) and starts one fetch. */
     synchronized void request(String url){
@@ -21,7 +23,7 @@ final class ArtworkLoader<T> {
         if(url.equals(currentUrl))return;
         if(url.equals(failedUrl)&&clock.getAsLong()-failedAt<RETRY_AFTER_MS)return;
         currentUrl=url;failedUrl=null;int gen=++generation;
-        onResult.accept(null);fetcher.fetch(url,gen);
+        if(clearOnChange)onResult.accept(null);fetcher.fetch(url,gen);
     }
     /** Session ended, stop, disconnect or explicit null: nothing in flight is valid any more; the same URL fetches again later. */
     synchronized void clear(){generation++;currentUrl=null;failedUrl=null;onResult.accept(null);}

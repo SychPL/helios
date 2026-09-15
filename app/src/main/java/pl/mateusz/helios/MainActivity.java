@@ -26,7 +26,20 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class MainActivity extends Activity implements AssistClient.Listener {
+    static{System.setProperty("http.keepAlive","false");} // before the first HTTP request in the process: OkHttp reads it once when its pool is created
     private final Handler main=new Handler(Looper.getMainLooper());
+    /** A touch lifts the screen brightness by 20 points for 15 s (dark room: the panel is hard to read at the night level); dialogs inherit the boost from the tap that opened them. */
+    private final Runnable unboost=()->{WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;getWindow().setAttributes(p);};
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){
+        if(event.getAction()==android.view.MotionEvent.ACTION_DOWN)boostBrightness();
+        return super.dispatchTouchEvent(event);
+    }
+    private void boostBrightness(){
+        float base;
+        try{base=android.provider.Settings.System.getInt(getContentResolver(),android.provider.Settings.System.SCREEN_BRIGHTNESS)/255f;}catch(Exception e){base=.5f;}
+        WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=Math.min(1f,base+.2f);getWindow().setAttributes(p);
+        main.removeCallbacks(unboost);main.postDelayed(unboost,15_000);
+    }
     private final ExecutorService network=Executors.newSingleThreadExecutor();
     private final ExecutorService diagnostics=Executors.newSingleThreadExecutor();
     private final ExecutorService audio=Executors.newSingleThreadExecutor();
@@ -50,6 +63,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             service=((HeliosService.Local)binder).service();
             service.setOnDeviceLost(()->{if(voice!=null)voice.cancelFollowUp();});
             service.setDiagnostics(MainActivity.this::onEvent);
+            service.setAppearanceListener((appearance,background)->{dashboard.setBackdrop(background,appearance.image?appearance.dim:0);dashboard.applyTheme();});
             service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage("Sparowano z HA");main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
             if(pendingProvision!=null){JSONObject received=pendingProvision;pendingProvision=null;applyProvisioning(received);}
             service.setMusicListener(snapshot->{

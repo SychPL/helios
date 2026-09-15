@@ -11,8 +11,8 @@ android {
         applicationId 'pl.mateusz.helios'
         minSdk 29
         targetSdk 29
-        versionCode 15
-        versionName '0.8.6'
+        versionCode 16
+        versionName '0.8.7'
         buildConfigField 'String', 'PROVISION_URL', groovy.json.JsonOutput.toJson(provisionUrl)
     }
     buildFeatures { buildConfig true }

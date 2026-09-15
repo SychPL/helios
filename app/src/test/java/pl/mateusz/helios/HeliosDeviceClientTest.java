@@ -13,15 +13,19 @@ public class HeliosDeviceClientTest {
     private final AtomicReference<Telemetry> telemetry=new AtomicReference<>(snapshot(40));
     private final BlockingQueue<String> executed=new LinkedBlockingQueue<>();
     private final BlockingQueue<String> devices=new LinkedBlockingQueue<>();
+    private final BlockingQueue<String> appearances=new LinkedBlockingQueue<>();
     private volatile CountDownLatch hold;
-    private static Telemetry snapshot(int volume){return new Telemetry("0.7.0",8,"idle",true,null,false,null,"22.127",volume,5);}
+    private static Telemetry snapshot(int volume){return new Telemetry("0.7.0",8,"idle",true,null,false,null,"22.127",volume,5,"none");}
     private HeliosDeviceClient client() throws Exception {
         server=new HaDashboardClientTest.Server();server.start();assertTrue(server.ready.await(5,TimeUnit.SECONDS));
         ha=new HaDashboardClient(new JSONObject().put("url","http://127.0.0.1:"+server.getPort()).put("token","t"),null);
         HeliosDeviceClient client=new HeliosDeviceClient(ha,"install-1",telemetry::get,(command,args)->{
             CountDownLatch latch=hold;if(latch!=null)latch.await(5,TimeUnit.SECONDS);
             executed.add(command+":"+args);return command.equals("lamp.turn_off")?"oem_failure":null;
-        },(deviceId,areaId,name)->devices.add(deviceId+"/"+areaId));
+        },new HeliosDeviceClient.Listener(){
+            public void onDevice(String deviceId,String areaId,String name){devices.add(deviceId+"/"+areaId);}
+            public void onAppearance(JSONObject a){appearances.add(a.toString());}
+        });
         client.start();ha.start();return client;
     }
     private JSONObject device(String type) throws Exception {
@@ -40,7 +44,7 @@ public class HeliosDeviceClientTest {
         try{
             JSONObject connect=server.connects.poll(5,TimeUnit.SECONDS);
             assertEquals("install-1",connect.getString("installation_id"));assertEquals(1,connect.getInt("protocol"));assertEquals("0.7.0",connect.getString("app_version"));
-            assertEquals("[\"lamp\",\"volume\"]",connect.getJSONArray("capabilities").toString());assertFalse(connect.has("pairing_code"));
+            assertEquals("[\"lamp\",\"volume\",\"music\"]",connect.getJSONArray("capabilities").toString());assertFalse(connect.has("pairing_code"));
             assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));assertEquals("dev1",client.deviceId());
             JSONObject state=device("helios/state").getJSONObject("state");
             assertEquals(40,state.getInt("volume_percent"));assertTrue(state.isNull("charging"));assertFalse(state.getBoolean("led_on"));assertEquals(5,state.getLong("uptime_seconds"));
@@ -107,6 +111,20 @@ public class HeliosDeviceClientTest {
             server.client.close(1001,"drop");assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
             JSONObject again=server.connects.poll(7,TimeUnit.SECONDS);assertFalse(again.has("pairing_code"));
         }finally{HeliosDeviceClient.MIN_PUBLISH_INTERVAL_MS=previous;client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void appearanceSnapshotsReachTheListenerAndUnknownEventsAreIgnored() throws Exception {
+        HeliosDeviceClient client=client();
+        try{
+            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));
+            server.sendEvent(server.connectId,new JSONObject().put("type","weird").put("command","lamp.turn_on"));
+            server.sendEvent(server.connectId,new JSONObject().put("type","appearance").put("appearance",new JSONObject().put("version",1).put("theme","night_blue").put("background",new JSONObject().put("type","solid"))));
+            String a=appearances.poll(5,TimeUnit.SECONDS);assertNotNull(a);assertTrue(a,a.contains("night_blue"));
+            assertTrue(client.active());assertNull(executed.poll(300,TimeUnit.MILLISECONDS));
+        }finally{client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void musicCommandsAreAllowlistedWithoutArguments(){
+        assertNull(HeliosDeviceClient.validate("music.stop",new JSONObject()));assertNull(HeliosDeviceClient.validate("music.pause",new JSONObject()));assertNull(HeliosDeviceClient.validate("music.play",new JSONObject()));
+        assertEquals("unknown_command",HeliosDeviceClient.validate("music.seek",new JSONObject()));
     }
     @Test public void lampAndVolumeMath(){
         assertEquals(1,LampMath.brightnessToLevel(1));assertEquals(10,LampMath.brightnessToLevel(255));assertEquals(5,LampMath.brightnessToLevel(128));assertEquals(1,LampMath.brightnessToLevel(13));
