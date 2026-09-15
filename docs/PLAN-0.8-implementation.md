@@ -21,7 +21,7 @@ Globalne ograniczenia: żadnych zmian schematu Lovelace (2/3 bez zmian), allowli
 
 ---
 
-## Etap H - hotfix 0.8.5 (SPEC 0.8a pkt 2, 4.3, 5)
+## Etap H - hotfix 0.8.5 (SPEC 0.8a pkt 2, 4.3, 5) - ZROBIONE (`artifacts/native-0.8.5-results.md`)
 
 ### H1 Scalanie delt metadanych
 

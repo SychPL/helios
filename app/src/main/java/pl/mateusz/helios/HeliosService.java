@@ -192,6 +192,7 @@ public final class HeliosService extends Service {
                 }
             }catch(Exception ignored){}
             finally{if(c!=null)c.disconnect();}
+            if(diagnostics!=null)diagnostics.accept("cover",result==null?"failed "+target:result.getWidth()+"x"+result.getHeight());
             artworkLoader.deliver(generation,result);
         });
     }

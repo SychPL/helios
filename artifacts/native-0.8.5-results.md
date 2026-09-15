@@ -1,0 +1,13 @@
+# Helios 0.8.5 - hotfix muzyki (SPEC 0.8a pkt 2, 4.3, 5; plan etap H)
+
+- Baza: 0.8.4 (`48eecff`). Plan: docs/PLAN-0.8-implementation.md (H1-H4), zatwierdzony przez Codex po 6 rundach.
+- H1 `SendspinClient.MetadataState`: kontrakt delt aiosendspin - klucz nieobecny zachowuje wartość, JSON `null` czyści, `progress` zastępowany w całości albo czyszczony (-1); reset przy `server/hello` i końcu sesji WS.
+- H2 sesja UI oddzielona od bufora: `sessionActive` zaczyna się od pierwszej ramki audio po `stream/start` i kończy tylko przez `playback_state` stopped/idle, rozłączenie albo `stop()`; `stream/end` i drain nie dotykają stanu; `refreshState()` jest jedynym nadawcą `onState` (wątek WS, synchronized), usunięte z wątku audio. Sam `paused`/`playing` bez lokalnego audio nie tworzy sesji (także po restarcie).
+- H3 `ArtworkLoader<T>` (czysta klasa): jedno pobranie na URL i sesję, zmiana URL od razu publikuje pustą okładkę, spóźnione wyniki po `clear()`/nowszym żądaniu odrzucane, ten sam URL w nowej sesji pobierany ponownie, nieudane pobranie ponawiane po 30 s. `clear()` przy `NONE`, rozłączeniu Sendspin, `stopMusic` i pustym `artwork_url`.
+- H4 dekodowanie raz: `HeliosService.decodeCover` na wątku sieciowym (`inSampleSize` do ≤ 320 px), `MusicSnapshot.artwork` to `Bitmap`, `MusicOverlay` tylko podmienia referencję. Rola `artwork@v1` nadal nieogłaszana; binarne ramki okładki ignorowane. Nowe zdarzenie diagnostyczne `cover` (wymiary albo `failed <url>`, bez sekretów).
+- Build, lint (0 błędów) i 43 testy JVM: PASS (nowe: `ArtworkLoaderTest` ×4, `SendspinClientTest`: delty absent/null/value/progress i reconnect od pustego stanu; obie kolejności stream-end/pauza, brak sesji z samego paused/playing, stop kończy sesję).
+- Emulator 800x480 (fixture `--v3`, `.local/ui-music-fixture.py` z kontrolą HTTP 8098 i okładką PNG serwowaną z hosta MA): play → uchwyt, otwarcie → okładka i tytuł; delta samego postępu → tytuł i okładka zostają; następny utwór tylko z tytułem → wspólna okładka zostaje; `stream/end` bez pauzy → panel dalej otwarty (bez NONE); pauza → "Pauza" z otwartym panelem; `artwork_url: null` → płytka pusta; nowy URL → nowa okładka; stopped → panel i uchwyt znikają; sam paused po stopie → nic. Weryfikacja próbkami pikseli zrzutów `.local/shots-085/*.png`.
+- Nie sprawdzono na zegarze: dźwięk z prawdziwego MA po hotfixie, pauza z MA i z zegara, zmiana utworu z prawdziwymi okładkami `imageproxy` (rozmiary większe niż 320 px → `inSampleSize`), RAM po 20 zmianach okładki. Instalacja na zegarze wymaga okna poza graniem (SPEC 0.8a pkt 7).
+
+APK serwowany przez most (port 8757, ścieżka `/helios.apk`) bezpośrednio z `app/build/outputs/apk/debug/app-debug.apk`.
+SHA256: 12a2098afb9db7ce7fda4e57aed5bb7e47039ab12cd802cc6d66c20458d6d875
