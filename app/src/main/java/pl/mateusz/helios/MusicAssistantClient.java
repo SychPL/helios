@@ -34,6 +34,27 @@ final class MusicAssistantClient {
     }
 
     MusicAssistantClient(String url,String token,Listener listener){this.url=url;this.token=token;this.listener=listener;}
+    /** http(s)://host:8095 -> ws(s)://host:8095/ws */
+    static String wsUrl(String base){String b=base.replaceAll("/+$","");return b.replaceFirst("^http","ws")+"/ws";}
+    /** Authenticates once on a temporary socket; null on success, otherwise an error text without the token. */
+    static String probe(String base,String token){
+        MusicAssistantClient[] holder=new MusicAssistantClient[1];
+        BlockingQueue<String> outcome=new LinkedBlockingQueue<>();
+        try{
+            String ws=wsUrl(base);
+            if(!ws.startsWith("ws://")&&!ws.startsWith("wss://"))return "Adres MA musi zaczynać się od http:// lub https://";
+            if(token==null||token.trim().isEmpty())return "Pusty token MA";
+            holder[0]=new MusicAssistantClient(ws,token,new Listener(){
+                public void onConnection(boolean connected,String detail){outcome.offer(connected?"":detail);}
+                public void onPlayerUpdated(JSONObject player){}
+            });
+            holder[0].start();
+            String result=outcome.poll(12,TimeUnit.SECONDS);
+            if(result==null)return "Music Assistant nie odpowiada";
+            return result.isEmpty()?null:result;
+        }catch(InterruptedException e){Thread.currentThread().interrupt();return "Przerwano";}
+        finally{if(holder[0]!=null)holder[0].stop();}
+    }
     void start(){worker=new Thread(this::loop,"helios-ma");worker.start();}
     void stop(){stopped=true;Socket s=socket;if(s!=null)s.close();if(worker!=null)worker.interrupt();}
     boolean connected(){return authenticated;}

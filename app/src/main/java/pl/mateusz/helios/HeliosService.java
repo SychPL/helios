@@ -8,6 +8,8 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.media.AudioManager;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Map;
 import java.util.UUID;
@@ -30,6 +32,27 @@ public final class HeliosService extends Service {
     private DockController dock;
     private DeviceVolume volume;
     private volatile String voiceState="idle",deviceId;
+    // --- music (0.6) ---
+    interface MusicListener {void onMusic(MusicSnapshot snapshot);}
+    static final class MusicSnapshot {
+        final MusicSession.Ui ui;final String title,artist,album,remoteInfo,issue;final byte[] artwork;final int volume;final boolean muted,maConnected,localConnected;final java.util.List<String> commands;
+        MusicSnapshot(MusicSession.Ui ui,String title,String artist,String album,byte[] artwork,int volume,boolean muted,java.util.List<String> commands,boolean maConnected,boolean localConnected,String remoteInfo,String issue){
+            this.ui=ui;this.title=title;this.artist=artist;this.album=album;this.artwork=artwork;this.volume=volume;this.muted=muted;this.commands=commands;this.maConnected=maConnected;this.localConnected=localConnected;this.remoteInfo=remoteInfo;this.issue=issue;
+        }
+    }
+    private MusicAssistantClient ma;
+    private SendspinClient sendspin;
+    private AudioTrackSink sink;
+    private MusicSession session;
+    private AudioManager audioManager;
+    private final AudioManager.OnAudioFocusChangeListener musicFocus=change->main.post(()->{if(session!=null){session.onFocusChange(change);publishMusic();}});
+    private boolean musicFocusHeld;
+    private String musicTitle,musicArtist,musicAlbum,remoteInfo,musicIssue,lenovoPlayerId,playerName="Helios";
+    private byte[] musicArtwork;
+    private int musicVolume=100;private boolean musicMuted,maConnected,localConnected;
+    private java.util.List<String> musicCommands=java.util.Collections.emptyList();
+    private MusicListener musicListener;
+    private final RecentPlays recent=new RecentPlays();
     private Runnable onDeviceLost;
     private Consumer<String> onDeviceChanged;
     private final HaDashboardClient.Listener cache=new HaDashboardClient.Listener(){
@@ -50,13 +73,16 @@ public final class HeliosService extends Service {
         if(installationId==null){installationId=UUID.randomUUID().toString();getSharedPreferences("helios",MODE_PRIVATE).edit().putString("installation_id",installationId).apply();}
         dock=new DockController(this,this::publish);dock.start();
         volume=new DeviceVolume(this,v->publish());volume.start();
+        audioManager=(AudioManager)getSystemService(Context.AUDIO_SERVICE);
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
         if(saved!=null)try{connection=new JSONObject(saved);}catch(Exception ignored){}
-        if(connection!=null)startHa();
+        RecentPlays stored=RecentPlays.parse(getSharedPreferences("helios",MODE_PRIVATE).getString("music_recent",null));
+        for(int i=stored.entries().size()-1;i>=0;i--)recent.add(stored.entries().get(i));
+        if(connection!=null){startHa();startMusic();}
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){return START_STICKY;}
     @Override public IBinder onBind(Intent intent){return binder;}
-    @Override public void onDestroy(){stopHa();dock.stop();volume.stop();network.shutdownNow();super.onDestroy();}
+    @Override public void onDestroy(){stopHa();stopMusic();dock.stop();volume.stop();network.shutdownNow();super.onDestroy();}
 
     JSONObject connection(){return connection;}
     HaDashboardClient ha(){return ha;}
@@ -71,6 +97,98 @@ public final class HeliosService extends Service {
     void setOnDeviceLost(Runnable action){onDeviceLost=action;}
     void setOnDeviceChanged(Consumer<String> action){onDeviceChanged=action;}
     void publish(){if(device!=null)device.publish();}
+    /** Our own conversation finished: the sink may resume only if the system grants focus again. */
+    void onVoiceReady(){if(session!=null){session.onVoiceReady(this::requestMusicFocus);publishMusic();}}
+
+    // --- music ---
+    boolean musicConfigured(){return connection!=null&&connection.optJSONObject("music_assistant")!=null;}
+    void setMusicListener(MusicListener listener){musicListener=listener;if(listener!=null)listener.onMusic(musicSnapshot());}
+    MusicSnapshot musicSnapshot(){
+        return new MusicSnapshot(session==null?MusicSession.Ui.NONE:session.ui(),musicTitle,musicArtist,musicAlbum,musicArtwork,musicVolume,musicMuted,musicCommands,maConnected,localConnected,remoteInfo,musicIssue);
+    }
+    MusicAssistantClient ma(){return ma;}
+    String lenovoPlayerId(){return lenovoPlayerId;}
+    RecentPlays recent(){return recent;}
+    void rememberPlay(RecentPlays.Entry entry){recent.add(entry);getSharedPreferences("helios",MODE_PRIVATE).edit().putString("music_recent",recent.serialize()).apply();}
+    private void publishMusic(){if(musicListener!=null)musicListener.onMusic(musicSnapshot());}
+    private boolean requestMusicFocus(){
+        int result=audioManager.requestAudioFocus(musicFocus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN);
+        musicFocusHeld=result==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;return musicFocusHeld;
+    }
+    private void abandonMusicFocus(){if(musicFocusHeld){audioManager.abandonAudioFocus(musicFocus);musicFocusHeld=false;}}
+    /** Local overlay controls. Transport commands go over Sendspin when the server advertises them, else through the MA API; volume always through the MA API to this player. */
+    void musicCommand(String command,Consumer<String> done){
+        if(command.equals("play")&&session!=null&&!session.onUserPlay(this::requestMusicFocus)){done.accept("Głośnik jest zajęty przez inną aplikację");return;}
+        if(sendspin!=null&&sendspin.command(command)){done.accept(null);return;}
+        if(ma==null||lenovoPlayerId==null){done.accept("Brak połączenia z Music Assistant");return;}
+        ma.playerCommand(lenovoPlayerId,command,r->main.post(()->done.accept(null)),e->main.post(()->done.accept(e)));
+    }
+    void musicVolume(int level,Consumer<String> done){
+        if(ma==null||lenovoPlayerId==null){done.accept("Brak połączenia z Music Assistant");return;}
+        ma.volume(lenovoPlayerId,level,r->main.post(()->done.accept(null)),e->main.post(()->done.accept(e)));
+    }
+    void musicMute(boolean muted,Consumer<String> done){
+        if(ma==null||lenovoPlayerId==null){if(sink!=null){sink.setMuted(muted);musicMuted=muted;publishMusic();done.accept(null);}else done.accept("Brak odtwarzacza");return;}
+        ma.mute(lenovoPlayerId,muted,r->main.post(()->done.accept(null)),e->main.post(()->done.accept(e)));
+    }
+    private void startMusic(){
+        JSONObject music=connection.optJSONObject("music_assistant");
+        if(music==null)return;
+        playerName=music.optString("player_name","Helios");
+        String clientId=getSharedPreferences("helios",MODE_PRIVATE).getString("sendspin_client_id",null);
+        if(clientId==null){clientId=UUID.randomUUID().toString();getSharedPreferences("helios",MODE_PRIVATE).edit().putString("sendspin_client_id",clientId).apply();}
+        sink=new AudioTrackSink();
+        session=new MusicSession(new MusicSession.Sink(){
+            public void pause(){sink.pause();}
+            public void resume(){sink.resume();}
+            public void duck(boolean on){sink.setGain(on?musicVolume/100f*0.2f:musicVolume/100f);}
+        },()->sendspin!=null&&sendspin.command("pause"));
+        String sendspinUrl=music.optString("sendspin_url","");
+        if(!sendspinUrl.isEmpty()){
+            sendspin=new SendspinClient(sendspinUrl,clientId,playerName,BuildConfig.VERSION_NAME,sink,new SendspinClient.Listener(){
+                public void onState(SendspinClient.State state){main.post(()->{
+                    if(session==null)return;
+                    MusicSession.Ui before=session.ui();session.onTransport(state);
+                    if(state!=SendspinClient.State.NONE&&before==MusicSession.Ui.NONE)requestMusicFocus();
+                    if(state==SendspinClient.State.NONE){abandonMusicFocus();musicArtwork=null;}
+                    publishMusic();
+                });}
+                public void onMetadata(SendspinClient.Metadata m){main.post(()->{musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;publishMusic();});}
+                public void onController(java.util.List<String> commands,Integer groupVolume,Boolean groupMuted){main.post(()->{musicCommands=commands;publishMusic();});}
+                public void onArtwork(byte[] jpeg){main.post(()->{musicArtwork=jpeg;publishMusic();});}
+                public void onPlayer(int volume,boolean muted){main.post(()->{musicVolume=volume;musicMuted=muted;publishMusic();});}
+                public void onConnection(boolean connected,String detail){main.post(()->{localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;publishMusic();});}
+            });
+            sendspin.start();
+        }
+        ma=new MusicAssistantClient(MusicAssistantClient.wsUrl(music.optString("url","")),music.optString("token",""),new MusicAssistantClient.Listener(){
+            public void onConnection(boolean connected,String detail){main.post(()->{maConnected=connected;if(connected)findLenovo();publishMusic();});}
+            public void onPlayerUpdated(JSONObject player){main.post(()->trackPlayer(player));}
+        });
+        ma.start();
+    }
+    private void stopMusic(){
+        if(sendspin!=null){sendspin.stop();sendspin=null;}
+        if(ma!=null){ma.stop();ma=null;}
+        if(sink!=null){sink.stop();sink=null;}
+        abandonMusicFocus();session=null;lenovoPlayerId=null;maConnected=false;localConnected=false;remoteInfo=null;musicArtwork=null;musicTitle=null;musicArtist=null;musicAlbum=null;
+        publishMusic();
+    }
+    private void findLenovo(){
+        if(ma==null)return;
+        ma.players(players->main.post(()->{for(int i=0;i<players.length();i++)trackPlayer(players.optJSONObject(i));}),e->{});
+    }
+    /** Lenovo is the sendspin player carrying our name; any other playing player feeds the music tile's "remote" line. */
+    private void trackPlayer(JSONObject player){
+        if(player==null)return;
+        boolean lenovo="sendspin".equals(player.optString("provider"))&&playerName.equals(player.optString("name"));
+        if(lenovo)lenovoPlayerId=player.optString("player_id",lenovoPlayerId);
+        else if("playing".equals(player.optString("playback_state"))&&!player.optBoolean("hide_in_ui",false)){
+            JSONObject media=player.optJSONObject("current_media");
+            remoteInfo=player.optString("name","")+(media==null||media.isNull("title")?"":" · "+media.optString("title",""));
+        }else if(remoteInfo!=null&&remoteInfo.startsWith(player.optString("name","\u0000")))remoteInfo=null;
+        publishMusic();
+    }
 
     private void startHa(){
         String cached=getSharedPreferences("helios",MODE_PRIVATE).getString("dashboard_v2",null);
@@ -105,22 +223,44 @@ public final class HeliosService extends Service {
      */
     void reconfigure(JSONObject received,Consumer<String> done){
         network.execute(()->{
-            String error=null;
+            java.util.List<String> messages=new java.util.ArrayList<>();
+            JSONObject merged=copy(connection);
+            boolean haChanged=false,maChanged=false;
+            // HA section: verified only when it changed; failure keeps the previous HA data.
             try{
-                if(received.getString("token").isEmpty()||received.getString("pipeline").isEmpty())throw new IllegalArgumentException("Niepełne parowanie");
-                boolean haChanged=connection==null||!sameHa(connection,received);
-                if(haChanged)error=HaDashboardClient.probe(received);
-                if(error==null){
-                    JSONObject merged=connection==null?new JSONObject(received.toString()):new JSONObject(connection.toString());
-                    for(String key:new String[]{"url","token","pipeline","dashboard_path","diagnostics_url"})if(received.has(key))merged.put(key,received.get(key));else merged.remove(key);
-                    getSharedPreferences("helios",MODE_PRIVATE).edit().putString("connection",merged.toString()).apply();
-                    connection=merged;
-                    if(haChanged)main.post(()->{stopHa();startHa();});
+                if(received.optString("token").isEmpty()||received.optString("pipeline").isEmpty())throw new IllegalArgumentException("Niepełne parowanie HA");
+                haChanged=connection==null||!sameHa(connection,received);
+                String error=haChanged?HaDashboardClient.probe(received):null;
+                if(error!=null){messages.add("HA: "+error);haChanged=false;}
+                else{for(String key:new String[]{"url","token","pipeline","dashboard_path","diagnostics_url"})if(received.has(key))merged.put(key,received.get(key));else merged.remove(key);}
+            }catch(Exception e){messages.add("HA: "+(e.getMessage()==null?"błąd konfiguracji":e.getMessage()));haChanged=false;}
+            // MA section: absent means unchanged (never a removal); verified independently of HA.
+            JSONObject music=received.optJSONObject("music_assistant");
+            if(music!=null){
+                JSONObject current=connection==null?null:connection.optJSONObject("music_assistant");
+                maChanged=current==null||!current.toString().equals(music.toString());
+                if(maChanged){
+                    String error=null;
+                    String sendspinUrl=music.optString("sendspin_url","");
+                    if(!sendspinUrl.isEmpty()&&!sendspinUrl.startsWith("ws://")&&!sendspinUrl.startsWith("wss://"))error="Adres Sendspin musi zaczynać się od ws:// lub wss://";
+                    if(error==null)error=MusicAssistantClient.probe(music.optString("url",""),music.optString("token",""));
+                    if(error!=null){messages.add("MA: "+error);maChanged=false;}
+                    else try{merged.put("music_assistant",new JSONObject(music.toString()));}catch(Exception ignored){}
                 }
-            }catch(Exception e){error=e.getMessage()==null?"Błąd konfiguracji":e.getMessage();}
-            final String result=error;main.post(()->done.accept(result));
+            }
+            if(merged.has("url")&&(haChanged||maChanged||connection==null)){
+                getSharedPreferences("helios",MODE_PRIVATE).edit().putString("connection",merged.toString()).apply();
+                connection=merged;
+            }
+            final boolean restartHa=haChanged,restartMa=maChanged;
+            main.post(()->{
+                if(restartHa){stopHa();startHa();}
+                if(restartMa){stopMusic();startMusic();}
+                done.accept(messages.isEmpty()?null:String.join("; ",messages));
+            });
         });
     }
+    private static JSONObject copy(JSONObject source){try{return source==null?new JSONObject():new JSONObject(source.toString());}catch(Exception e){return new JSONObject();}}
     static boolean sameHa(JSONObject a,JSONObject b){
         for(String key:new String[]{"url","token","pipeline","dashboard_path"})if(!a.optString(key,"").equals(b.optString(key,"")))return false;
         return true;

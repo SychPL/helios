@@ -51,9 +51,19 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             service.setOnDeviceLost(()->{if(voice!=null)voice.cancelFollowUp();});
             service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage("Sparowano z HA");main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
             if(pendingProvision!=null){JSONObject received=pendingProvision;pendingProvision=null;applyProvisioning(received);}
+            service.setMusicListener(snapshot->{
+                dashboard.musicInfo(snapshot.remoteInfo);
+                if(library!=null&&library.isShowing())dashboard.musicOverlay().closePanel();
+                dashboard.musicOverlay().setSnapshot(snapshot);
+            });
+            dashboard.musicOverlay().setActions(new MusicOverlay.Actions(){
+                public void command(String command){service.musicCommand(command,error->{if(error!=null)Toast.makeText(MainActivity.this,error,Toast.LENGTH_SHORT).show();});}
+                public void volume(int level){service.musicVolume(level,error->{if(error!=null)Toast.makeText(MainActivity.this,error,Toast.LENGTH_SHORT).show();});}
+                public void mute(boolean muted){service.musicMute(muted,error->{if(error!=null)Toast.makeText(MainActivity.this,error,Toast.LENGTH_SHORT).show();});}
+            });
             if(resumed)attachHa();
         }
-        @Override public void onServiceDisconnected(ComponentName name){service=null;attachedTo=null;}
+        @Override public void onServiceDisconnected(ComponentName name){if(service!=null)service.setMusicListener(null);service=null;attachedTo=null;}
     };
     private final HaDashboardClient.Listener haListener=new HaDashboardClient.Listener(){
         private void update(Runnable action){final int generation=attachGeneration;main.post(()->{if(resumed&&attachedTo!=null&&generation==attachGeneration)action.run();});}
@@ -71,6 +81,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         @Override public void onUnavailable(String reason){update(()->{live=false;connectionIssue=reason;dashboard.connected(false);closePanel();renderDashboard();});}
     };
     private Dialog panel;
+    private MusicLibraryDialog library;
     private TextView panelTitle;
     private DashboardSpec.Item panelItem;
     private AssistClient voice;
@@ -107,7 +118,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()));}
     @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
-    @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
+    @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
         if(config==null){connect();return;}
         if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
@@ -184,7 +195,11 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             default:break;
         }
     }
-    private void openMusicLibrary(){Toast.makeText(this,"Biblioteka muzyki: w przygotowaniu",Toast.LENGTH_SHORT).show();}
+    private void openMusicLibrary(){
+        if(service==null||!service.musicConfigured()){Toast.makeText(this,"Music Assistant nie jest skonfigurowany (Odśwież parowanie)",Toast.LENGTH_LONG).show();return;}
+        closePanel();dashboard.musicOverlay().closePanel();
+        library=new MusicLibraryDialog(this,service);library.show();
+    }
     private String dashboardLabel(DashboardSpec.Item item){return item.title!=null?item.title:item.entity;}
     /** Confirmation is only ever a gate; cancel, outside touch and connection loss all close it without sending. */
     private void confirm(DashboardSpec.Item item,String fallbackText,Runnable action){
@@ -362,6 +377,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             if(event.equals("microphone_started")){recording=true;}
             if(event.equals("microphone_released")){recording=false;}
             String state=voiceState(event);if(state!=null&&service!=null)service.setVoiceState(state);
+            if(event.equals("ready")&&service!=null)service.onVoiceReady();
         });
         try{
             JSONObject row=new JSONObject().put("time_ms",System.currentTimeMillis()).put("event",event).put("detail",detail);

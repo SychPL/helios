@@ -20,6 +20,7 @@ public final class DashboardView extends FrameLayout {
     private final ImageView connection;
     private final Typeface sans,mono;
     private final Map<String,Tile> tiles=new LinkedHashMap<>();
+    private final MusicOverlay overlay;
     private DashboardSpec spec;
     private Actions actions;
     private String issue,message="",time="--:--",date="",musicInfo="—";
@@ -31,7 +32,9 @@ public final class DashboardView extends FrameLayout {
         brand=text("HELIOS",MUTED,sans);brand.setLetterSpacing(.18f);
         status=text("",MUTED,sans);status.setMaxLines(1);status.setEllipsize(TextUtils.TruncateAt.END);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         connection=new ImageView(context);connection.setImageResource(R.drawable.ic_home_assistant);addView(connection);connected(false);
+        overlay=new MusicOverlay(context,sans);addView(overlay);
     }
+    public MusicOverlay musicOverlay(){return overlay;}
     private TextView text(String value,int color,Typeface face){TextView t=new TextView(getContext());t.setText(value);t.setTextColor(color);t.setTypeface(face);t.setGravity(Gravity.CENTER_VERTICAL);t.setIncludeFontPadding(false);addView(t);return t;}
     private static void box(View v,float x,float y,float w,float h,float s,float ox,float oy){LayoutParams p=new LayoutParams(Math.round(w*s),Math.round(h*s));p.leftMargin=Math.round(ox+x*s);p.topMargin=Math.round(oy+y*s);v.setLayoutParams(p);}
     private static void size(TextView v,float px,float s){v.setTextSize(TypedValue.COMPLEX_UNIT_PX,px*s);}
@@ -52,13 +55,14 @@ public final class DashboardView extends FrameLayout {
             box(tile,GAP+(i.column-1)*(cellW+GAP),BAR+GAP+(i.row-1)*(cellH+GAP),cellW*i.width+GAP*(i.width-1),cellH*i.height+GAP*(i.height-1),s,ox,oy);
             tile.scale(s);
         }
+        overlay.arrange(s,ox,oy);
     }
 
     public void setSpec(DashboardSpec spec,Actions actions){
         this.spec=spec;this.actions=actions;
         for(Tile t:tiles.values())removeView(t);tiles.clear();
-        for(DashboardSpec.Item item:spec.items){Tile t=new Tile(item);tiles.put(item.id,t);addView(t);}
-        arrange();
+        for(DashboardSpec.Item item:spec.items){Tile t=new Tile(item);tiles.put(item.id,t);addView(t,indexOfChild(overlay));}
+        overlay.bringToFront();arrange();
     }
     /** Text shown on the music tile: remote player and title while a remote player plays, otherwise a dash. */
     public void musicInfo(String text){musicInfo=text==null||text.isEmpty()?"—":text;for(Tile t:tiles.values())if(t.item.type.equals("music"))t.render(Collections.emptyMap(),true);}
