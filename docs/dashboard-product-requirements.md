@@ -19,6 +19,10 @@ Równoległy etap: [SPEC 0.7 — urządzenie Helios w Home Assistant](SPEC-0.7-h
 
 ## Zaakceptowane wymagania
 
+### Sypialnia i pogoda wieczorna — projekt kolejnego przyrostu
+
+[SPEC 0.9 — rolety, światło i pogoda na jutro](SPEC-0.9-bedroom-dashboard.md) opisuje stały kafelek otwierający osobne sterowanie dwiema roletami sypialni, światło widoczne po zmroku lub przy zamkniętej rolecie oraz wieczorną prognozę na jutro w istniejącym polu pogody. Projekt przyjmuje próg 18:00 dla prognozy i zamknięcie co najmniej jednej rolety dla światła; te doprecyzowania podlegają recenzji. Dolny rząd powiadomień pozostaje bez zmian. Dokument nie oznacza implementacji ani wdrożenia; proponowany schemat 4 dotyczy nowych funkcji, nie wyglądu z 0.8b.
+
 ### Redesign i własne tło — kolejny przyrost
 
 Użytkownik zlecił spisanie [SPEC 0.8 — mapa etapów](SPEC-0.8-dashboard-appearance.md). Po recenzji podzielono zakres na [0.8a — poprawki muzyki i redesign](SPEC-0.8a-renderer-music.md) oraz [0.8b — tła z HA](SPEC-0.8b-backgrounds.md). Zakres: cieplejszy wygląd, większa godzina i data, wybór lub wgranie zdjęcia w HA, czytelna prawa nakładka muzyki oraz naprawa metadanych i znikania po pauzie. Dla teł proponowany jest formularz opcji per urządzenie, bez nowego schematu YAML; obsługa uploadu wymaga próby na używanej wersji HA. Dokumenty są do recenzji, nie oznaczają instalacji ani gotowego edytora. Cztery dolne powiadomienia i wykluczenia encji pozostają bez zmian.
