@@ -59,7 +59,7 @@ final class WakeWordListener {
                     offset=0;
                     long now=SystemClock.elapsedRealtime();
                     if(diagnostics!=null&&now-lastReport>=15_000){
-                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" session="+recorder.getAudioSessionId());
+                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" rate="+recorder.getSampleRate()+" channels="+recorder.getChannelCount()+" session="+recorder.getAudioSessionId()+" elapsed_ms="+(now-lastReport));
                         energy=0;frames=0;peak=0;lastReport=now;
                     }
                 }
