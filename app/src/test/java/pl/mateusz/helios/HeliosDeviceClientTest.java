@@ -21,7 +21,7 @@ public class HeliosDeviceClientTest {
         HeliosDeviceClient client=new HeliosDeviceClient(ha,"install-1",telemetry::get,(command,args)->{
             CountDownLatch latch=hold;if(latch!=null)latch.await(5,TimeUnit.SECONDS);
             executed.add(command+":"+args);return command.equals("lamp.turn_off")?"oem_failure":null;
-        },(deviceId,areaId)->devices.add(deviceId+"/"+areaId));
+        },(deviceId,areaId,name)->devices.add(deviceId+"/"+areaId));
         client.start();ha.start();return client;
     }
     private JSONObject device(String type) throws Exception {

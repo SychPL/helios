@@ -15,8 +15,8 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
         String execute(String command,JSONObject args) throws Exception;
     }
     interface Listener {
-        /** deviceId and areaId are null whenever the channel is not established. */
-        void onDevice(String deviceId,String areaId);
+        /** deviceId and areaId are null whenever the channel is not established; name is the HA device name (user rename included). */
+        void onDevice(String deviceId,String areaId,String name);
     }
     static final int PROTOCOL=1;
     static volatile long MIN_PUBLISH_INTERVAL_MS=100;
@@ -26,7 +26,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
     private final CommandHandler handler;
     private final Listener listener;
     private final String installationId;
-    private volatile String pairingCode,deviceId,areaId;
+    private volatile String pairingCode,deviceId,areaId,deviceName;
     private volatile int generation;
     private volatile boolean active;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
@@ -44,6 +44,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
     void stop(){ha.detach(this);worker.shutdownNow();scheduler.shutdownNow();}
     String deviceId(){return deviceId;}
     String areaId(){return areaId;}
+    String deviceName(){return deviceName;}
     boolean active(){return active;}
     /** Re-subscribes with a one-time pairing code typed by the user; the code is dropped after the first successful connected. */
     void pair(String code){pairingCode=code;connect();}
@@ -70,10 +71,16 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
             case "connected":
                 deviceId=event.isNull("device_id")?null:event.optString("device_id",null);
                 areaId=event.isNull("area_id")?null:event.optString("area_id",null);
+                deviceName=event.isNull("name")?null:event.optString("name",null);
                 pairingCode=null;active=true;
-                if(listener!=null)listener.onDevice(deviceId,areaId);
+                if(listener!=null)listener.onDevice(deviceId,areaId,deviceName);
                 synchronized(publishLock){lastSent=null;}
                 publish();
+                break;
+            case "device": // HA renamed or moved the device: keep the player name and voice context in step
+                areaId=event.isNull("area_id")?null:event.optString("area_id",null);
+                deviceName=event.isNull("name")?null:event.optString("name",null);
+                if(listener!=null)listener.onDevice(deviceId,areaId,deviceName);
                 break;
             case "command":execute(gen,event);break;
             case "replaced":case "removed":ended(gen);break;
@@ -84,7 +91,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
         if(gen!=generation)return;
         generation++;active=false;deviceId=null;areaId=null;
         synchronized(publishLock){if(scheduledPublish!=null){scheduledPublish.cancel(false);scheduledPublish=null;}}
-        if(listener!=null)listener.onDevice(null,null);
+        if(listener!=null)listener.onDevice(null,null,deviceName);
     }
 
     /** Sends a full snapshot, coalesced to at most one per MIN_PUBLISH_INTERVAL_MS with the newest values; nothing is queued while inactive. */

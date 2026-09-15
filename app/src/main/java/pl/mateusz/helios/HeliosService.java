@@ -139,7 +139,7 @@ public final class HeliosService extends Service {
     private void startMusic(){
         JSONObject music=connection.optJSONObject("music_assistant");
         if(music==null)return;
-        playerName=music.optString("player_name","Helios");
+        playerName=getSharedPreferences("helios",MODE_PRIVATE).getString("device_name",music.optString("player_name","Helios"));
         String clientId=getSharedPreferences("helios",MODE_PRIVATE).getString("sendspin_client_id",null);
         if(clientId==null){clientId=UUID.randomUUID().toString();getSharedPreferences("helios",MODE_PRIVATE).edit().putString("sendspin_client_id",clientId).apply();}
         sink=new AudioTrackSink();
@@ -224,8 +224,13 @@ public final class HeliosService extends Service {
         JSONObject cachedRaw=null;
         if(cached!=null)try{cachedRaw=new JSONObject(cached);}catch(Exception ignored){}
         ha=new HaDashboardClient(connection,cachedRaw);ha.attach(cache);
-        device=new HeliosDeviceClient(ha,installationId,this::telemetry,this::execute,(id,area)->main.post(()->{
+        device=new HeliosDeviceClient(ha,installationId,this::telemetry,this::execute,(id,area,name)->main.post(()->{
             boolean lost=deviceId!=null&&id==null;deviceId=id;
+            if(name!=null&&!name.equals(getSharedPreferences("helios",MODE_PRIVATE).getString("device_name",null))){
+                getSharedPreferences("helios",MODE_PRIVATE).edit().putString("device_name",name).apply();
+                if(diagnostics!=null)diagnostics.accept("device_name",name);
+                if(ma!=null||sendspin!=null){stopMusic();startMusic();} // the MA player carries the HA device name
+            }
             if(lost&&onDeviceLost!=null)onDeviceLost.run();
             if(onDeviceChanged!=null)onDeviceChanged.accept(id);
         }));
