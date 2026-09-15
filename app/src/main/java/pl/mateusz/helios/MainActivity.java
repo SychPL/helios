@@ -4,6 +4,11 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.os.IBinder;
 import android.content.pm.PackageManager;
 import android.os.*;
 import android.view.Gravity;
@@ -28,9 +33,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private WakeWordListener wakeListener;
     private DashboardView dashboard;
     private NavigationMenu navigation;
-    private JSONObject config;
-    private HaDashboardClient liveDashboard;
-    private int dashboardGeneration;
+    private JSONObject config,pendingProvision;
+    private HeliosService service;
+    private HaDashboardClient attachedTo;
+    private int attachGeneration;
     // Dashboard model: last good layout, its latest snapshot, frozen visibility and liveness.
     private DashboardSpec spec;
     private JSONObject specRaw;
@@ -39,6 +45,29 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean live;
     private String connectionIssue="Łączenie z konfiguracją ekranu w HA…",configIssue;
     private final Set<String> pendingActions=new HashSet<>();
+    private final ServiceConnection serviceConnection=new ServiceConnection(){
+        @Override public void onServiceConnected(ComponentName name,IBinder binder){
+            service=((HeliosService.Local)binder).service();
+            if(pendingProvision!=null){JSONObject received=pendingProvision;pendingProvision=null;applyProvisioning(received);}
+            if(resumed)attachHa();
+        }
+        @Override public void onServiceDisconnected(ComponentName name){service=null;attachedTo=null;}
+    };
+    private final HaDashboardClient.Listener haListener=new HaDashboardClient.Listener(){
+        private void update(Runnable action){final int generation=attachGeneration;main.post(()->{if(resumed&&attachedTo!=null&&generation==attachGeneration)action.run();});}
+        @Override public void onDashboard(JSONObject raw,DashboardSpec received,Map<String,EntityStates.Entity> snapshot,String issue){
+            update(()->{
+                if(received!=null&&(specRaw==null||!raw.toString().equals(specRaw.toString()))){
+                    spec=received;specRaw=raw;visibility.clear();closePanel();dashboard.setSpec(spec,MainActivity.this::tap);
+                    onEvent("dashboard_configured","items="+spec.items.size());
+                }
+                if(received==null&&specRaw==null){spec=DashboardSpec.fallback();dashboard.setSpec(spec,MainActivity.this::tap);}
+                configIssue=issue;connectionIssue=null;states=snapshot;live=true;decideVisibility();dashboard.connected(true);renderDashboard();
+            });
+        }
+        @Override public void onStates(Map<String,EntityStates.Entity> snapshot){update(()->{states=snapshot;live=true;decideVisibility();renderDashboard();});}
+        @Override public void onUnavailable(String reason){update(()->{live=false;connectionIssue=reason;dashboard.connected(false);closePanel();renderDashboard();});}
+    };
     private Dialog panel;
     private TextView panelTitle;
     private DashboardSpec.Item panelItem;
@@ -64,11 +93,13 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(cached!=null)try{specRaw=new JSONObject(cached);spec=DashboardSpec.parse(specRaw);}catch(Exception ignored){specRaw=null;}
         if(spec==null){spec=DashboardSpec.fallback();configIssue=DashboardSpec.VERSION_ERROR;}
         dashboard.setSpec(spec,this::tap);renderDashboard();
+        Intent intent=new Intent(this,HeliosService.class);
+        startForegroundService(intent);bindService(intent,serviceConnection,Context.BIND_AUTO_CREATE);
         if(config==null)connect();
     }
-    @Override public void onResume(){super.onResume();resumed=true;tick.run();startDashboard();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()));}
-    @Override public void onPause(){resumed=false;stopDashboard();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
-    @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
+    @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()));}
+    @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
+    @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
         if(config==null){connect();return;}
         if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
@@ -99,11 +130,27 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 JSONObject received=get(BuildConfig.PROVISION_URL,null);
                 if(received.getString("token").isEmpty()||received.getString("pipeline").isEmpty())throw new IOException("Incomplete pairing");
                 new URI(received.getString("url"));
-                getSharedPreferences("helios",MODE_PRIVATE).edit().putString("connection",received.toString()).apply();
-                main.post(()->{config=received;dashboard.setMessage("");onEvent("configured","Helios "+BuildConfig.VERSION_NAME);startWake();startDashboard();});
+                main.post(()->applyProvisioning(received));
             }catch(Exception error){main.post(()->{dashboard.connected(false);dashboard.setMessage("Uruchom parowanie na komputerze,\na potem spróbuj ponownie.");});}
         });
     }
+
+    /** Hands a fetched pairing document to the service; nothing is persisted until HA accepts the token. */
+    private void applyProvisioning(JSONObject received){
+        if(service==null){pendingProvision=received;return;}
+        service.reconfigure(received,error->{
+            if(isDestroyed())return;
+            if(error!=null){dashboard.connected(false);dashboard.setMessage("Parowanie nieudane: "+error);return;}
+            config=service.connection();dashboard.setMessage("");onEvent("configured","Helios "+BuildConfig.VERSION_NAME);startWake();attachHa();
+        });
+    }
+    private HaDashboardClient ha(){return service==null?null:service.ha();}
+    private void attachHa(){
+        HaDashboardClient client=ha();
+        if(client==null||client==attachedTo||!resumed)return;
+        detachHa();attachGeneration++;attachedTo=client;client.attach(haListener);
+    }
+    private void detachHa(){if(attachedTo!=null){attachedTo.detach(haListener);attachedTo=null;attachGeneration++;}live=false;}
 
     // --- dashboard ---
     private void renderDashboard(){
@@ -119,35 +166,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void decideVisibility(){
         for(DashboardSpec.Item item:spec.items)if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
     }
-    private void stopDashboard(){
-        dashboardGeneration++;
-        if(liveDashboard!=null){liveDashboard.stop();liveDashboard=null;}
-        live=false;
-    }
-    private void startDashboard(){
-        if(config==null||!resumed||liveDashboard!=null)return;
-        final int generation=++dashboardGeneration;
-        live=false;connectionIssue="Łączenie z konfiguracją ekranu w HA…";renderDashboard();
-        HaDashboardClient next=new HaDashboardClient(config,specRaw,new HaDashboardClient.Listener(){
-            private void update(Runnable action){main.post(()->{if(resumed&&liveDashboard!=null&&generation==dashboardGeneration)action.run();});}
-            @Override public void onDashboard(JSONObject raw,DashboardSpec received,Map<String,EntityStates.Entity> snapshot,String issue){
-                update(()->{
-                    if(received!=null&&(specRaw==null||!raw.toString().equals(specRaw.toString()))){
-                        spec=received;specRaw=raw;visibility.clear();closePanel();dashboard.setSpec(spec,MainActivity.this::tap);
-                        onEvent("dashboard_configured","items="+spec.items.size());
-                    }
-                    if(received!=null&&issue==null)getSharedPreferences("helios",MODE_PRIVATE).edit().putString("dashboard_v2",raw.toString()).apply();
-                    if(received==null&&specRaw==null){spec=DashboardSpec.fallback();dashboard.setSpec(spec,MainActivity.this::tap);}
-                    configIssue=issue;connectionIssue=null;states=snapshot;live=true;decideVisibility();dashboard.connected(true);renderDashboard();
-                });
-            }
-            @Override public void onStates(Map<String,EntityStates.Entity> snapshot){update(()->{states=snapshot;live=true;decideVisibility();renderDashboard();});}
-            @Override public void onUnavailable(String reason){update(()->{live=false;connectionIssue=reason;dashboard.connected(false);closePanel();renderDashboard();});}
-        });
-        liveDashboard=next;next.start();
-    }
     private void tap(DashboardSpec.Item item){
-        if(!live||liveDashboard==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
+        if(!live||ha()==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
         switch(item.type){
             case "light":confirm(item,"Przełączyć: "+dashboardLabel(item)+"?",()->call(item,"light","toggle"));break;
             case "garage":confirm(item,"Zamknąć bramę?",()->call(item,"cover","close_cover"));break;
@@ -197,9 +217,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean anyPending(String id){for(String key:pendingActions)if(key.startsWith(id+":"))return true;return false;}
     private boolean call(DashboardSpec.Item item,String domain,String service,Runnable done){
         String key=item.id+":"+service;
-        if(pendingActions.contains(key)||liveDashboard==null)return false;
+        HaDashboardClient client=ha();
+        if(pendingActions.contains(key)||client==null)return false;
         pendingActions.add(key);dashboard.pending(item.id,true);onEvent("service_call",domain+"."+service+" "+item.entity);
-        liveDashboard.callService(domain,service,item.entity,error->main.post(()->{
+        client.callService(domain,service,item.entity,error->main.post(()->{
             pendingActions.remove(key);dashboard.pending(item.id,anyPending(item.id));
             if(done!=null)done.run();
             if(error!=null){onEvent("service_error",error);Toast.makeText(this,"Nie wykonano: "+error,Toast.LENGTH_LONG).show();}
