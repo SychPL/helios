@@ -1,0 +1,54 @@
+# Manifest publikacji SPEC 0.9 (tools/deploy_bedroom_dashboard.py). Identyfikatory encji tylko tutaj i w ha/packages/helios_bedroom.yaml.
+sources:
+  covers:
+    - cover.bedroom_main_cover_a
+    - cover.bedroom_main_cover_b
+  light: light.bedroom_a_all
+  light_members:
+    - light.bedroom_a_light_swiatlo
+    - light.bedroom_a_light_swiatlo_2
+  weather: weather.forecast_dom
+  sun: sun.sun
+helpers:
+  light_show: binary_sensor.helios_sypialnia_swiatlo_pokaz
+  forecast_mode: binary_sensor.helios_pogoda_jutro_tryb
+  forecast: sensor.helios_pogoda_jutro
+min_app_version: 0.8.8
+# Tiles that replace / join the live layout: the weather tile keeps its cell and gains the forecast fields;
+# whatever occupies cells (3,2) and (4,2) is removed; the clock and the four bottom notifications are untouched.
+tiles:
+  - id: weather
+    type: weather
+    entity: weather.forecast_dom
+    title: Pogoda
+    column: 3
+    row: 1
+    width: 2
+    height: 1
+    forecast_entity: sensor.helios_pogoda_jutro
+    forecast_when:
+      entity: binary_sensor.helios_pogoda_jutro_tryb
+      state: "on"
+  - id: bedroom-covers
+    type: cover_group
+    title: Rolety sypialni
+    column: 3
+    row: 2
+    width: 1
+    height: 1
+    covers:
+      - entity: cover.bedroom_main_cover_a
+        title: Roleta A
+      - entity: cover.bedroom_main_cover_b
+        title: Roleta B
+  - id: bedroom-light
+    type: light
+    title: Światło sypialni
+    entity: light.bedroom_a_all
+    column: 4
+    row: 2
+    width: 1
+    height: 1
+    visible_when:
+      entity: binary_sensor.helios_sypialnia_swiatlo_pokaz
+      state: "on"

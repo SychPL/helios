@@ -1,0 +1,102 @@
+# Helios - sypialnia (SPEC 0.9): trzy pomocniki dla kafelków Rolety / Światło sypialni / Jutro.
+# Instalacja: skopiować do config/packages/helios_bedroom.yaml i mieć w configuration.yaml:
+#   homeassistant:
+#     packages: !include_dir_named packages
+# Identyfikatory encji źródłowych są tylko tutaj i w ha/helios-bedroom.yaml, nigdy w aplikacji.
+template:
+  - binary_sensor:
+      # Światło sypialni pokazane po zmroku albo gdy choć jedna roleta jest całkowicie zamknięta.
+      # Znany prawdziwy człon daje on mimo niedostępności innych; wszystkie znane fałszywe dają off;
+      # w pozostałych przypadkach pomocnik jest unavailable (zegar ukrywa kafelek).
+      - name: "Helios sypialnia swiatlo pokaz"
+        unique_id: helios_sypialnia_swiatlo_pokaz
+        icon: mdi:lightbulb-on-outline
+        state: >-
+          {{ is_state('sun.sun', 'below_horizon')
+             or is_state('cover.bedroom_main_cover_a', 'closed')
+             or is_state('cover.bedroom_main_cover_b', 'closed') }}
+        availability: >-
+          {{ is_state('sun.sun', 'below_horizon')
+             or is_state('cover.bedroom_main_cover_a', 'closed')
+             or is_state('cover.bedroom_main_cover_b', 'closed')
+             or (has_value('sun.sun')
+                 and has_value('cover.bedroom_main_cover_a')
+                 and has_value('cover.bedroom_main_cover_b')) }}
+      # Tryb kafelka pogody: od 18:00 do 23:59 czasu HA pokazujemy prognozę na jutro.
+      - name: "Helios pogoda jutro tryb"
+        unique_id: helios_pogoda_jutro_tryb
+        icon: mdi:weather-night
+        state: "{{ now().hour >= 18 }}"
+
+  # Prognoza na jutro pobierana przez HA (weather.get_forecasts, daily). Rekord wybierany po dacie
+  # w strefie HA (jutro), nie po indeksie. Błąd pobrania nie kasuje ważnego rekordu, a wygaśnięcie
+  # (valid_until) unieważnia go także bez udanego pobrania - stan liczony z zapisanego rekordu.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: 0
+      - trigger: time
+        at:
+          - "18:00:00"
+          - "00:00:00"
+      - trigger: state
+        entity_id: weather.forecast_dom
+        from: unavailable
+    actions:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.forecast_dom
+        data:
+          type: daily
+        response_variable: forecasts
+        continue_on_error: true
+      - variables:
+          record: >-
+            {% set fc = forecasts['weather.forecast_dom']['forecast']
+                        if (forecasts is defined and forecasts and 'weather.forecast_dom' in forecasts
+                            and forecasts['weather.forecast_dom'].forecast is defined) else [] %}
+            {% set tomorrow = (now() + timedelta(days=1)).date() | string %}
+            {% set ns = namespace(hits=[]) %}
+            {% for f in fc if f.datetime is defined and (as_local(as_datetime(f.datetime)).date() | string) == tomorrow %}
+              {% set ns.hits = ns.hits + [f] %}
+            {% endfor %}
+            {% set prev = this.attributes if (this is defined and this.attributes is defined) else {} %}
+            {% set unit = state_attr('weather.forecast_dom', 'temperature_unit') %}
+            {% if ns.hits | count == 1 and ns.hits[0].condition is defined and ns.hits[0].temperature is number and unit in ['°C', '°F'] %}
+              {% set f = ns.hits[0] %}
+              {% set fetched = utcnow() %}
+              {% set midnight = (now() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0) %}
+              {% set until = [midnight.astimezone(fetched.tzinfo), fetched + timedelta(hours=6)] | min %}
+              {{ {'forecast_date': tomorrow,
+                  'condition': f.condition,
+                  'temperature': f.temperature,
+                  'templow': (f.templow if (f.templow is defined and f.templow is number) else none),
+                  'temperature_unit': unit,
+                  'fetched_at': fetched.isoformat(),
+                  'valid_until': until.isoformat()} }}
+            {% elif prev.forecast_date is defined and prev.forecast_date == tomorrow
+                  and prev.valid_until is defined and as_datetime(prev.valid_until) > utcnow() %}
+              {{ {'forecast_date': prev.forecast_date,
+                  'condition': prev.condition,
+                  'temperature': prev.temperature,
+                  'templow': prev.templow,
+                  'temperature_unit': prev.temperature_unit,
+                  'fetched_at': prev.fetched_at,
+                  'valid_until': prev.valid_until} }}
+            {% else %}
+              {{ none }}
+            {% endif %}
+    sensor:
+      - name: "Helios pogoda jutro"
+        unique_id: helios_pogoda_jutro
+        icon: mdi:calendar-arrow-right
+        state: "{{ 'ready' if record else 'none' }}"
+        attributes:
+          forecast_date: "{{ record.forecast_date if record else none }}"
+          condition: "{{ record.condition if record else none }}"
+          temperature: "{{ record.temperature if record else none }}"
+          templow: "{{ record.templow if record else none }}"
+          temperature_unit: "{{ record.temperature_unit if record else none }}"
+          fetched_at: "{{ record.fetched_at if record else none }}"
+          valid_until: "{{ record.valid_until if record else none }}"
