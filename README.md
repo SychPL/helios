@@ -1,6 +1,6 @@
 # Helios — prototyp głosu na Lenovo Smart Clock 2
 
-Natywna aplikacja Android jest w `app/`: stały pasek statusu, dashboard 4×3 konfigurowany w Home Assistant (zegar, pogoda, encje, światła, rolety, brama) i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.7.0. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
+Natywna aplikacja Android jest w `app/`: stały pasek statusu, dashboard 4×3 konfigurowany w Home Assistant (zegar, pogoda, encje, światła, rolety, brama) i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.8.0. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
 
 ## Dashboard 0.5.0
 
@@ -14,7 +14,11 @@ Wcześniejsze testy na fizycznym zegarze z OTA 627 potwierdziły także lokalne 
 
 Aplikacja ma teraz foreground service (`HeliosService`), który trzyma jedno gniazdo WS do HA niezależnie od widoczności ekranu. Na tym gnieździe działa kanał urządzenia `helios/connect`: telemetria (wersja, stan głosu, dock, ładowanie, lampka, głośność) oraz allowlista komend z HA (lampka docka przez binder OEM, głośność `STREAM_MUSIC`). Komponent HA `ha/custom_components/helios` tworzy urządzenie z encjami `sensor`, `binary_sensor`, `light`, `number` i parowanie kodem. `AssistClient` przekazuje `device_id` urządzenia do pipeline, więc obszar zegara w HA daje kontekst pokoju dla poleceń głosowych. Instalacja i zachowanie: [ha-integration.md](docs/ha-integration.md), spec: [SPEC 0.7](docs/SPEC-0.7-home-assistant-integration.md). Odbiór na fizycznym zegarze i HA 2026.8.3 jeszcze nie wykonany.
 
-Kolejny planowany etap to Music Assistant: Lenovo jako lokalny odtwarzacz Sendspin oraz pilot innych graczy, z półekranowym widokiem okładki podczas lokalnego grania. Zakres i obowiązkowy prototyp opisuje [SPEC 0.6](docs/SPEC-0.6-music-assistant.md).
+## Music Assistant 0.8.0
+
+Lenovo jest lokalnym odtwarzaczem Music Assistant przez własny klient Sendspin legacy (`SendspinClient`, PCM 48 kHz przez `AudioTrack`, synchronizacja zegara, `stream/end` jako drain) i pilotem pozostałych graczy przez API MA (`MusicAssistantClient`). Podczas lokalnego grania przy prawej krawędzi pojawia się uchwyt `♪`; dotknięcie wysuwa panel na prawej połowie (okładka, tytuł, ◀◀ ▶/❚❚ ▶▶ ■, głośność, wycisz, Schowaj), a kafle pod nim nie reagują na dotyk i nie są przebudowywane. Kafelek `music` (schemat `version: 3`, opcjonalny) otwiera bibliotekę: wybór gracza, wyszukiwanie, ostatnie 10 pozycji, wyniki i sterowanie wybranym graczem. Audio focus: rozmowa z Nabu ścisza lub pauzuje muzykę, trwałe przejęcie głośnika (np. Cast) pauzuje bez samoczynnego wznowienia. Dane MA przychodzą przez "Odśwież parowanie" z `.local/ma.json` i są weryfikowane niezależnie od HA. Spec: [SPEC 0.6](docs/SPEC-0.6-music-assistant.md), kontrakt API: [ma-api-2.10.3.md](docs/ma-api-2.10.3.md). Bramki audio na fizycznym zegarze (60 s PCM, underruny, wake word przy muzyce, IME) jeszcze nie wykonane.
+
+Historia projektu etapu muzycznego (prototyp, decyzje): [SPEC 0.6](docs/SPEC-0.6-music-assistant.md) i [raport prototypu](artifacts/music-assistant-prototype.md).
 
 Integrację urządzenia z HA (wersja, lampka docka, ładowanie telefonu i kontekst pokoju dla Assist) opisuje [SPEC 0.7](docs/SPEC-0.7-home-assistant-integration.md). To projekt, nie funkcja zainstalowanego APK. Rozpoznawanie osoby pozostaje osobnym badaniem.
 

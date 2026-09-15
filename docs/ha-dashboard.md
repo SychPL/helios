@@ -32,7 +32,8 @@ helios:
 - Siatka 4×3; `column`/`row` od 1, `width`/`height` w komórkach; pola nie mogą się nakładać ani wychodzić poza siatkę. Ukryty element zostawia puste miejsce.
 - Typy i akcje: `clock` (bez encji), `weather` (encja `weather.*`, opcjonalnie `temperature_entity: sensor.*`), `entity` (dowolna encja, opcjonalnie `attribute`), `light` (`light.*`, dotknięcie = `light.toggle`), `cover` (`cover.*`, panel ▲ ■ ▼ z procentem otwarcia z `current_position`), `garage` (`cover.*`, dotknięcie = `cover.close_cover`, potwierdzenie domyślnie włączone).
 - `visible_when` ma dokładnie `entity` i `state`. Logikę (pora dnia, prognoza) licz w HA i wystaw jako `binary_sensor`/pomocnika. `unknown`, `unavailable` i brak encji ukrywają element; po utracie połączenia ostatnia widoczność zostaje zamrożona, a dane oznaczone jako nieaktualne.
-- Ikony: `information`, `weather-rainy`, `lightbulb`, `window-shutter`, `garage-open`. `clock` i `weather` nie przyjmują `icon`.
+- Ikony: `information`, `weather-rainy`, `lightbulb`, `window-shutter`, `garage-open`, `music`. `clock` i `weather` nie przyjmują `icon`.
+- `version: 3` dodaje opcjonalny typ `music` (bez `entity`, `tap_action` i `confirmation`, najwyżej jeden): kafelek otwiera bibliotekę i pilota Music Assistant, a przy zdalnym graniu pokazuje nazwę gracza i tytuł. Pole `music_layout` jest niedozwolone. Podczas lokalnego grania uchwyt `♪` przy prawej krawędzi (w połowie wysokości, na kolumnie 4 wiersz 2) zasłania fragment tego kafelka.
 - Limity: 12 elementów, `title` do 40 znaków, `confirmation.text` do 80 znaków.
 - Każdy błąd (nieznane pole, literówka w ikonie, zła domena, nakładanie) odrzuca cały zapis: zegar zachowuje poprzedni układ i pokazuje komunikat w pasku. Bez żadnej poprawnej konfiguracji `version: 2` zegar pokazuje układ awaryjny (sam zegar) i komunikat `Wymagana konfiguracja Helios version: 2`.
 
