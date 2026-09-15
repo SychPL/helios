@@ -175,6 +175,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         for(DashboardSpec.Item item:spec.items)if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
     }
     private void tap(DashboardSpec.Item item){
+        if(item.type.equals("music")){openMusicLibrary();return;} // library and remote control depend on MA, not on HA
         if(!live||ha()==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
         switch(item.type){
             case "light":confirm(item,"Przełączyć: "+dashboardLabel(item)+"?",()->call(item,"light","toggle"));break;
@@ -183,6 +184,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             default:break;
         }
     }
+    private void openMusicLibrary(){Toast.makeText(this,"Biblioteka muzyki: w przygotowaniu",Toast.LENGTH_SHORT).show();}
     private String dashboardLabel(DashboardSpec.Item item){return item.title!=null?item.title:item.entity;}
     /** Confirmation is only ever a gate; cancel, outside touch and connection loss all close it without sending. */
     private void confirm(DashboardSpec.Item item,String fallbackText,Runnable action){

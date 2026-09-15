@@ -24,6 +24,8 @@ final class IconView extends View {
             case "weather-rainy":{
                 cloud.reset();cloud.moveTo(9,18);cloud.cubicTo(4,18,4,11,9,11);cloud.cubicTo(10,5,20,5,21,10);cloud.cubicTo(27,9,28,18,22,18);cloud.close();canvas.drawPath(cloud,paint);
                 canvas.drawLine(11,22,9,27,paint);canvas.drawLine(16,22,14,27,paint);canvas.drawLine(21,22,19,27,paint);break;}
+            case "music":
+                canvas.drawCircle(10,24,4.5f,paint);canvas.drawCircle(24,21,4.5f,paint);canvas.drawLine(14.5f,24,14.5f,6,paint);canvas.drawLine(28.5f,21,28.5f,3,paint);canvas.drawLine(14.5f,6,28.5f,3,paint);canvas.drawLine(14.5f,10,28.5f,7,paint);break;
             default:
                 canvas.drawCircle(16,16,13,paint);canvas.drawLine(16,14,16,23,paint);canvas.drawCircle(16,9.5f,.9f,paint);break;
         }

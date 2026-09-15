@@ -22,7 +22,7 @@ public final class DashboardView extends FrameLayout {
     private final Map<String,Tile> tiles=new LinkedHashMap<>();
     private DashboardSpec spec;
     private Actions actions;
-    private String issue,message="",time="--:--",date="";
+    private String issue,message="",time="--:--",date="",musicInfo="—";
     private int measuredWidth,measuredHeight;
 
     public DashboardView(Context context){
@@ -60,6 +60,8 @@ public final class DashboardView extends FrameLayout {
         for(DashboardSpec.Item item:spec.items){Tile t=new Tile(item);tiles.put(item.id,t);addView(t);}
         arrange();
     }
+    /** Text shown on the music tile: remote player and title while a remote player plays, otherwise a dash. */
+    public void musicInfo(String text){musicInfo=text==null||text.isEmpty()?"—":text;for(Tile t:tiles.values())if(t.item.type.equals("music"))t.render(Collections.emptyMap(),true);}
     public void clock(String time,String date){this.time=time;this.date=date;for(Tile t:tiles.values())if(t.item.type.equals("clock"))t.clock();}
     public void setIssue(String issue){this.issue=issue;refreshStatus();}
     public void setMessage(String message){this.message=message==null?"":message;refreshStatus();}
@@ -101,6 +103,7 @@ public final class DashboardView extends FrameLayout {
             if(item.title!=null)return item.title;
             if(item.type.equals("clock"))return "";
             if(item.type.equals("weather"))return "Pogoda";
+            if(item.type.equals("music"))return "Muzyka";
             String name=item.entity.substring(item.entity.indexOf('.')+1).replace('_',' ');
             return name.substring(0,1).toUpperCase(new Locale("pl"))+name.substring(1);
         }
@@ -118,6 +121,7 @@ public final class DashboardView extends FrameLayout {
         void pending(boolean on){spinner.setVisibility(on?VISIBLE:GONE);setEnabled(!on);}
         void render(Map<String,EntityStates.Entity> states,boolean live){
             if(item.type.equals("clock"))return;
+            if(item.type.equals("music")){value.setText(musicInfo);detail.setVisibility(GONE);if(item.icon!=null)icon.set(item.icon,MUTED);setAlpha(1f);setContentDescription("Muzyka: "+musicInfo);return;}
             EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
             boolean known=e!=null&&e.known();
             String text,extra="";int tint=MUTED;

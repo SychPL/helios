@@ -61,8 +61,22 @@ public class DashboardSpecTest {
         assertFalse(garage.visible(null));
         assertTrue(DashboardSpec.parse(example()).item("clock").visible(null));
     }
+    @Test public void schemaThreeAllowsOneMusicTileWithoutEntityAndForbidsMusicLayout() throws Exception {
+        JSONObject c=example().put("version",3);c.getJSONArray("items").getJSONObject(5).put("width",3);c.getJSONArray("items").put(item("music","music",4,3,1,1));
+        DashboardSpec spec=DashboardSpec.parse(new JSONObject(c.toString()));
+        assertEquals(3,spec.version);assertEquals(7,spec.items.size());
+        DashboardSpec.Item music=spec.item("music");
+        assertNull(music.entity);assertTrue(music.interactive());assertEquals("music",music.icon);assertEquals("library",music.action);
+        assertFalse(spec.entities().contains(null));
+        JSONObject two=new JSONObject().put("version",3).put("grid",new JSONObject().put("columns",4).put("rows",3)).put("items",new JSONArray().put(item("m1","music",1,1,1,1)).put(item("m2","music",2,1,1,1)));rejects(two,"two music tiles");
+        rejects(example().put("version",2).put("items",new JSONArray().put(item("music","music",1,1,1,1))),"music at version 2");
+        rejects(new JSONObject(c.toString()).put("music_layout",new JSONObject()),"music_layout");
+        JSONObject tap=new JSONObject(c.toString());tap.getJSONArray("items").getJSONObject(6).put("tap_action",new JSONObject().put("action","library"));rejects(tap,"tap_action on music");
+        JSONObject withEntity=new JSONObject(c.toString());withEntity.getJSONArray("items").getJSONObject(6).put("entity","media_player.x");rejects(withEntity,"entity on music");
+        assertEquals(2,DashboardSpec.parse(example()).version);
+    }
     @Test public void rejectsWrongVersionAndGrid() throws Exception {
-        rejects(example().put("version",1),"version 1");
+        rejects(example().put("version",1),"version 1");rejects(example().put("version",4),"version 4");
         rejects(example().put("version","2"),"version as text");
         rejects(example().put("grid",new JSONObject().put("columns",3).put("rows",3)),"3 columns");
         rejects(example().put("extra",1),"unknown root field");

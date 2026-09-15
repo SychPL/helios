@@ -7,14 +7,15 @@ import java.util.*;
 /** Helios 0.5 grid dashboard contract (helios.version 2). Pure data, validated atomically; no device entity IDs. */
 final class DashboardSpec {
     static final int COLUMNS=4,ROWS=3,MAX_ITEMS=12,MAX_BYTES=65536;
-    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2";
-    static final List<String> ICONS=Arrays.asList("information","weather-rainy","lightbulb","window-shutter","garage-open");
+    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2 lub 3";
+    static final List<String> ICONS=Arrays.asList("information","weather-rainy","lightbulb","window-shutter","garage-open","music");
     static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit");
     static final List<String> COVER_ATTRIBUTES=Collections.singletonList("current_position");
     private static final List<String> COMMON=Arrays.asList("id","type","column","row","width","height","title","icon","visible_when","tap_action","confirmation");
     private static final String ENTITY="[a-z0-9_]+\\.[a-z0-9_]+";
     final List<Item> items;
-    private DashboardSpec(List<Item> items){this.items=Collections.unmodifiableList(items);}
+    final int version;
+    private DashboardSpec(int version,List<Item> items){this.version=version;this.items=Collections.unmodifiableList(items);}
 
     static final class Item {
         final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText;
@@ -39,7 +40,8 @@ final class DashboardSpec {
     }
 
     static DashboardSpec parse(JSONObject root) throws Exception {
-        if(!(root.opt("version") instanceof Integer)||root.getInt("version")!=2)throw new IllegalArgumentException(VERSION_ERROR);
+        if(!(root.opt("version") instanceof Integer)||(root.getInt("version")!=2&&root.getInt("version")!=3))throw new IllegalArgumentException(VERSION_ERROR);
+        int version=root.getInt("version");
         if(root.toString().length()>MAX_BYTES)throw new IllegalArgumentException("Sekcja helios przekracza 64 KiB");
         keys(root,Arrays.asList("version","grid","items"),"konfiguracji");
         JSONObject grid=root.optJSONObject("grid");
@@ -49,9 +51,10 @@ final class DashboardSpec {
         JSONArray rows=root.optJSONArray("items");
         if(rows==null)throw new IllegalArgumentException("Wymagane pole items");
         if(rows.length()>MAX_ITEMS)throw new IllegalArgumentException("items: najwyżej "+MAX_ITEMS+" elementów");
-        List<Item> result=new ArrayList<>();Set<String> ids=new HashSet<>();boolean[][] used=new boolean[ROWS][COLUMNS];
+        List<Item> result=new ArrayList<>();Set<String> ids=new HashSet<>();boolean[][] used=new boolean[ROWS][COLUMNS];int music=0;
         for(int i=0;i<rows.length();i++){
-            Item item=item(rows.getJSONObject(i));
+            Item item=item(rows.getJSONObject(i),version);
+            if(item.type.equals("music")&&++music>1)throw new IllegalArgumentException("Dozwolony jest jeden kafelek music");
             if(!ids.add(item.id))throw new IllegalArgumentException("Powtórzony id: "+item.id);
             for(int r=item.row;r<item.row+item.height;r++)for(int c=item.column;c<item.column+item.width;c++){
                 if(used[r-1][c-1])throw new IllegalArgumentException("Element "+item.id+" nakłada się na inny element");
@@ -59,10 +62,10 @@ final class DashboardSpec {
             }
             result.add(item);
         }
-        return new DashboardSpec(result);
+        return new DashboardSpec(version,result);
     }
 
-    private static Item item(JSONObject o) throws Exception {
+    private static Item item(JSONObject o,int version) throws Exception {
         String type=string(o,"type",true,16);
         List<String> allowed=new ArrayList<>(COMMON);
         String action;
@@ -73,6 +76,9 @@ final class DashboardSpec {
             case "light":allowed.add("entity");action="toggle";break;
             case "cover":allowed.add("entity");action="controls";break;
             case "garage":allowed.add("entity");action="close";break;
+            case "music":
+                if(version<3)throw new IllegalArgumentException("Typ music wymaga version: 3");
+                allowed.removeAll(Arrays.asList("tap_action","confirmation"));action="library";break;
             default:throw new IllegalArgumentException("Nieobsługiwany typ elementu: "+type);
         }
         for(Iterator<String> k=o.keys();k.hasNext();){
@@ -94,7 +100,7 @@ final class DashboardSpec {
         String title=o.has("title")?string(o,"title",true,40):null;
         String icon=null;
         if(o.has("icon")){icon=string(o,"icon",true,40);if(!ICONS.contains(icon))throw new IllegalArgumentException("Nieznana ikona: "+icon);}
-        else switch(type){case "entity":icon="information";break;case "light":icon="lightbulb";break;case "cover":icon="window-shutter";break;case "garage":icon="garage-open";break;default:break;}
+        else switch(type){case "entity":icon="information";break;case "light":icon="lightbulb";break;case "cover":icon="window-shutter";break;case "garage":icon="garage-open";break;case "music":icon="music";break;default:break;}
         String visibleEntity=null,visibleState=null;
         if(o.has("visible_when")){
             JSONObject when=o.optJSONObject("visible_when");if(when==null)throw new IllegalArgumentException("visible_when musi być obiektem");
