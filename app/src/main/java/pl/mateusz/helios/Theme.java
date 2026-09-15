@@ -9,12 +9,14 @@ final class Theme {
     static final Theme NIGHT_BLUE=new Theme("night_blue",0xFF151D2B,0xFF243247,0xFFF7F4EE,0xFFC1C7D0,0xFF9CCFE0);
     static final int RADIUS=18;
     static final int HA_CONNECTED=0xFF18BCF2;
+    /** Notification glow is always warm orange, whatever the preset accent (user request 2026-09-15). */
+    static final int ATTENTION=0xFFEDBE83;
     final String id;final int background,surface,text,muted,accent,raised,attentionSurface;
     private static volatile Theme current=WARM_GRAPHITE;
     private Theme(String id,int background,int surface,int text,int muted,int accent){
         this.id=id;this.background=background;this.surface=surface;this.text=text;this.muted=muted;this.accent=accent;
         raised=composite(text,.10f,surface); // secondary buttons and the cover placeholder: a touch lighter than the card
-        attentionSurface=composite(accent,.10f,surface); // notification tiles: a warm tint under accent text and an accent outline
+        attentionSurface=composite(ATTENTION,.10f,surface); // notification tiles: a warm tint under orange text and an orange outline
     }
     static Theme current(){return current;}
     static void set(Theme theme){current=theme;}

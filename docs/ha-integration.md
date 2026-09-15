@@ -35,3 +35,7 @@ Ponowne parowanie tego samego zegara (np. nowe konto HA dla tokena) odświeża i
 Menu → **Urządzenie: głośność i lampka**: suwak głośności (zmiana po puszczeniu), przełącznik lampki, jasność 1-10. Menu → **Odśwież parowanie** pobiera ponownie dokument parowania z mostu (`tools/native_bridge.py`); zmiana danych HA wymaga potwierdzenia, sekcja `music_assistant` (0.6) jest dołączana z `.local/ma.json`, gdy plik istnieje.
 
 Kod, testy (`pytest tests`) i workflow hassfest/HACS żyją w `SychPL/ha-helios`; ten katalog `ha/` zawiera tylko YAML panelu. Integracja nie była jeszcze uruchomiona na HA 2026.8.3 - pierwszy odbiór wg SPEC 0.7 pkt 7.
+
+## Pakiet sypialni (SPEC 0.9)
+
+`ha/packages/helios_bedroom.yaml` definiuje trzy pomocniki dla kafelków Rolety / Światło sypialni / Jutro. Wymaga YAML: skopiować do `config/packages/` i mieć `homeassistant: packages: !include_dir_named packages` w `configuration.yaml`, potem restart HA. Publikacja pulpitu w schemacie 4: `python tools/deploy_bedroom_dashboard.py` (preflight), `--apply` po instalacji APK >= 0.8.8, `--rollback <kopia>` przywraca tylko sekcję `helios`.

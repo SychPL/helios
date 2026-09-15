@@ -1,6 +1,6 @@
 # Plan implementacji 0.9 - rolety sypialni, światło kontekstowe, pogoda na jutro
 
-Status: plan do recenzji, 2026-09-15. Realizuje [SPEC 0.9](SPEC-0.9-bedroom-dashboard.md) na bazie Helios 0.8.7 (`63ae9b4`, versionCode 16) i ha-helios 0.7.6. Wydanie: Helios 0.8.8 (versionCode 17), pakiet HA `ha/packages/helios_bedroom.yaml`, publikator `tools/deploy_bedroom_dashboard.py`.
+Status: ZREALIZOWANY w kodzie 2026-09-15 (`artifacts/native-0.8.8-results.md`); wdrożenie do HA i odbiór na zegarze czekają na użytkownika (SPEC pkt 8). Realizuje [SPEC 0.9](SPEC-0.9-bedroom-dashboard.md) na bazie Helios 0.8.7 (`63ae9b4`, versionCode 16) i ha-helios 0.7.6. Wydanie: Helios 0.8.8 (versionCode 17), pakiet HA `ha/packages/helios_bedroom.yaml`, publikator `tools/deploy_bedroom_dashboard.py`.
 
 Zasady jak w [planie 0.8](PLAN-0.8-implementation.md): testy JVM bez mocków Androida, Java 8, bez nowych zależności, każde zadanie kończy `./gradlew testDebugUnitTest assembleDebug lintDebug`. Integracja ha-helios bez zmian (nic z 0.9 nie przechodzi kanałem `helios/*`). Żadnej publikacji do prawdziwego HA i żadnej instalacji APK bez użytkownika; kolejność wdrożenia z SPEC pkt 8.
 
@@ -83,7 +83,7 @@ Ograniczenia: identyfikatory encji tylko w YAML/manifeście, nigdy w Javie; nazw
 
 **Interfejs:**
 - Definicja „kafel powiadomienia”: element typu `entity` z `visible_when` (dolny rząd uwagi z manifestu; widoczny tylko, gdy jest co pokazać). Bez nowego pola YAML.
-- `Theme.attentionSurface = composite(accent, .10f, surface)` (ciepły ton pod tekstem), obrys `accent` o grubości 2 jednostki (`GradientDrawable.setStroke`), ikona, tytuł i wartość w `accent`; opis (`detail`) w `muted`. Offline: jak inne kafle (bez obrysu, tekst `muted`, dopisek „(offline)”), żeby nieaktualne powiadomienie nie świeciło.
+- Kolor powiadomienia jest stały: `Theme.ATTENTION = #EDBE83` (pomarańcz niezależnie od presetu - użytkownik prosił o pomarańczowy, a akcent Nocnego błękitu jest niebieski); `Theme.attentionSurface = composite(ATTENTION, .10f, surface)`, obrys `ATTENTION` o grubości 2 jednostki (`GradientDrawable.setStroke`), ikona, tytuł i wartość w `ATTENTION`; opis (`detail`) w `muted`. Offline: jak inne kafle (bez obrysu, tekst `muted`, dopisek „(offline)”), żeby nieaktualne powiadomienie nie świeciło.
 - `ThemeTest`: `contrast(accent, attentionSurface) >= 4.5` i `contrast(muted, attentionSurface) >= 4.5` w obu presetach; także nad zdjęciem (92 % `attentionSurface` nad białym przyciemnionym 35 %).
 - `DashboardView.Tile.theme()`: gałąź `attention = item.type.equals("entity") && item.conditional() && live` wybiera tło/obrys/kolory; `Theme.card` dostaje wariant z obrysem (`card(int fill, int stroke, float strokePx, float radiusPx)`). Tło kafla ustawia wyłącznie `theme()`; `scale()` przestaje wołać `setBackground` i na końcu woła `theme()` (dziś `scale()` nadpisuje tło zwykłą kartą po każdej zmianie tekstu i geometrii).
 

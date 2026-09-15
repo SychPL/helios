@@ -157,11 +157,11 @@ public final class DashboardView extends FrameLayout {
         void theme(){
             Theme t=Theme.current();float r=Theme.RADIUS*scale;
             boolean attention=item.type.equals("entity")&&item.conditional()&&live;
-            if(attention)setBackground(Theme.card(!photo?t.attentionSurface:(0xEB000000|(t.attentionSurface&0xFFFFFF)),t.accent,2*scale,r));
+            if(attention)setBackground(Theme.card(!photo?t.attentionSurface:(0xEB000000|(t.attentionSurface&0xFFFFFF)),Theme.ATTENTION,2*scale,r));
             else setBackground(Theme.card(surface(t),r));
-            title.setTextColor(attention?t.accent:t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
-            value.setTextColor(!live?t.muted:attention?t.accent:t.text);
-            if(item.icon!=null)icon.set(item.icon,attention?t.accent:iconTint==0?t.muted:iconTint);
+            title.setTextColor(attention?Theme.ATTENTION:t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
+            value.setTextColor(!live?t.muted:attention?Theme.ATTENTION:t.text);
+            if(item.icon!=null)icon.set(item.icon,attention?Theme.ATTENTION:iconTint==0?t.muted:iconTint);
         }
         /** Sizes in 800x480 units; w/h are the tile's own size in those units, so the clock fits its hour by measurement. */
         void scale(float s,float w,float h){

@@ -15,7 +15,7 @@ public class ThemeTest {
             assertTrue(t.id,Theme.contrast(t.accent,t.background)>=4.5);
             assertTrue(t.id,Theme.contrast(t.onColor(t.accent),t.accent)>=4.5);
             assertTrue(t.id,Theme.contrast(t.text,t.raised)>=4.5);
-            assertTrue(t.id+" accent/attention",Theme.contrast(t.accent,t.attentionSurface)>=4.5);
+            assertTrue(t.id+" orange/attention",Theme.contrast(Theme.ATTENTION,t.attentionSurface)>=4.5);
             assertTrue(t.id+" muted/attention",Theme.contrast(t.muted,t.attentionSurface)>=4.5);
         }
     }
@@ -29,7 +29,7 @@ public class ThemeTest {
             assertTrue(t.id+" text/clock",Theme.contrast(t.text,clock)>=4.5);
             assertTrue(t.id+" muted/clock",Theme.contrast(t.muted,clock)>=4.5);
             int attention=Theme.composite(t.attentionSurface,.92f,photo);
-            assertTrue(t.id+" accent/attention over photo "+Theme.contrast(t.accent,attention),Theme.contrast(t.accent,attention)>=4.5);
+            assertTrue(t.id+" orange/attention over photo "+Theme.contrast(Theme.ATTENTION,attention),Theme.contrast(Theme.ATTENTION,attention)>=4.5);
         }
         assertEquals(21.0,Theme.contrast(WHITE,BLACK),.01);
         assertEquals(0xFF808080,Theme.composite(WHITE,.5f,0xFF000000)&0xFFFFFFFF);
