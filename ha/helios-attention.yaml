@@ -1,0 +1,103 @@
+group:
+  name: Helios - Swiatla do sprawdzenia
+  entities:
+    - light.basement_light_1
+    - light.tz3000_7ed9cqgi_ts0002_swiatlo_16
+    - light.garage_light_swiatlo
+    - light.garage_light_swiatlo_2
+    - light.kitchen_light_all
+    - light.living_room_terrace_light_swiatlo
+    - light.garden_soffit_light_1
+    - light.garden_soffit_light_2
+light_labels:
+  light.basement_light_1: Piwnica
+  light.tz3000_7ed9cqgi_ts0002_swiatlo_16: Piwnica
+  light.garage_light_swiatlo: Garaż
+  light.garage_light_swiatlo_2: Garaż
+  light.kitchen_light_swiatlo: Kuchnia
+  light.kitchen_light_swiatlo_2: Kuchnia
+  light.living_room_terrace_light_swiatlo: Taras
+  light.garden_soffit_light_1: Podbitka
+  light.garden_soffit_light_2: Podbitka
+helpers:
+  lights:
+    name: Helios - Zapalone swiatla
+    state: >-
+      {% set labels = __LIGHT_LABELS__ %}
+      {% set lit = expand('__LIGHT_GROUP__') | selectattr('state', 'eq', 'on') | list %}
+      {% set result = namespace(rooms=[]) %}
+      {% for lamp in lit %}
+        {% set room = labels.get(lamp.entity_id, lamp.name) %}
+        {% if room not in result.rooms %}{% set result.rooms = result.rooms + [room] %}{% endif %}
+      {% endfor %}
+      {{ (lit | count | string) ~ ' · ' ~ (result.rooms | join(', ')) if lit else '' }}
+  garage:
+    name: Helios - Garaz uwaga
+    state: >-
+      {% if is_state('sensor.camera_garage_garage_gate_classification', 'open') %}
+        Kamera: otw.
+      {% endif %}
+  shed:
+    name: Helios - Blaszak uwaga
+    state: >-
+      {% if is_state('sensor.camera_garden_blaszak_classification', 'open') %}
+        Otwarty
+      {% endif %}
+  courier:
+    name: Helios - Wiking godzina
+    state: >-
+      {% if is_state('input_boolean.night_courier_active', 'on') %}
+        {{ as_local(states.input_boolean.night_courier_active.last_changed).strftime('%H:%M') }}
+      {% endif %}
+tiles:
+  - id: clock
+    type: clock
+    column: 1
+    row: 1
+    width: 2
+    height: 2
+    title: Dom
+  - id: weather
+    type: weather
+    entity: weather.forecast_dom
+    column: 3
+    row: 1
+    width: 2
+    height: 1
+    title: Pogoda
+  - id: lights-watched
+    type: entity
+    helper: lights
+    column: 1
+    row: 3
+    width: 1
+    height: 1
+    title: Światła
+    icon: lightbulb
+  - id: garage-attention
+    type: entity
+    helper: garage
+    column: 2
+    row: 3
+    width: 1
+    height: 1
+    title: Garaż
+    icon: garage-open
+  - id: shed-attention
+    type: entity
+    helper: shed
+    column: 3
+    row: 3
+    width: 1
+    height: 1
+    title: Blaszak
+    icon: garage-open
+  - id: courier
+    type: entity
+    helper: courier
+    column: 4
+    row: 3
+    width: 1
+    height: 1
+    title: Wiking był
+    icon: information

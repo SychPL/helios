@@ -19,6 +19,23 @@ Równoległy etap: [SPEC 0.7 — urządzenie Helios w Home Assistant](SPEC-0.7-h
 
 ## Zaakceptowane wymagania
 
+### Redesign i własne tło — kolejny przyrost
+
+Użytkownik zlecił spisanie [SPEC 0.8 — mapa etapów](SPEC-0.8-dashboard-appearance.md). Po recenzji podzielono zakres na [0.8a — poprawki muzyki i redesign](SPEC-0.8a-renderer-music.md) oraz [0.8b — tła z HA](SPEC-0.8b-backgrounds.md). Zakres: cieplejszy wygląd, większa godzina i data, wybór lub wgranie zdjęcia w HA, czytelna prawa nakładka muzyki oraz naprawa metadanych i znikania po pauzie. Dla teł proponowany jest formularz opcji per urządzenie, bez nowego schematu YAML; obsługa uploadu wymaga próby na używanej wersji HA. Dokumenty są do recenzji, nie oznaczają instalacji ani gotowego edytora. Cztery dolne powiadomienia i wykluczenia encji pozostają bez zmian.
+
+### Dashboard wymagający uwagi — ustalenia z 15 września
+
+- Minimalistyczny wygląd. Część kafelków pojawia się tylko wtedy, kiedy jest istotna informacja, np. otwarty garaż; muzyka pozostaje prawą nakładką, bez przesuwania kafelków.
+- Powiadomienia zajmują ostatni, dolny rząd, po 1×1 każde. Bieżący zestaw: światła, garaż, blaszak, dostawa Wikinga. Garaż i blaszak są osobnymi kafelkami, a nie jednym zbiorczym tekstem. Każdy ma niezależny warunek widoczności.
+- Światła obejmują wyłącznie edytowalną grupę obserwowaną: piwnica, garaż, kuchnia, tylko drugi kanał modułu tarasu i podbitka. Pierwszy kanał tarasu zasila kosiarkę i jest wykluczony, podobnie jak kule świecące nocą i stale świecące półki w salonie. W rejestrze ZHA kanał 2 ma encję `light.living_room_terrace_light_swiatlo` (endpoint 2), a encja z końcówką `_2` oznacza kanał 1 (endpoint 1); nie wnioskować kanału sprzętowego z numeru w nazwie encji. Grupy i ich członkowie nie mogą podwajać licznika.
+- Wykrycie `blaszak2` jest błędne i nie może wywoływać kafelka ani powiadomień; pozostaje wyłącznie klasyfikacja `blaszak`. Garaż w tym informacyjnym dashboardzie korzysta z klasyfikacji kamery: `open` pokazuje kafelek, `close` go ukrywa. Nie porównujemy jej z `cover.brama` i nie dodajemy na tej podstawie sterowania bramą.
+- Informacja o wykryciu Wikinga ma korzystać z istniejących zdarzeń HA/Frigate, nie ze stanu lampki w toalecie. Docelowo potwierdzenie odbioru kończy oczekujące powiadomienie; wykrycie kuriera samo w sobie nie dowodzi dostarczenia paczki.
+- Docelowo lampka zegara miga przy niepotwierdzonych powiadomieniach również nocą. To wymóg do implementacji i odbioru, nie potwierdzona funkcja. Wykluczenie basenu oraz wybranych świateł obowiązuje również przy generowaniu jego powiadomień.
+- Basen/jacuzzi istnieje na dashboardzie tylko przy połączeniu urządzenia Bestway, według jego czujnika `Spa Connected`. Teraz sprzęt jest schowany. Sam stan encji zasilania albo klasyfikacja kamery nie wystarczają do włączenia kafelka.
+- Stan nieznany lub sprzeczny nie może być pokazywany jako pewne otwarcie/zamknięcie. Zwłaszcza brama i wiatrołap wymagają ustalenia wiarygodnego źródła przed dodaniem akcji.
+
+Pierwszy przyrost dashboardu zapisano w HA bez zmiany APK: [raport wdrożenia i ograniczenia](../artifacts/attention-dashboard-20260915.md). Rozwijana lista świateł, trwała kolejka powiadomień, potwierdzanie i miganie nie są częścią tego przyrostu.
+
 ### Konfiguracja całego dashboardu
 
 - Home Assistant ma konfigurować cały dashboard, a nie tylko obecną listę maksymalnie trzech wskaźników.
