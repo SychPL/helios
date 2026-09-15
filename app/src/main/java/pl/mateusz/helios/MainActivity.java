@@ -304,16 +304,19 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void pairDialog(){
         if(service==null||ha()==null){Toast.makeText(this,"Najpierw sparuj zegar z HA",Toast.LENGTH_SHORT).show();return;}
         closePanel();
-        float d=getResources().getDisplayMetrics().density;int pad=Math.round(12*d);
-        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackgroundColor(0xFF242C25);
-        TextView title=new TextView(this);title.setText("Kod parowania z integracji Helios w HA");title.setTextColor(0xFFF1EFE6);title.setTextSize(16);column.addView(title);
-        TextView code=new TextView(this);code.setText("");code.setTextColor(0xFFF1EFE6);code.setTextSize(32);code.setGravity(Gravity.CENTER);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(56*d)));
+        // Sized in 800x480 screen units, not dp: on the clock's density a dp keypad overflowed the 480 px height.
+        float s=Math.min(getResources().getDisplayMetrics().widthPixels/800f,getResources().getDisplayMetrics().heightPixels/480f);
+        int pad=Math.round(10*s),gap=Math.round(6*s);
+        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackgroundColor(0xFF242C25);column.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView title=new TextView(this);title.setText("Kod parowania z integracji Helios w HA");title.setTextColor(0xFFF1EFE6);title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,15*s);column.addView(title);
+        TextView code=new TextView(this);code.setText("");code.setTextColor(0xFFF1EFE6);code.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,30*s);code.setGravity(Gravity.CENTER);code.setLetterSpacing(.3f);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
         String[][] keys={{"1","2","3"},{"4","5","6"},{"7","8","9"},{"⌫","0","OK"}};
         for(String[] rowKeys:keys){
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
             for(String key:rowKeys){
-                Button b=new Button(this);b.setText(key);b.setTextSize(22);b.setAllCaps(false);
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(88*d),Math.round(56*d));p.rightMargin=Math.round(6*d);p.bottomMargin=Math.round(6*d);row.addView(b,p);
+                Button b=new Button(this);b.setText(key);b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,22*s);b.setAllCaps(false);b.setPadding(0,0,0,0);
+                b.setContentDescription(key.equals("⌫")?"Usuń ostatnią cyfrę":key.equals("OK")?"Zatwierdź kod":"Cyfra "+key);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(84*s),Math.round(58*s));p.rightMargin=gap;p.bottomMargin=gap;row.addView(b,p);
                 b.setOnClickListener(v->{
                     String current=code.getText().toString();
                     if(key.equals("⌫")){if(!current.isEmpty())code.setText(current.substring(0,current.length()-1));}
@@ -322,8 +325,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 });
             }
         }
-        Button cancel=new Button(this);cancel.setText("Anuluj");cancel.setAllCaps(false);cancel.setOnClickListener(v->closePanel());column.addView(cancel,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
-        Dialog dialog=new Dialog(this);panel=dialog;dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);dialog.show();
+        Button cancel=new Button(this);cancel.setText("Anuluj");cancel.setAllCaps(false);cancel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,16*s);cancel.setOnClickListener(v->closePanel());column.addView(cancel,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
+        Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);
+        if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));dialog.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
+        dialog.show();
     }
     private void deviceDialog(){
         if(service==null)return;
