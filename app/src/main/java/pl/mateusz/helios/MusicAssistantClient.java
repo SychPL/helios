@@ -90,6 +90,10 @@ final class MusicAssistantClient {
     void volume(String playerId,int level,Consumer<Object> ok,Consumer<String> fail){
         try{call("players/cmd/volume_set",new JSONObject().put("player_id",playerId).put("volume_level",Math.max(0,Math.min(100,level))),"cmd",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
     }
+    /** player_queues/seek: position in seconds on the player's active queue (queue_id == player_id when not grouped). */
+    void seek(String queueId,int seconds,Consumer<Object> ok,Consumer<String> fail){
+        try{call("player_queues/seek",new JSONObject().put("queue_id",queueId).put("position",Math.max(0,seconds)),"cmd",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
+    }
     void mute(String playerId,boolean muted,Consumer<Object> ok,Consumer<String> fail){
         try{call("players/cmd/volume_mute",new JSONObject().put("player_id",playerId).put("muted",muted),"cmd",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
     }

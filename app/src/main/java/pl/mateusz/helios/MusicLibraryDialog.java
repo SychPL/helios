@@ -43,7 +43,8 @@ final class MusicLibraryDialog {
 
     void show(){
         dialog=new Dialog(activity);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout root=new LinearLayout(activity);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(0xFF1B201D);root.setPadding(dp(10),dp(8),dp(10),dp(8));
+        Theme t=Theme.current();
+        LinearLayout root=new LinearLayout(activity);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(t.background);root.setPadding(dp(10),dp(8),dp(10),dp(8));
         LinearLayout top=new LinearLayout(activity);top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);root.addView(top);
         playerSpinner=new Spinner(activity);playersAdapter=new ArrayAdapter<>(activity,android.R.layout.simple_spinner_dropdown_item,new ArrayList<>());playerSpinner.setAdapter(playersAdapter);
         top.addView(playerSpinner,new LinearLayout.LayoutParams(0,dp(44),1));
@@ -51,23 +52,23 @@ final class MusicLibraryDialog {
             public void onItemSelected(AdapterView<?> parent,View view,int position,long id){if(position<players.size())selectPlayer(players.get(position));}
             public void onNothingSelected(AdapterView<?> parent){}
         });
-        Button close=new Button(activity);close.setText("Zamknij");close.setAllCaps(false);close.setOnClickListener(v->close());top.addView(close,new LinearLayout.LayoutParams(dp(110),dp(44)));
+        Button close=Theme.button(activity,"Zamknij",false,dp(16),dp(Theme.RADIUS));close.setOnClickListener(v->close());LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(dp(110),dp(44));cl.leftMargin=dp(8);top.addView(close,cl);
         LinearLayout searchRow=new LinearLayout(activity);searchRow.setOrientation(LinearLayout.HORIZONTAL);root.addView(searchRow);
-        query=new EditText(activity);query.setHint("Szukaj w bibliotece (2-100 znaków)");query.setTextColor(0xFFF1EFE6);query.setHintTextColor(0xFF9EA59B);query.setSingleLine(true);query.setInputType(InputType.TYPE_CLASS_TEXT);query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        query=new EditText(activity);query.setHint("Szukaj w bibliotece (2-100 znaków)");query.setTextColor(t.text);query.setHintTextColor(t.muted);query.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t.accent));query.setSingleLine(true);query.setInputType(InputType.TYPE_CLASS_TEXT);query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setOnEditorActionListener((v,actionId,event)->{search();return true;});
         searchRow.addView(query,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button go=new Button(activity);go.setText("Szukaj");go.setAllCaps(false);go.setOnClickListener(v->search());searchRow.addView(go,new LinearLayout.LayoutParams(dp(110),dp(44)));
-        status=new TextView(activity);status.setTextColor(0xFF9EA59B);status.setText("Ostatnio odtwarzane");root.addView(status);
+        Button go=Theme.button(activity,"Szukaj",true,dp(16),dp(Theme.RADIUS));go.setOnClickListener(v->search());LinearLayout.LayoutParams gl=new LinearLayout.LayoutParams(dp(110),dp(44));gl.leftMargin=dp(8);searchRow.addView(go,gl);
+        status=Theme.label(activity,"Ostatnio odtwarzane",14,true);root.addView(status);
         ListView list=new ListView(activity);resultsAdapter=new ArrayAdapter<>(activity,android.R.layout.simple_list_item_1,new ArrayList<>());list.setAdapter(resultsAdapter);
         list.setOnItemClickListener((parent,view,position,id)->{if(position<results.size())play(results.get(position));});
         root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout bottom=new LinearLayout(activity);bottom.setOrientation(LinearLayout.HORIZONTAL);bottom.setGravity(Gravity.CENTER_VERTICAL);root.addView(bottom);
-        nowPlaying=new TextView(activity);nowPlaying.setTextColor(0xFFF1EFE6);nowPlaying.setMaxLines(1);bottom.addView(nowPlaying,new LinearLayout.LayoutParams(0,-2,1));
-        for(String[] b:new String[][]{{"◀◀","previous"},{"▶","play"},{"❚❚","pause"},{"▶▶","next"},{"■","stop"}}){
-            Button button=new Button(activity);button.setText(b[0]);button.setTextSize(18);button.setContentDescription(b[1]);
-            button.setOnClickListener(v->command(b[1]));bottom.addView(button,new LinearLayout.LayoutParams(dp(56),dp(48)));
+        nowPlaying=Theme.label(activity,"",15,false);nowPlaying.setMaxLines(1);bottom.addView(nowPlaying,new LinearLayout.LayoutParams(0,-2,1));
+        for(String[] b:new String[][]{{"previous","Poprzedni"},{"play","Odtwórz"},{"pause","Pauza"},{"next","Następny"},{"stop","Stop"}}){
+            MusicOverlay.IconButton button=new MusicOverlay.IconButton(activity,b[0],b[1]);button.style(b[0].equals("play")?t.accent:t.raised,b[0].equals("play")?t.onColor(t.accent):t.text,dp(48)/72f);
+            button.setOnClickListener(v->command(b[0]));LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(dp(48),dp(48));bl.leftMargin=dp(4);bottom.addView(button,bl);
         }
-        SeekBar volume=new SeekBar(activity);volume.setMax(100);volume.setContentDescription("Głośność wybranego gracza");bottom.addView(volume,new LinearLayout.LayoutParams(dp(140),dp(40)));
+        SeekBar volume=new SeekBar(activity);volume.setMax(100);volume.setContentDescription("Głośność wybranego gracza");Theme.tint(volume);bottom.addView(volume,new LinearLayout.LayoutParams(dp(140),dp(40)));
         volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar s,int p,boolean u){}
             public void onStartTrackingTouch(SeekBar s){}

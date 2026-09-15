@@ -154,6 +154,7 @@ final class DashboardSpec {
             if(i.type.equals("weather"))out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(WEATHER_ATTRIBUTES);
             if(i.type.equals("cover")||i.type.equals("garage"))out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(COVER_ATTRIBUTES);
             if(i.attribute!=null)out.computeIfAbsent(i.entity,k->new HashSet<>()).add(i.attribute);
+            if(i.temperatureEntity!=null)out.computeIfAbsent(i.temperatureEntity,k->new HashSet<>()).add("unit_of_measurement"); // the weather tile shows the sensor's own unit, never a default
         }
         return out;
     }

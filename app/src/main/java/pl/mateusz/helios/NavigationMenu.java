@@ -35,12 +35,12 @@ final class NavigationMenu {
         dialog=new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout panel=new LinearLayout(activity);panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16),dp(12),dp(16),dp(12));panel.setBackgroundColor(0xFF242C25);
-        TextView title=new TextView(activity);title.setText("Menu Heliosa");title.setTextSize(20);title.setTextColor(0xFFF1EFE6);title.setPadding(dp(8),dp(6),0,dp(8));panel.addView(title);
+        panel.setPadding(dp(16),dp(12),dp(16),dp(12));panel.setBackgroundColor(Theme.current().surface);
+        TextView title=Theme.label(activity,"Menu Heliosa",20,false);title.setPadding(dp(8),dp(6),0,dp(8));panel.addView(title);
         button(panel,"Zamknij menu",()->dialog.dismiss());
         ScrollView scroll=new ScrollView(activity);panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout rows=new LinearLayout(activity);rows.setOrientation(LinearLayout.VERTICAL);scroll.addView(rows);
-        TextView diagnostics=new TextView(activity);diagnostics.setTextColor(0xFF9EA59B);diagnostics.setTextSize(13);diagnostics.setPadding(dp(8),0,dp(8),dp(8));
+        TextView diagnostics=Theme.label(activity,"",13,true);diagnostics.setPadding(dp(8),0,dp(8),dp(8));
         org.json.JSONObject cfg=connection.get();
         diagnostics.setText("Helios "+BuildConfig.VERSION_NAME+"\nHA: "+(cfg==null?"brak parowania":cfg.optString("url",""))+"\n"+status);rows.addView(diagnostics);
         button(rows,"Rozmowa z Nabu",()->{close();actions.talk();});
@@ -69,8 +69,8 @@ final class NavigationMenu {
     /** Connection diagnostics shown inside the menu; safe to call at any time. */
     void status(String text){status=text==null?"":text;}
     private void button(LinearLayout parent,String label,Runnable action){
-        Button b=new Button(activity);b.setText(label);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(0xFFF1EFE6);
-        b.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);b.setPadding(dp(12),0,dp(12),0);b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF354035));
+        Button b=Theme.button(activity,label,false,dp(16),dp(Theme.RADIUS));
+        b.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);b.setPadding(dp(16),0,dp(12),0);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(54));params.bottomMargin=dp(4);parent.addView(b,params);
         b.setOnClickListener(v->action.run());
     }

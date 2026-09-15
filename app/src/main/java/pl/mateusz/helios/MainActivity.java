@@ -58,9 +58,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 dashboard.musicOverlay().setSnapshot(snapshot);
             });
             dashboard.musicOverlay().setActions(new MusicOverlay.Actions(){
-                public void command(String command){service.musicCommand(command,error->{if(error!=null)Toast.makeText(MainActivity.this,error,Toast.LENGTH_SHORT).show();});}
-                public void volume(int level){service.musicVolume(level,error->{if(error!=null)Toast.makeText(MainActivity.this,error,Toast.LENGTH_SHORT).show();});}
-                public void mute(boolean muted){service.musicMute(muted,error->{if(error!=null)Toast.makeText(MainActivity.this,error,Toast.LENGTH_SHORT).show();});}
+                // errors reach the panel through the snapshot issue (no toasts over the night screen)
+                public void command(String command){service.musicCommand(command,error->{});}
+                public void seek(int seconds){service.musicSeek(seconds,error->{});}
+                public void mute(boolean muted){service.musicMute(muted,error->{});}
             });
             if(resumed)attachHa();
         }
@@ -89,8 +90,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean resumed,busy,recording,pendingVoice,pairing;
     private final Runnable tick=new Runnable(){public void run(){
         Date now=new Date();
-        String date=new SimpleDateFormat("EEEE, d MMMM",new Locale("pl","PL")).format(now);
-        dashboard.clock(new SimpleDateFormat("HH:mm",Locale.ROOT).format(now),date.substring(0,1).toUpperCase(new Locale("pl"))+date.substring(1));
+        String weekday=new SimpleDateFormat("EEEE",new Locale("pl","PL")).format(now),date=new SimpleDateFormat("d MMMM",new Locale("pl","PL")).format(now);
+        dashboard.clock(new SimpleDateFormat("HH:mm",Locale.ROOT).format(now),weekday.substring(0,1).toUpperCase(new Locale("pl"))+weekday.substring(1),date);
         if(resumed)main.postDelayed(this,1000);
     }};
 
@@ -206,33 +207,42 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void confirm(DashboardSpec.Item item,String fallbackText,Runnable action){
         if(!item.confirm){action.run();return;}
         closePanel();
-        panel=new AlertDialog.Builder(this).setMessage(item.confirmText!=null?item.confirmText:fallbackText)
-            .setPositiveButton("Potwierdź",(d,w)->{panel=null;if(live)action.run();else Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();})
-            .setNegativeButton("Anuluj",(d,w)->panel=null).setOnCancelListener(d->panel=null).create();
-        panel.setCanceledOnTouchOutside(true);panel.show();
+        confirmDialog(item.confirmText!=null?item.confirmText:fallbackText,"Potwierdź",()->{if(live)action.run();else Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();},()->{});
+    }
+    /** Palette confirmation with finger-sized buttons; cancel, outside touch and dismiss all run onCancel without sending anything. */
+    private void confirmDialog(String message,String okLabel,Runnable onOk,Runnable onCancel){
+        Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout column=Theme.dialogColumn(this,20);column.setMinimumWidth(Theme.dp(this,320));
+        TextView text=Theme.label(this,message,18,false);text.setPadding(0,0,0,Theme.dp(this,16));column.addView(text);
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
+        Button cancel=Theme.button(this,"Anuluj",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));Button ok=Theme.button(this,okLabel,true,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
+        LinearLayout.LayoutParams a=new LinearLayout.LayoutParams(0,Theme.dp(this,56),1);a.rightMargin=Theme.dp(this,8);row.addView(cancel,a);row.addView(ok,new LinearLayout.LayoutParams(0,Theme.dp(this,56),1));
+        cancel.setOnClickListener(v->dialog.cancel());ok.setOnClickListener(v->{panel=null;dialog.setOnCancelListener(null);dialog.dismiss();onOk.run();});
+        dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->{panel=null;onCancel.run();});
+        if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dialog.show();
     }
     private void coverPanel(DashboardSpec.Item item){
         closePanel();
-        Dialog dialog=new Dialog(this);panel=dialog;panelItem=item;
-        float density=getResources().getDisplayMetrics().density;int pad=Math.round(16*density);
-        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackgroundColor(0xFF242C25);
-        panelTitle=new TextView(this);panelTitle.setText(coverTitle(item));panelTitle.setTextSize(20);panelTitle.setTextColor(0xFFF1EFE6);panelTitle.setPadding(0,0,0,pad);column.addView(panelTitle);
+        Dialog dialog=new Dialog(this);panel=dialog;panelItem=item;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        int pad=Theme.dp(this,16);
+        LinearLayout column=Theme.dialogColumn(this,16);
+        panelTitle=Theme.label(this,coverTitle(item),20,false);panelTitle.setPadding(0,0,0,pad);column.addView(panelTitle);
         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
         // ponytail: stop is never confirmed and never blocked by another pending action, so a moving cover can always be halted.
         panelButton(row,"▲","Otwórz",item,"open_cover",true);
         panelButton(row,"■","Zatrzymaj",item,"stop_cover",false);
         panelButton(row,"▼","Zamknij",item,"close_cover",true);
-        Button close=new Button(this);close.setText("Zamknij panel");close.setAllCaps(false);close.setOnClickListener(v->closePanel());
-        LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Math.round(54*density));c.topMargin=pad;column.addView(close,c);
+        Button close=Theme.button(this,"Zamknij panel",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));close.setOnClickListener(v->closePanel());
+        LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Theme.dp(this,56));c.topMargin=pad;column.addView(close,c);
         dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->{panel=null;panelTitle=null;panelItem=null;});
-        if(dialog.getWindow()!=null)dialog.getWindow().setGravity(Gravity.CENTER);
+        if(dialog.getWindow()!=null){dialog.getWindow().setGravity(Gravity.CENTER);dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));}
         dialog.show();
     }
     private void panelButton(LinearLayout parent,String symbol,String label,DashboardSpec.Item item,String service,boolean gated){
-        Button b=new Button(this);b.setText(symbol);b.setContentDescription(label);b.setTextSize(28);
+        Button b=Theme.button(this,symbol,service.equals("stop_cover"),Theme.dp(this,28),Theme.dp(this,Theme.RADIUS));b.setContentDescription(label);
         b.setEnabled(!pendingActions.contains(item.id+":"+service));
-        float density=getResources().getDisplayMetrics().density;
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(96*density),Math.round(80*density));p.rightMargin=Math.round(8*density);parent.addView(b,p);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Theme.dp(this,96),Theme.dp(this,80));p.rightMargin=Theme.dp(this,8);parent.addView(b,p);
         b.setOnClickListener(v->{
             if(gated&&item.confirm){closePanel();confirm(item,label+": "+dashboardLabel(item)+"?",()->call(item,"cover",service,null));return;}
             b.setEnabled(false);
@@ -308,14 +318,15 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         // Sized in 800x480 screen units, not dp: on the clock's density a dp keypad overflowed the 480 px height.
         float s=Math.min(getResources().getDisplayMetrics().widthPixels/800f,getResources().getDisplayMetrics().heightPixels/480f);
         int pad=Math.round(10*s),gap=Math.round(6*s);
-        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackgroundColor(0xFF242C25);column.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView title=new TextView(this);title.setText("Kod parowania z integracji Helios w HA");title.setTextColor(0xFFF1EFE6);title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,15*s);column.addView(title);
-        TextView code=new TextView(this);code.setText("");code.setTextColor(0xFFF1EFE6);code.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,30*s);code.setGravity(Gravity.CENTER);code.setLetterSpacing(.3f);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
+        Theme t=Theme.current();
+        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackground(Theme.card(t.surface,Theme.RADIUS*s));column.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView title=new TextView(this);title.setText("Kod parowania z integracji Helios w HA");title.setTextColor(t.muted);title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,15*s);column.addView(title);
+        TextView code=new TextView(this);code.setText("");code.setTextColor(t.text);code.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,30*s);code.setGravity(Gravity.CENTER);code.setLetterSpacing(.3f);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
         String[][] keys={{"1","2","3"},{"4","5","6"},{"7","8","9"},{"⌫","0","OK"}};
         for(String[] rowKeys:keys){
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
             for(String key:rowKeys){
-                Button b=new Button(this);b.setText(key);b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,22*s);b.setAllCaps(false);b.setPadding(0,0,0,0);
+                Button b=Theme.button(this,key,key.equals("OK"),22*s,Theme.RADIUS*s);
                 b.setContentDescription(key.equals("⌫")?"Usuń ostatnią cyfrę":key.equals("OK")?"Zatwierdź kod":"Cyfra "+key);
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(84*s),Math.round(58*s));p.rightMargin=gap;p.bottomMargin=gap;row.addView(b,p);
                 b.setOnClickListener(v->{
@@ -326,7 +337,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 });
             }
         }
-        Button cancel=new Button(this);cancel.setText("Anuluj");cancel.setAllCaps(false);cancel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,16*s);cancel.setOnClickListener(v->closePanel());column.addView(cancel,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
+        Button cancel=Theme.button(this,"Anuluj",false,16*s,Theme.RADIUS*s);cancel.setOnClickListener(v->closePanel());column.addView(cancel,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
         Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);
         if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));dialog.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
         dialog.show();
@@ -336,28 +347,31 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         closePanel();
         float d=getResources().getDisplayMetrics().density;int pad=Math.round(12*d);
         DockController dock=service.dock();DeviceVolume volume=service.volume();
-        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackgroundColor(0xFF242C25);column.setMinimumWidth(Math.round(360*d));
-        TextView volumeLabel=new TextView(this);volumeLabel.setTextColor(0xFFF1EFE6);volumeLabel.setText("Głośność urządzenia: "+volume.percent()+"%");column.addView(volumeLabel);
-        android.widget.SeekBar volumeBar=new android.widget.SeekBar(this);volumeBar.setMax(100);volumeBar.setProgress(volume.percent());column.addView(volumeBar,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        LinearLayout column=Theme.dialogColumn(this,16);column.setMinimumWidth(Math.round(360*d));
+        TextView volumeLabel=Theme.label(this,"Głośność urządzenia: "+volume.percent()+"%",16,false);column.addView(volumeLabel);
+        android.widget.SeekBar volumeBar=new android.widget.SeekBar(this);volumeBar.setMax(100);volumeBar.setProgress(volume.percent());Theme.tint(volumeBar);column.addView(volumeBar,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
         volumeBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){volumeLabel.setText("Głośność urządzenia: "+p+"%");}
             public void onStartTrackingTouch(android.widget.SeekBar s){}
             public void onStopTrackingTouch(android.widget.SeekBar s){int applied=volume.set(s.getProgress());volumeLabel.setText("Głośność urządzenia: "+applied+"%");service.publish();}
         });
         boolean lampAvailable=dock.unavailable()==null&&!Boolean.FALSE.equals(dock.dockConnected());
-        TextView lampLabel=new TextView(this);lampLabel.setTextColor(0xFFF1EFE6);lampLabel.setPadding(0,pad,0,0);
+        TextView lampLabel=Theme.label(this,"",16,false);lampLabel.setPadding(0,pad,0,0);
         lampLabel.setText(lampAvailable?"Lampka docka":"Lampka docka: "+(dock.unavailable()!=null?dock.unavailable():"dock odłączony"));column.addView(lampLabel);
-        android.widget.Switch lamp=new android.widget.Switch(this);lamp.setText("Włączona");lamp.setTextColor(0xFFF1EFE6);lamp.setChecked(Boolean.TRUE.equals(dock.ledOn()));lamp.setEnabled(lampAvailable);column.addView(lamp,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
-        TextView brightLabel=new TextView(this);brightLabel.setTextColor(0xFFF1EFE6);brightLabel.setText("Jasność: "+(dock.ledBrightness()==null?"—":dock.ledBrightness()+"/10"));column.addView(brightLabel);
-        android.widget.SeekBar bright=new android.widget.SeekBar(this);bright.setMax(9);bright.setProgress(dock.ledBrightness()==null?6:dock.ledBrightness()-1);bright.setEnabled(lampAvailable);column.addView(bright,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        android.widget.Switch lamp=new android.widget.Switch(this);lamp.setText("Włączona");lamp.setTextColor(Theme.current().text);lamp.setThumbTintList(android.content.res.ColorStateList.valueOf(Theme.current().accent));lamp.setChecked(Boolean.TRUE.equals(dock.ledOn()));lamp.setEnabled(lampAvailable);column.addView(lamp,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        TextView brightLabel=Theme.label(this,"Jasność: "+(dock.ledBrightness()==null?"—":dock.ledBrightness()+"/10"),16,false);column.addView(brightLabel);
+        android.widget.SeekBar bright=new android.widget.SeekBar(this);bright.setMax(9);bright.setProgress(dock.ledBrightness()==null?6:dock.ledBrightness()-1);bright.setEnabled(lampAvailable);Theme.tint(bright);column.addView(bright,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
         lamp.setOnCheckedChangeListener((b,on)->network.execute(()->{try{if(on)dock.turnOn();else dock.turnOff();}catch(Exception e){main.post(()->Toast.makeText(this,"Lampka: "+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}}));
         bright.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){brightLabel.setText("Jasność: "+(p+1)+"/10");}
             public void onStartTrackingTouch(android.widget.SeekBar s){}
             public void onStopTrackingTouch(android.widget.SeekBar s){int level=s.getProgress()+1;network.execute(()->{try{dock.setBrightness(level);if(lamp.isChecked())dock.turnOn();}catch(Exception e){main.post(()->Toast.makeText(MainActivity.this,"Lampka: "+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}});}
         });
-        Button close=new Button(this);close.setText("Zamknij");close.setAllCaps(false);close.setOnClickListener(v->closePanel());column.addView(close,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
-        Dialog dialog=new Dialog(this);panel=dialog;dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);dialog.show();
+        Button close=Theme.button(this,"Zamknij",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));close.setOnClickListener(v->closePanel());
+        LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,Math.round(56*d));cl.topMargin=pad;column.addView(close,cl);
+        Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);
+        if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dialog.show();
     }
     /** Re-fetches the pairing document; HA changes need explicit confirmation, unchanged sections are left alone. */
     private void refreshPairing(){
@@ -369,9 +383,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 main.post(()->{
                     if(config!=null&&!HeliosService.sameHa(config,received)){
                         closePanel();
-                        panel=new AlertDialog.Builder(this).setMessage("Parowanie zmienia połączenie z HA ("+received.optString("url","")+"). Zastosować?")
-                            .setPositiveButton("Zastosuj",(x,w)->{panel=null;applyProvisioning(received);}).setNegativeButton("Anuluj",(x,w)->{panel=null;dashboard.setMessage("");}).setOnCancelListener(x->{panel=null;dashboard.setMessage("");}).create();
-                        panel.show();
+                        confirmDialog("Parowanie zmienia połączenie z HA ("+received.optString("url","")+"). Zastosować?","Zastosuj",()->applyProvisioning(received),()->dashboard.setMessage(""));
                     }else applyProvisioning(received);
                 });
             }catch(Exception error){main.post(()->dashboard.setMessage("Odświeżenie nieudane: "+error.getMessage()));}

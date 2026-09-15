@@ -41,6 +41,7 @@ public class DashboardSpecTest {
         assertEquals(Arrays.asList("weather.forecast_dom","sensor.temperatura_salon","sensor.helios_rain_message","binary_sensor.helios_show_rain_daytime","light.salon","cover.roleta_salon","cover.brama_garazowa","binary_sensor.helios_show_open_garage_evening"),spec.entities());
         assertEquals(new HashSet<>(DashboardSpec.WEATHER_ATTRIBUTES),spec.attributes().get("weather.forecast_dom"));
         assertNull(spec.attributes().get("sensor.helios_rain_message"));
+        assertEquals(Collections.singleton("unit_of_measurement"),spec.attributes().get("sensor.temperatura_salon"));
         assertEquals(Collections.singleton("current_position"),spec.attributes().get("cover.roleta_salon"));assertEquals(Collections.singleton("current_position"),spec.attributes().get("cover.brama_garazowa"));
     }
     @Test public void garageConfirmationCanBeDisabledExplicitlyAndAttributeIsRetained() throws Exception {
