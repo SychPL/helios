@@ -19,6 +19,18 @@ final class WakeWordListener {
 
     boolean listen(Context context,Runnable ready) throws Exception {return listen(context,ready,null);}
     /** Where AudioFlinger actually routed the capture: built-in mic, USB, Bluetooth SCO... (type constants from AudioDeviceInfo). */
+    /** Every capture AudioFlinger currently runs (ours included): source, client format, device format. Another client at 48 kHz stereo explains a 6x sample flood on a HAL without per-client resampling. */
+    static String activeRecordings(Context context){
+        try{
+            android.media.AudioManager am=(android.media.AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+            StringBuilder out=new StringBuilder("[");
+            for(android.media.AudioRecordingConfiguration c:am.getActiveRecordingConfigurations()){
+                android.media.AudioFormat cf=c.getClientFormat(),df=c.getFormat();
+                out.append("{src=").append(c.getClientAudioSource()).append(" client=").append(cf==null?"?":cf.getSampleRate()+"/"+cf.getChannelCount()).append(" device=").append(df==null?"?":df.getSampleRate()+"/"+df.getChannelCount()).append(" session=").append(c.getClientAudioSessionId()).append("}");
+            }
+            return out.append("]").toString();
+        }catch(Exception e){return "?";}
+    }
     static String routed(AudioRecord recorder){
         try{android.media.AudioDeviceInfo d=recorder.getRoutedDevice();return d==null?"none":d.getType()+":"+d.getProductName()+":"+java.util.Arrays.toString(d.getSampleRates());}catch(Exception e){return "?";}
     }
@@ -65,7 +77,7 @@ final class WakeWordListener {
                     offset=0;
                     long now=SystemClock.elapsedRealtime();
                     if(diagnostics!=null&&now-lastReport>=15_000){
-                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" rate="+recorder.getSampleRate()+" channels="+recorder.getChannelCount()+" session="+recorder.getAudioSessionId()+" elapsed_ms="+(now-lastReport)+" device="+routed(recorder));
+                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" rate="+recorder.getSampleRate()+" channels="+recorder.getChannelCount()+" session="+recorder.getAudioSessionId()+" elapsed_ms="+(now-lastReport)+" device="+routed(recorder)+" active="+activeRecordings(context));
                         energy=0;frames=0;peak=0;lastReport=now;
                     }
                 }
