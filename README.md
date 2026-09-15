@@ -1,6 +1,6 @@
 # Helios — prototyp głosu na Lenovo Smart Clock 2
 
-Natywna aplikacja Android jest w `app/`: stały pasek statusu, dashboard 4×3 konfigurowany w Home Assistant (zegar, pogoda, encje, światła, rolety, brama) i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.5.0. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
+Natywna aplikacja Android jest w `app/`: stały pasek statusu, dashboard 4×3 konfigurowany w Home Assistant (zegar, pogoda, encje, światła, rolety, brama) i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.7.0. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
 
 ## Dashboard 0.5.0
 
@@ -9,6 +9,10 @@ Górny pasek (HELIOS, ikona HA, jeden tekst statusu) i menu pod przytrzymaniem H
 Zegar wywołuje wyłącznie `light.toggle` oraz `cover.open_cover`/`stop_cover`/`close_cover` dla encji z YAML, po jednym wywołaniu na dotknięcie, z blokadą do odpowiedzi HA (10 s). Panel rolety ma przyciski ▲ ■ ▼ i procent otwarcia; blokuje przyciski osobno, więc ■ działa zawsze przy żywym połączeniu. Zakładka `menu-zegara` z 0.4 nie jest już czytana.
 
 Wcześniejsze testy na fizycznym zegarze z OTA 627 potwierdziły także lokalne sterowanie lampką docka oraz zdarzeniową detekcję ładowania telefonu przez fabryczny binder OEM. Nie są to elementy dashboardu ani integracja HA; szczegóły opisuje [nota techniczna lampki docka](docs/lamp-control.md). Wersja 0.4 (wskaźniki, menu z kart HA) pozostaje opisana historycznie w [SPEC 0.4](docs/SPEC-0.4-hidden-menu.md).
+
+## Integracja HA 0.7.0
+
+Aplikacja ma teraz foreground service (`HeliosService`), który trzyma jedno gniazdo WS do HA niezależnie od widoczności ekranu. Na tym gnieździe działa kanał urządzenia `helios/connect`: telemetria (wersja, stan głosu, dock, ładowanie, lampka, głośność) oraz allowlista komend z HA (lampka docka przez binder OEM, głośność `STREAM_MUSIC`). Komponent HA `ha/custom_components/helios` tworzy urządzenie z encjami `sensor`, `binary_sensor`, `light`, `number` i parowanie kodem. `AssistClient` przekazuje `device_id` urządzenia do pipeline, więc obszar zegara w HA daje kontekst pokoju dla poleceń głosowych. Instalacja i zachowanie: [ha-integration.md](docs/ha-integration.md), spec: [SPEC 0.7](docs/SPEC-0.7-home-assistant-integration.md). Odbiór na fizycznym zegarze i HA 2026.8.3 jeszcze nie wykonany.
 
 Kolejny planowany etap to Music Assistant: Lenovo jako lokalny odtwarzacz Sendspin oraz pilot innych graczy, z półekranowym widokiem okładki podczas lokalnego grania. Zakres i obowiązkowy prototyp opisuje [SPEC 0.6](docs/SPEC-0.6-music-assistant.md).
 

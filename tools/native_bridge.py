@@ -21,6 +21,10 @@ url=json.loads(provision.read_text())['url'];route=urllib.parse.urlparse(url).pa
 config=json.loads((ROOT/'.local/ha.json').read_text(encoding='utf-8-sig'))
 inventory=json.loads((ROOT/'artifacts/ha-preflight-auth-20260915.json').read_text(encoding='utf-8'))
 config.update(pipeline=inventory['preferred_pipeline'],weather_entity='weather.forecast_dom',diagnostics_url=f'http://{host}:8757'+route+'/events')
+music=ROOT/'.local/ma.json'
+if music.exists():  # optional Music Assistant section (SPEC 0.6 3.3); absent file = no music, never an error
+    ma=json.loads(music.read_text(encoding='utf-8-sig'))
+    config['music_assistant']={'url':ma['url'],'token':ma['token'],'sendspin_url':ma.get('sendspin_url',''),'player_name':ma.get('player_name','Helios')}
 artifact=ROOT/'artifacts/native-0.1';artifact.mkdir(exist_ok=True)
 started=time.monotonic()
 class Handler(http.server.BaseHTTPRequestHandler):

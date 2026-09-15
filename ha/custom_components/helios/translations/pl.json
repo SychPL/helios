@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Paruj zegar Helios"
+      }
+    },
+    "progress": {
+      "pair": "Na zegarze przytrzymaj HELIOS, wybierz \"Paruj z HA (kod)\" i wpisz kod:\n\n**{code}**\n\nKod jest ważny {minutes} min."
+    },
+    "abort": {
+      "timeout": "Zegar nie połączył się w czasie ważności kodu.",
+      "reconfigured": "Zegar był już dodany; powiązanie zostało odświeżone."
+    }
+  }
+}
