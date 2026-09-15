@@ -7,23 +7,33 @@ import java.util.*;
 /** Helios 0.5 grid dashboard contract (helios.version 2). Pure data, validated atomically; no device entity IDs. */
 final class DashboardSpec {
     static final int COLUMNS=4,ROWS=3,MAX_ITEMS=12,MAX_BYTES=65536;
-    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2 lub 3";
+    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2, 3 lub 4";
     static final List<String> ICONS=Arrays.asList("information","weather-rainy","lightbulb","window-shutter","garage-open","music");
     static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit");
-    static final List<String> COVER_ATTRIBUTES=Collections.singletonList("current_position");
+    static final List<String> COVER_ATTRIBUTES=Arrays.asList("current_position","supported_features");
+    static final List<String> FORECAST_ATTRIBUTES=Arrays.asList("forecast_date","condition","temperature","templow","temperature_unit","fetched_at","valid_until");
     private static final List<String> COMMON=Arrays.asList("id","type","column","row","width","height","title","icon","visible_when","tap_action","confirmation");
     private static final String ENTITY="[a-z0-9_]+\\.[a-z0-9_]+";
     final List<Item> items;
     final int version;
     private DashboardSpec(int version,List<Item> items){this.version=version;this.items=Collections.unmodifiableList(items);}
 
+    /** One roller shutter inside a cover_group: entity for the services, title for the panel row. */
+    static final class Cover {final String entity,title;Cover(String entity,String title){this.entity=entity;this.title=title;}}
     static final class Item {
-        final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText;
+        final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText,forecastEntity,forecastWhenEntity,forecastWhenState;
         final int column,row,width,height;
         final boolean confirm;
+        final List<Cover> covers;
         Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText){
-            this.id=id;this.type=type;this.column=column;this.row=row;this.width=width;this.height=height;this.title=title;this.icon=icon;this.entity=entity;this.temperatureEntity=temperatureEntity;this.attribute=attribute;this.action=action;this.visibleEntity=visibleEntity;this.visibleState=visibleState;this.confirm=confirm;this.confirmText=confirmText;
+            this(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,Collections.emptyList(),null,null,null);
         }
+        Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText,List<Cover> covers,String forecastEntity,String forecastWhenEntity,String forecastWhenState){
+            this.id=id;this.type=type;this.column=column;this.row=row;this.width=width;this.height=height;this.title=title;this.icon=icon;this.entity=entity;this.temperatureEntity=temperatureEntity;this.attribute=attribute;this.action=action;this.visibleEntity=visibleEntity;this.visibleState=visibleState;this.confirm=confirm;this.confirmText=confirmText;
+            this.covers=Collections.unmodifiableList(covers);this.forecastEntity=forecastEntity;this.forecastWhenEntity=forecastWhenEntity;this.forecastWhenState=forecastWhenState;
+        }
+        /** Tomorrow's forecast is shown when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
+        boolean forecast(){return forecastEntity!=null;}
         boolean interactive(){return action!=null;}
         boolean conditional(){return visibleEntity!=null;}
         /** Visibility is decided only from a live state; unknown, unavailable and missing never satisfy the condition. */
@@ -40,7 +50,7 @@ final class DashboardSpec {
     }
 
     static DashboardSpec parse(JSONObject root) throws Exception {
-        if(!(root.opt("version") instanceof Integer)||(root.getInt("version")!=2&&root.getInt("version")!=3))throw new IllegalArgumentException(VERSION_ERROR);
+        if(!(root.opt("version") instanceof Integer)||root.getInt("version")<2||root.getInt("version")>4)throw new IllegalArgumentException(VERSION_ERROR);
         int version=root.getInt("version");
         if(root.toString().length()>MAX_BYTES)throw new IllegalArgumentException("Sekcja helios przekracza 64 KiB");
         keys(root,Arrays.asList("version","grid","items"),"konfiguracji");
@@ -71,7 +81,7 @@ final class DashboardSpec {
         String action;
         switch(type){
             case "clock":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));action=null;break;
-            case "weather":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));allowed.addAll(Arrays.asList("entity","temperature_entity"));action=null;break;
+            case "weather":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));allowed.addAll(Arrays.asList("entity","temperature_entity"));if(version>=4)allowed.addAll(Arrays.asList("forecast_entity","forecast_when"));action=null;break;
             case "entity":allowed.removeAll(Arrays.asList("tap_action","confirmation"));allowed.addAll(Arrays.asList("entity","attribute"));action=null;break;
             case "light":allowed.add("entity");action="toggle";break;
             case "cover":allowed.add("entity");action="controls";break;
@@ -79,11 +89,14 @@ final class DashboardSpec {
             case "music":
                 if(version<3)throw new IllegalArgumentException("Typ music wymaga version: 3");
                 allowed.removeAll(Arrays.asList("tap_action","confirmation"));action="library";break;
+            case "cover_group":
+                if(version<4)throw new IllegalArgumentException("Typ cover_group wymaga version: 4");
+                allowed.removeAll(Arrays.asList("tap_action","confirmation"));allowed.add("covers");action="covers";break;
             default:throw new IllegalArgumentException("Nieobsługiwany typ elementu: "+type);
         }
         for(Iterator<String> k=o.keys();k.hasNext();){
             String key=k.next();
-            if(!allowed.contains(key))throw new IllegalArgumentException((COMMON.contains(key)||Arrays.asList("entity","temperature_entity","attribute").contains(key)?"Pole niedozwolone dla typu "+type+": ":"Nieznane pole elementu: ")+key);
+            if(!allowed.contains(key))throw new IllegalArgumentException((COMMON.contains(key)||Arrays.asList("entity","temperature_entity","attribute","covers","forecast_entity","forecast_when").contains(key)?"Pole niedozwolone dla typu "+type+": ":"Nieznane pole elementu: ")+key);
         }
         String id=string(o,"id",true,40);
         if(!id.matches("[a-z0-9_-]{1,40}"))throw new IllegalArgumentException("Nieprawidłowy id: "+id);
@@ -97,18 +110,32 @@ final class DashboardSpec {
         }
         if(o.has("temperature_entity")){temperatureEntity=string(o,"temperature_entity",true,128);if(!temperatureEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("temperature_entity wymaga encji sensor");}
         if(o.has("attribute")){attribute=string(o,"attribute",true,64);if(!attribute.matches("[a-z0-9_]{1,64}"))throw new IllegalArgumentException("Nieprawidłowy attribute");}
+        List<Cover> covers=new ArrayList<>();
+        if(type.equals("cover_group")){
+            JSONArray list=o.optJSONArray("covers");
+            if(list==null||list.length()!=2)throw new IllegalArgumentException("cover_group wymaga dokładnie dwóch pozycji covers");
+            for(int n=0;n<2;n++){
+                JSONObject c=list.optJSONObject(n);if(c==null)throw new IllegalArgumentException("covers: pozycja musi być obiektem");
+                keys(c,Arrays.asList("entity","title"),"covers");
+                String coverEntity=string(c,"entity",true,128),coverTitle=string(c,"title",true,40);
+                if(!coverEntity.matches("cover\\.[a-z0-9_]+"))throw new IllegalArgumentException("covers wymaga encji z domeny cover");
+                covers.add(new Cover(coverEntity,coverTitle));
+            }
+            if(covers.get(0).entity.equals(covers.get(1).entity))throw new IllegalArgumentException("covers: ta sama roleta dwa razy");
+        }
+        String forecastEntity=null,forecastWhenEntity=null,forecastWhenState=null;
+        if(o.has("forecast_entity")||o.has("forecast_when")){
+            if(!(o.has("forecast_entity")&&o.has("forecast_when")))throw new IllegalArgumentException("weather: forecast_entity i forecast_when występują razem");
+            forecastEntity=string(o,"forecast_entity",true,128);
+            if(!forecastEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("forecast_entity wymaga encji sensor");
+            String[] when=when(o,"forecast_when");forecastWhenEntity=when[0];forecastWhenState=when[1];
+        }
         String title=o.has("title")?string(o,"title",true,40):null;
         String icon=null;
         if(o.has("icon")){icon=string(o,"icon",true,40);if(!ICONS.contains(icon))throw new IllegalArgumentException("Nieznana ikona: "+icon);}
-        else switch(type){case "entity":icon="information";break;case "light":icon="lightbulb";break;case "cover":icon="window-shutter";break;case "garage":icon="garage-open";break;case "music":icon="music";break;default:break;}
+        else switch(type){case "entity":icon="information";break;case "light":icon="lightbulb";break;case "cover":case "cover_group":icon="window-shutter";break;case "garage":icon="garage-open";break;case "music":icon="music";break;default:break;}
         String visibleEntity=null,visibleState=null;
-        if(o.has("visible_when")){
-            JSONObject when=o.optJSONObject("visible_when");if(when==null)throw new IllegalArgumentException("visible_when musi być obiektem");
-            keys(when,Arrays.asList("entity","state"),"visible_when");
-            visibleEntity=string(when,"entity",true,128);visibleState=string(when,"state",true,64);
-            if(!visibleEntity.matches(ENTITY))throw new IllegalArgumentException("Nieprawidłowa encja visible_when");
-            if(visibleState.equals("unknown")||visibleState.equals("unavailable"))throw new IllegalArgumentException("Brak danych nie może oznaczać widoczności");
-        }
+        if(o.has("visible_when")){String[] when=when(o,"visible_when");visibleEntity=when[0];visibleState=when[1];}
         if(o.has("tap_action")){
             JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException("tap_action musi być obiektem");
             keys(tap,Collections.singletonList("action"),"tap_action");
@@ -122,7 +149,16 @@ final class DashboardSpec {
             confirm=c.getBoolean("enabled");
             if(c.has("text"))confirmText=string(c,"text",true,80);
         }
-        return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText);
+        return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState);
+    }
+    /** {entity, state} condition shared by visible_when and forecast_when: a live state only, never unknown/unavailable. */
+    private static String[] when(JSONObject o,String key) throws Exception {
+        JSONObject when=o.optJSONObject(key);if(when==null)throw new IllegalArgumentException(key+" musi być obiektem");
+        keys(when,Arrays.asList("entity","state"),key);
+        String entity=string(when,"entity",true,128),state=string(when,"state",true,64);
+        if(!entity.matches(ENTITY))throw new IllegalArgumentException("Nieprawidłowa encja "+key);
+        if(state.equals("unknown")||state.equals("unavailable"))throw new IllegalArgumentException("Brak danych nie może oznaczać "+(key.equals("visible_when")?"widoczności":"trybu prognozy"));
+        return new String[]{entity,state};
     }
 
     private static void keys(JSONObject o,List<String> allowed,String where) throws Exception {
@@ -144,7 +180,11 @@ final class DashboardSpec {
     /** Every entity the renderer or visibility needs, in first-use order, without duplicates. */
     List<String> entities(){
         LinkedHashSet<String> out=new LinkedHashSet<>();
-        for(Item i:items){if(i.entity!=null)out.add(i.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);if(i.visibleEntity!=null)out.add(i.visibleEntity);}
+        for(Item i:items){
+            if(i.entity!=null)out.add(i.entity);for(Cover c:i.covers)out.add(c.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);
+            if(i.forecastEntity!=null){out.add(i.forecastWhenEntity);out.add(i.forecastEntity);}
+            if(i.visibleEntity!=null)out.add(i.visibleEntity);
+        }
         return new ArrayList<>(out);
     }
     /** Attributes worth retaining per entity; everything else is dropped at decode time. */
@@ -153,6 +193,8 @@ final class DashboardSpec {
         for(Item i:items){
             if(i.type.equals("weather"))out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(WEATHER_ATTRIBUTES);
             if(i.type.equals("cover")||i.type.equals("garage"))out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(COVER_ATTRIBUTES);
+            for(Cover c:i.covers)out.computeIfAbsent(c.entity,k->new HashSet<>()).addAll(COVER_ATTRIBUTES);
+            if(i.forecastEntity!=null)out.computeIfAbsent(i.forecastEntity,k->new HashSet<>()).addAll(FORECAST_ATTRIBUTES);
             if(i.attribute!=null)out.computeIfAbsent(i.entity,k->new HashSet<>()).add(i.attribute);
             if(i.temperatureEntity!=null)out.computeIfAbsent(i.temperatureEntity,k->new HashSet<>()).add("unit_of_measurement"); // the weather tile shows the sensor's own unit, never a default
         }

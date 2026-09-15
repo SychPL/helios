@@ -40,7 +40,8 @@ final class EntityStates {
         if(values==null||keep==null)return;
         for(String name:keep){
             Object value=values.opt(name);
-            if(value==null||value==JSONObject.NULL)continue;
+            if(value==null)continue;
+            if(value==JSONObject.NULL){Map<String,String> row=attributes.get(id);if(row!=null)row.remove(name);continue;} // an explicit null clears the attribute (templow -> no minimum)
             attributes.computeIfAbsent(id,k->new HashMap<>()).put(name,String.valueOf(value));
         }
     }

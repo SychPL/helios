@@ -12,6 +12,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 public class HaDashboardClientTest {
+    @Test public void nullAttributeInASnapshotOrDeltaRemovesTheStoredValue() throws Exception {
+        EntityStates states=new EntityStates(Collections.singletonMap("sensor.f",new HashSet<>(Arrays.asList("templow","temperature"))));
+        states.apply(new JSONObject("{\"a\":{\"sensor.f\":{\"s\":\"ready\",\"a\":{\"templow\":9,\"temperature\":18}}}}"));
+        assertEquals("9",states.snapshot().get("sensor.f").attribute("templow"));
+        states.apply(new JSONObject("{\"c\":{\"sensor.f\":{\"+\":{\"a\":{\"templow\":null}}}}}"));
+        assertNull(states.snapshot().get("sensor.f").attribute("templow"));assertEquals("18",states.snapshot().get("sensor.f").attribute("temperature"));
+    }
     static final class Dashboard {
         final JSONObject raw;final DashboardSpec spec;final Map<String,EntityStates.Entity> states;final String issue;
         Dashboard(JSONObject raw,DashboardSpec spec,Map<String,EntityStates.Entity> states,String issue){this.raw=raw;this.spec=spec;this.states=states;this.issue=issue;}

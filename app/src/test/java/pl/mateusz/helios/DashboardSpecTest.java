@@ -42,7 +42,7 @@ public class DashboardSpecTest {
         assertEquals(new HashSet<>(DashboardSpec.WEATHER_ATTRIBUTES),spec.attributes().get("weather.forecast_dom"));
         assertNull(spec.attributes().get("sensor.helios_rain_message"));
         assertEquals(Collections.singleton("unit_of_measurement"),spec.attributes().get("sensor.temperatura_salon"));
-        assertEquals(Collections.singleton("current_position"),spec.attributes().get("cover.roleta_salon"));assertEquals(Collections.singleton("current_position"),spec.attributes().get("cover.brama_garazowa"));
+        assertEquals(new HashSet<>(DashboardSpec.COVER_ATTRIBUTES),spec.attributes().get("cover.roleta_salon"));assertEquals(new HashSet<>(DashboardSpec.COVER_ATTRIBUTES),spec.attributes().get("cover.brama_garazowa"));
     }
     @Test public void garageConfirmationCanBeDisabledExplicitlyAndAttributeIsRetained() throws Exception {
         DashboardSpec spec=DashboardSpec.parse(with("garage","confirmation",new JSONObject().put("enabled",false)));
@@ -76,8 +76,72 @@ public class DashboardSpecTest {
         JSONObject withEntity=new JSONObject(c.toString());withEntity.getJSONArray("items").getJSONObject(6).put("entity","media_player.x");rejects(withEntity,"entity on music");
         assertEquals(2,DashboardSpec.parse(example()).version);
     }
+    /** SPEC 0.9 pkt 7.3: the three changed tiles plus the clock and four bottom notifications. */
+    static JSONObject exampleV4() throws Exception {
+        JSONArray items=new JSONArray()
+            .put(item("clock","clock",1,1,2,2).put("title","Dom"))
+            .put(item("weather","weather",3,1,2,1).put("entity","weather.forecast_dom").put("title","Pogoda").put("forecast_entity","sensor.helios_pogoda_jutro")
+                .put("forecast_when",new JSONObject().put("entity","binary_sensor.helios_pogoda_jutro_tryb").put("state","on")))
+            .put(item("bedroom-covers","cover_group",3,2,1,1).put("title","Rolety").put("covers",new JSONArray()
+                .put(new JSONObject().put("entity","cover.bedroom_main_cover_a").put("title","Roleta A"))
+                .put(new JSONObject().put("entity","cover.bedroom_main_cover_b").put("title","Roleta B"))))
+            .put(item("bedroom-light","light",4,2,1,1).put("title","Światło sypialni").put("entity","light.bedroom_a_all")
+                .put("visible_when",new JSONObject().put("entity","binary_sensor.helios_sypialnia_swiatlo_pokaz").put("state","on")));
+        String[][] bottom={{"lights-watched","sensor.helios_zapalone_swiatla","lightbulb"},{"garage-attention","sensor.helios_garaz_uwaga","garage-open"},{"shed-attention","sensor.helios_blaszak_uwaga","information"},{"courier","sensor.helios_wiking_godzina","information"}};
+        for(int i=0;i<4;i++)items.put(item(bottom[i][0],"entity",i+1,3,1,1).put("entity",bottom[i][1]).put("icon",bottom[i][2]).put("visible_when",new JSONObject().put("entity",bottom[i][1]+"_pokaz").put("state","on")));
+        return new JSONObject().put("version",4).put("grid",new JSONObject().put("columns",4).put("rows",3)).put("items",items);
+    }
+    private static JSONObject v4with(String id,String key,Object value) throws Exception {
+        JSONObject c=exampleV4();JSONArray items=c.getJSONArray("items");
+        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals(id)){if(value==null)items.getJSONObject(i).remove(key);else items.getJSONObject(i).put(key,value);}
+        return c;
+    }
+    private static JSONArray covers(String... pairs) throws Exception {
+        JSONArray out=new JSONArray();for(int i=0;i+1<pairs.length;i+=2)out.put(new JSONObject().put("entity",pairs[i]).put("title",pairs[i+1]));return out;
+    }
+    @Test public void schemaFourAddsCoverGroupAndTomorrowForecast() throws Exception {
+        DashboardSpec spec=DashboardSpec.parse(exampleV4());
+        assertEquals(4,spec.version);assertEquals(8,spec.items.size());
+        DashboardSpec.Item covers=spec.item("bedroom-covers");
+        assertEquals("covers",covers.action);assertEquals("window-shutter",covers.icon);assertNull(covers.entity);assertFalse(covers.confirm);
+        assertEquals(2,covers.covers.size());assertEquals("cover.bedroom_main_cover_a",covers.covers.get(0).entity);assertEquals("Roleta B",covers.covers.get(1).title);
+        DashboardSpec.Item weather=spec.item("weather");
+        assertEquals("sensor.helios_pogoda_jutro",weather.forecastEntity);assertEquals("binary_sensor.helios_pogoda_jutro_tryb",weather.forecastWhenEntity);assertEquals("on",weather.forecastWhenState);
+        List<String> entities=spec.entities();
+        for(String e:new String[]{"cover.bedroom_main_cover_a","cover.bedroom_main_cover_b","light.bedroom_a_all","binary_sensor.helios_sypialnia_swiatlo_pokaz","binary_sensor.helios_pogoda_jutro_tryb","sensor.helios_pogoda_jutro","weather.forecast_dom"})assertTrue(e,entities.contains(e));
+        Map<String,Set<String>> attributes=spec.attributes();
+        assertEquals(new HashSet<>(Arrays.asList("current_position","supported_features")),attributes.get("cover.bedroom_main_cover_a"));
+        assertEquals(new HashSet<>(Arrays.asList("current_position","supported_features")),attributes.get("cover.bedroom_main_cover_b"));
+        assertEquals(new HashSet<>(DashboardSpec.FORECAST_ATTRIBUTES),attributes.get("sensor.helios_pogoda_jutro"));
+        assertNull(attributes.get("binary_sensor.helios_pogoda_jutro_tryb"));
+        // the old single cover keeps the same attribute list (one contract per domain)
+        assertEquals(new HashSet<>(Arrays.asList("current_position","supported_features")),DashboardSpec.parse(example()).attributes().get("cover.roleta_salon"));
+        DashboardSpec plain=DashboardSpec.parse(exampleV4().put("version",4));assertNull(plain.item("bedroom-light").forecastEntity);assertTrue(plain.item("bedroom-light").covers.isEmpty());
+    }
+    @Test public void schemaFourRejectsMalformedCoverGroupsAndForecastFields() throws Exception {
+        rejects(exampleV4().put("version",3),"cover_group and forecast fields at version 3");
+        JSONObject v3=exampleV4().put("version",3);JSONArray items=v3.getJSONArray("items");for(int i=items.length()-1;i>=0;i--)if(items.getJSONObject(i).getString("id").equals("bedroom-covers"))items.remove(i);rejects(v3,"forecast fields at version 3");
+        rejects(v4with("bedroom-covers","covers",covers("cover.a","A")),"one cover");
+        rejects(v4with("bedroom-covers","covers",covers("cover.a","A","cover.b","B","cover.c","C")),"three covers");
+        rejects(v4with("bedroom-covers","covers",covers("cover.a","A","cover.a","B")),"same cover twice");
+        rejects(v4with("bedroom-covers","covers",covers("light.a","A","cover.b","B")),"light in covers");
+        rejects(v4with("bedroom-covers","covers",new JSONArray().put(new JSONObject().put("entity","cover.a")).put(new JSONObject().put("entity","cover.b").put("title","B"))),"cover without title");
+        rejects(v4with("bedroom-covers","covers",new JSONArray().put(new JSONObject().put("entity","cover.a").put("title","A").put("icon","x")).put(new JSONObject().put("entity","cover.b").put("title","B"))),"extra field in cover");
+        rejects(v4with("bedroom-covers","covers",null),"cover_group without covers");
+        rejects(v4with("bedroom-covers","entity","cover.a"),"entity on cover_group");
+        rejects(v4with("bedroom-covers","confirmation",new JSONObject().put("enabled",false)),"confirmation on cover_group");
+        rejects(v4with("bedroom-covers","tap_action",new JSONObject().put("action","covers")),"tap_action on cover_group");
+        rejects(v4with("weather","forecast_when",null),"forecast_entity without forecast_when");
+        rejects(v4with("weather","forecast_entity",null),"forecast_when without forecast_entity");
+        rejects(v4with("weather","forecast_entity","binary_sensor.x"),"forecast_entity domain");
+        rejects(v4with("weather","forecast_when",new JSONObject().put("entity","binary_sensor.x").put("state","unavailable")),"forecast_when unavailable");
+        rejects(v4with("weather","forecast_when",new JSONObject().put("entity","binary_sensor.x").put("state","on").put("extra",1)),"forecast_when extra field");
+        rejects(v4with("weather","icon","weather-rainy"),"icon on weather v4");
+        rejects(v4with("bedroom-light","forecast_entity","sensor.x"),"forecast_entity on light");
+        JSONObject overlap=exampleV4();overlap.getJSONArray("items").put(item("other","light",3,2,1,1).put("entity","light.x"));rejects(overlap,"cell (3,2) used twice");
+    }
     @Test public void rejectsWrongVersionAndGrid() throws Exception {
-        rejects(example().put("version",1),"version 1");rejects(example().put("version",4),"version 4");
+        rejects(example().put("version",1),"version 1");rejects(example().put("version",5),"version 5");
         rejects(example().put("version","2"),"version as text");
         rejects(example().put("grid",new JSONObject().put("columns",3).put("rows",3)),"3 columns");
         rejects(example().put("extra",1),"unknown root field");

@@ -9,11 +9,12 @@ final class Theme {
     static final Theme NIGHT_BLUE=new Theme("night_blue",0xFF151D2B,0xFF243247,0xFFF7F4EE,0xFFC1C7D0,0xFF9CCFE0);
     static final int RADIUS=18;
     static final int HA_CONNECTED=0xFF18BCF2;
-    final String id;final int background,surface,text,muted,accent,raised;
+    final String id;final int background,surface,text,muted,accent,raised,attentionSurface;
     private static volatile Theme current=WARM_GRAPHITE;
     private Theme(String id,int background,int surface,int text,int muted,int accent){
         this.id=id;this.background=background;this.surface=surface;this.text=text;this.muted=muted;this.accent=accent;
         raised=composite(text,.10f,surface); // secondary buttons and the cover placeholder: a touch lighter than the card
+        attentionSurface=composite(accent,.10f,surface); // notification tiles: a warm tint under accent text and an accent outline
     }
     static Theme current(){return current;}
     static void set(Theme theme){current=theme;}
@@ -52,6 +53,9 @@ final class Theme {
     }
     static android.graphics.drawable.GradientDrawable card(int color,float radiusPx){
         android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable();d.setColor(color);d.setCornerRadius(radiusPx);return d;
+    }
+    static android.graphics.drawable.GradientDrawable card(int fill,int stroke,float strokePx,float radiusPx){
+        android.graphics.drawable.GradientDrawable d=card(fill,radiusPx);d.setStroke(Math.max(1,Math.round(strokePx)),stroke);return d;
     }
     /** Rounded button in the palette; primary = accent fill with dark text, otherwise raised surface with light text. */
     static android.widget.Button button(android.content.Context context,String label,boolean primary,float textPx,float radiusPx){

@@ -39,6 +39,10 @@ final class IconView extends View {
                 path.reset();path.moveTo(6,7);path.lineTo(20,16);path.lineTo(6,25);path.close();canvas.drawPath(path,fill);canvas.drawRect(22,7,26,25,fill);break;
             case "previous":
                 path.reset();path.moveTo(26,7);path.lineTo(12,16);path.lineTo(26,25);path.close();canvas.drawPath(path,fill);canvas.drawRect(6,7,10,25,fill);break;
+            case "arrow-up":
+                canvas.drawLine(16,26,16,7,paint);canvas.drawLine(8,15,16,7,paint);canvas.drawLine(24,15,16,7,paint);break;
+            case "arrow-down":
+                canvas.drawLine(16,6,16,25,paint);canvas.drawLine(8,17,16,25,paint);canvas.drawLine(24,17,16,25,paint);break;
             case "chevron-right":
                 canvas.drawLine(12,8,20,16,paint);canvas.drawLine(20,16,12,24,paint);break;
             case "chevron-left":

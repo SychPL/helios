@@ -27,6 +27,7 @@ public final class DashboardView extends FrameLayout {
     private Actions actions;
     private String issue,message="",time="--:--",weekday="",date="",musicInfo="—";
     private boolean haConnected;
+    private Map<String,EntityStates.Entity> lastStates;private Map<String,Boolean> lastVisibility;private boolean lastLive;
     private int measuredWidth,measuredHeight;
     private float scale=1;
 
@@ -96,6 +97,8 @@ public final class DashboardView extends FrameLayout {
         boolean refit=!this.time.equals(time)&&this.time.length()!=time.length();
         this.time=time;this.weekday=weekday;this.date=date;
         for(Tile t:tiles.values())if(t.item.type.equals("clock")){if(refit)t.scale(scale,t.unitW,t.unitH);t.clock();}
+        long now=System.currentTimeMillis(); // a forecast expires without any HA delta: re-render just that tile (SPEC 0.9 pkt 6.2)
+        for(Tile t:tiles.values())if(t.forecastExpiresAt>0&&t.forecastExpiresAt<=now&&lastStates!=null){t.forecastExpiresAt=0;t.render(lastStates,lastLive);}
     }
     public void setIssue(String issue){this.issue=issue;refreshStatus();}
     public void setMessage(String message){this.message=message==null?"":message;refreshStatus();}
@@ -105,6 +108,7 @@ public final class DashboardView extends FrameLayout {
     public void pending(String id,boolean on){Tile t=tiles.get(id);if(t!=null)t.pending(on);}
     /** visibility holds the last decided value per conditional item; a conditional item without an entry stays hidden. */
     public void render(Map<String,EntityStates.Entity> states,Map<String,Boolean> visibility,boolean live){
+        lastStates=states;lastVisibility=visibility;lastLive=live;
         for(Tile t:tiles.values()){
             boolean shown=!t.item.conditional()||Boolean.TRUE.equals(visibility.get(t.item.id));
             t.setVisibility(shown?VISIBLE:GONE);
@@ -120,7 +124,7 @@ public final class DashboardView extends FrameLayout {
         final ProgressBar spinner;
         final boolean clock;
         float unitW,unitH;
-        boolean live=true;int iconTint;
+        boolean live=true;int iconTint;long forecastExpiresAt;boolean known=true;
         Tile(DashboardSpec.Item item){
             super(DashboardView.this.getContext());this.item=item;clock=item.type.equals("clock");
             column=new LinearLayout(getContext());column.setOrientation(LinearLayout.VERTICAL);column.setGravity(Gravity.CENTER_VERTICAL);addView(column,new LayoutParams(-1,-1));
@@ -143,17 +147,21 @@ public final class DashboardView extends FrameLayout {
             if(clock)return "";
             if(item.type.equals("weather"))return "Pogoda";
             if(item.type.equals("music"))return "Muzyka";
+            if(item.type.equals("cover_group"))return "Rolety";
             String name=item.entity.substring(item.entity.indexOf('.')+1).replace('_',' ');
             return name.substring(0,1).toUpperCase(new Locale("pl"))+name.substring(1);
         }
         /** Over a photo: information tiles keep 92% of the surface colour, the clock a 70% black veil (SPEC 0.8b pkt 6); plain colour otherwise. */
         private int surface(Theme t){return !photo?t.surface:clock?0xB3000000:(0xEB000000|(t.surface&0xFFFFFF));}
+        /** Notification tiles (entity + visible_when) glow: accent outline, warm tint, accent text; never while offline. The background is set only here. */
         void theme(){
-            Theme t=Theme.current();
-            setBackground(Theme.card(surface(t),Theme.RADIUS*scale));
-            title.setTextColor(t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
-            value.setTextColor(live?t.text:t.muted);
-            if(item.icon!=null)icon.set(item.icon,iconTint==0?t.muted:iconTint);
+            Theme t=Theme.current();float r=Theme.RADIUS*scale;
+            boolean attention=item.type.equals("entity")&&item.conditional()&&live;
+            if(attention)setBackground(Theme.card(!photo?t.attentionSurface:(0xEB000000|(t.attentionSurface&0xFFFFFF)),t.accent,2*scale,r));
+            else setBackground(Theme.card(surface(t),r));
+            title.setTextColor(attention?t.accent:t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
+            value.setTextColor(!live?t.muted:attention?t.accent:t.text);
+            if(item.icon!=null)icon.set(item.icon,attention?t.accent:iconTint==0?t.muted:iconTint);
         }
         /** Sizes in 800x480 units; w/h are the tile's own size in those units, so the clock fits its hour by measurement. */
         void scale(float s,float w,float h){
@@ -173,20 +181,35 @@ public final class DashboardView extends FrameLayout {
                 float fit=TextFit.size((text,size)->{sansPaint.setTextSize(size);return sansPaint.measureText(text);},value.getText().toString(),inner,24,28);
                 size(value,fit,s);size(detail,17,s);
             }
-            setBackground(Theme.card(surface(Theme.current()),Theme.RADIUS*s));
             int spin=Math.round(28*s);LayoutParams sp=new LayoutParams(spin,spin,Gravity.TOP|Gravity.END);sp.topMargin=sp.rightMargin=Math.round(10*s);spinner.setLayoutParams(sp);
+            theme();
         }
         void clock(){value.setText(time);detail.setText(date);detail2.setText(weekday);setContentDescription(time+", "+weekday+", "+date);}
-        void pending(boolean on){spinner.setVisibility(on?VISIBLE:GONE);setEnabled(!on);}
+        /** A pending call blocks only tiles whose tap is the action; cover tiles open a panel and stay reachable (SPEC 0.9 pkt 4.2). */
+        void pending(boolean on){spinner.setVisibility(on?VISIBLE:GONE);if(item.type.equals("light")||item.type.equals("garage"))setEnabled(!on&&live&&known);}
         void render(Map<String,EntityStates.Entity> states,boolean live){
             if(clock)return;
             Theme th=Theme.current();
             if(item.type.equals("music")){value.setText(musicInfo);detail.setVisibility(GONE);iconTint=th.muted;this.live=true;theme();setContentDescription("Muzyka: "+musicInfo);return;}
             EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
-            boolean known=e!=null&&e.known();
-            String text,extra="";int tint=th.muted;
+            boolean known=e!=null&&e.known();this.known=known;
+            String text,extra="";int tint=th.muted;boolean tomorrow=false;forecastExpiresAt=0;
             switch(item.type){
+                case "cover_group":{
+                    EntityStates.Entity a=states.get(item.covers.get(0).entity),b=states.get(item.covers.get(1).entity);
+                    text=CoverText.line("A",a);extra=CoverText.line("B",b);
+                    tint=CoverText.attention(a)||CoverText.attention(b)?th.accent:th.muted;break;}
                 case "weather":{
+                    if(item.forecast()){
+                        Forecast.Mode mode=Forecast.mode(states.get(item.forecastWhenEntity),item.forecastWhenState);
+                        if(mode==Forecast.Mode.UNKNOWN){text="—";extra="brak danych o trybie";break;}
+                        if(mode==Forecast.Mode.TOMORROW){
+                            Forecast f=Forecast.parse(states.get(item.forecastEntity),System.currentTimeMillis());tomorrow=true;
+                            if(f==null){text="—";extra="brak prognozy";}
+                            else{forecastExpiresAt=f.validUntilMs;text=f.max();extra=WeatherLabels.polish(f.condition)+(f.min()==null?"":" · "+f.min());}
+                            break;
+                        }
+                    }
                     String temperature=null,unit="";
                     if(item.temperatureEntity!=null){EntityStates.Entity t=states.get(item.temperatureEntity);if(t!=null&&t.known()){temperature=t.state;if(t.attribute("unit_of_measurement")!=null)unit=t.attribute("unit_of_measurement");}}
                     else if(known){temperature=e.attribute("temperature");if(e.attribute("temperature_unit")!=null)unit=e.attribute("temperature_unit");}
@@ -205,14 +228,17 @@ public final class DashboardView extends FrameLayout {
                     if(known&&e.attribute("current_position")!=null)extra="Otwarcie "+number(e.attribute("current_position"),"%");
                     tint=known&&!e.state.equals("closed")?th.accent:th.muted;break;
             }
-            String label=label();
+            String label=tomorrow?"Jutro":label();
             boolean changed=!text.equals(value.getText().toString());
             value.setText(text);detail.setText(extra);detail.setVisibility(extra.isEmpty()?GONE:VISIBLE);
             title.setText(live?label:label+" (offline)"); // stale values are muted text plus a word, never a faded tile (contrast)
             iconTint=tint;this.live=live;theme();
             if(changed&&!item.type.equals("weather")&&unitW>0)scale(scale,unitW,unitH);
             value.setContentDescription(text);
-            setContentDescription(label+": "+text+(extra.isEmpty()?"":", "+extra)+(live?"":", dane nieaktualne"));
+            if(item.type.equals("light")||item.type.equals("garage"))setEnabled(live&&known&&spinner.getVisibility()!=VISIBLE); // visible but inactive while HA reports no usable state
+            else if(item.type.equals("cover"))setEnabled(live&&known);
+            String described=item.type.equals("cover_group")?item.covers.get(0).title+": "+CoverText.state(states.get(item.covers.get(0).entity))+", "+item.covers.get(1).title+": "+CoverText.state(states.get(item.covers.get(1).entity)):text+(extra.isEmpty()?"":", "+extra);
+            setContentDescription(label+": "+described+(live?"":", dane nieaktualne"));
         }
         private String number(String raw,String unit){
             if(raw==null)return "—";

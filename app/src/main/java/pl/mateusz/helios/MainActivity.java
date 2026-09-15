@@ -15,6 +15,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -100,6 +101,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private MusicLibraryDialog library;
     private TextView panelTitle;
     private DashboardSpec.Item panelItem;
+    private Runnable panelRefresh; // re-renders the open cover panel from the latest states (both rows, button availability)
     private AssistClient voice;
     private boolean resumed,busy,recording,pendingVoice,pairing;
     private final Runnable tick=new Runnable(){public void run(){
@@ -192,7 +194,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         String issue=connectionIssue!=null?connectionIssue:configIssue;
         dashboard.setIssue(issue);navigation.status(issue==null?"HA: połączono, dane aktualne":issue);
         dashboard.render(states,visibility,live);
-        if(panelTitle!=null&&panelItem!=null)panelTitle.setText(coverTitle(panelItem));
+        if(panelRefresh!=null)panelRefresh.run();
     }
     private String coverTitle(DashboardSpec.Item item){
         EntityStates.Entity e=states.get(item.entity);String position=e==null||!e.known()?null:e.attribute("current_position");
@@ -204,10 +206,13 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void tap(DashboardSpec.Item item){
         if(item.type.equals("music")){openMusicLibrary();return;} // library and remote control depend on MA, not on HA
         if(!live||ha()==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
+        EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
+        boolean known=e!=null&&e.known(); // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
         switch(item.type){
-            case "light":confirm(item,"Przełączyć: "+dashboardLabel(item)+"?",()->call(item,"light","toggle"));break;
-            case "garage":confirm(item,"Zamknąć bramę?",()->call(item,"cover","close_cover"));break;
-            case "cover":coverPanel(item);break;
+            case "light":if(known)confirm(item,"Przełączyć: "+dashboardLabel(item)+"?",()->call(item,"light","toggle"));break;
+            case "garage":if(known)confirm(item,"Zamknąć bramę?",()->call(item,"cover","close_cover"));break;
+            case "cover":if(known)coverPanel(item);break;
+            case "cover_group":coverGroupPanel(item);break;
             default:break;
         }
     }
@@ -242,6 +247,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         int pad=Theme.dp(this,16);
         LinearLayout column=Theme.dialogColumn(this,16);
         panelTitle=Theme.label(this,coverTitle(item),20,false);panelTitle.setPadding(0,0,0,pad);column.addView(panelTitle);
+        final TextView titleView=panelTitle;panelRefresh=()->titleView.setText(coverTitle(item));
         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
         // ponytail: stop is never confirmed and never blocked by another pending action, so a moving cover can always be halted.
         panelButton(row,"▲","Otwórz",item,"open_cover",true);
@@ -255,7 +261,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     private void panelButton(LinearLayout parent,String symbol,String label,DashboardSpec.Item item,String service,boolean gated){
         Button b=Theme.button(this,symbol,service.equals("stop_cover"),Theme.dp(this,28),Theme.dp(this,Theme.RADIUS));b.setContentDescription(label);
-        b.setEnabled(!pendingActions.contains(item.id+":"+service));
+        b.setEnabled(!pendingActions.contains(item.id+":"+item.entity+":"+service));
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Theme.dp(this,96),Theme.dp(this,80));p.rightMargin=Theme.dp(this,8);parent.addView(b,p);
         b.setOnClickListener(v->{
             if(gated&&item.confirm){closePanel();confirm(item,label+": "+dashboardLabel(item)+"?",()->call(item,"cover",service,null));return;}
@@ -265,19 +271,69 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     private void call(DashboardSpec.Item item,String domain,String service){call(item,domain,service,null);}
     private boolean anyPending(String id){for(String key:pendingActions)if(key.startsWith(id+":"))return true;return false;}
-    private boolean call(DashboardSpec.Item item,String domain,String service,Runnable done){
-        String key=item.id+":"+service;
+    private boolean call(DashboardSpec.Item item,String domain,String service,Runnable done){return callEntity(item,item.entity,domain,service,done);}
+    /** One service call per entity; open/close are tracked per `id:entity:service` (A never blocks B), stop is never blocked and never queued (SPEC 0.9 pkt 4.2). */
+    private boolean callEntity(DashboardSpec.Item item,String entity,String domain,String service,Runnable done){
+        boolean tracked=!service.equals("stop_cover");
+        String key=item.id+":"+entity+":"+service;
         HaDashboardClient client=ha();
-        if(pendingActions.contains(key)||client==null)return false;
-        pendingActions.add(key);dashboard.pending(item.id,true);onEvent("service_call",domain+"."+service+" "+item.entity);
-        client.callService(domain,service,item.entity,error->main.post(()->{
-            pendingActions.remove(key);dashboard.pending(item.id,anyPending(item.id));
+        if(client==null||(tracked&&pendingActions.contains(key)))return false;
+        if(tracked){pendingActions.add(key);dashboard.pending(item.id,true);}
+        onEvent("service_call",domain+"."+service+" "+entity);
+        client.callService(domain,service,entity,error->main.post(()->{
+            if(tracked){pendingActions.remove(key);dashboard.pending(item.id,anyPending(item.id));}
             if(done!=null)done.run();
             if(error!=null){onEvent("service_error",error);Toast.makeText(this,"Nie wykonano: "+error,Toast.LENGTH_LONG).show();}
+            if(panelRefresh!=null)panelRefresh.run();
         }));
         return true;
     }
-    private void closePanel(){if(panel!=null){panel.dismiss();panel=null;}panelTitle=null;panelItem=null;}
+    /** "Rolety sypialni": two independent rows (name, state, open/stop/close) sized in 800x480 units (SPEC 0.9 pkt 4.1); music panel folds, playback continues. */
+    private void coverGroupPanel(DashboardSpec.Item item){
+        closePanel();dashboard.musicOverlay().closePanel();
+        float s=Math.min(getResources().getDisplayMetrics().widthPixels/800f,getResources().getDisplayMetrics().heightPixels/480f);
+        Theme t=Theme.current();
+        FrameLayout root=new FrameLayout(this);root.setBackground(Theme.card(t.surface,Theme.RADIUS*s));
+        TextView header=Theme.label(this,dashboardLabel(item),0,false);header.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,22*s);header.setGravity(Gravity.CENTER_VERTICAL);header.setMaxLines(1);header.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        root.addView(header,box(CoverPanelGeometry.HEADER,s));
+        final TextView[] stateViews=new TextView[2];final MusicOverlay.IconButton[][] buttons=new MusicOverlay.IconButton[2][3];
+        final String[] services={"open_cover","stop_cover","close_cover"};final int[] bits={CoverText.OPEN,CoverText.STOP,CoverText.CLOSE};
+        final String[] glyphs={"arrow-up","stop","arrow-down"};final String[] verbs={"Otwórz","Zatrzymaj","Zamknij"};
+        for(int n=0;n<2;n++){
+            final DashboardSpec.Cover cover=item.covers.get(n);
+            FrameLayout row=new FrameLayout(this);root.addView(row,box(n==0?CoverPanelGeometry.ROW_A:CoverPanelGeometry.ROW_B,s));
+            LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);label.setGravity(Gravity.CENTER_VERTICAL);row.addView(label,box(CoverPanelGeometry.LABEL,s));
+            TextView name=Theme.label(this,cover.title,0,false);name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,20*s);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);label.addView(name);
+            TextView state=Theme.label(this,"",0,true);state.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,17*s);state.setMaxLines(1);label.addView(state);stateViews[n]=state;
+            for(int k=0;k<3;k++){
+                final String service=services[k];
+                MusicOverlay.IconButton b=new MusicOverlay.IconButton(this,glyphs[k],verbs[k]+" "+cover.title);
+                b.style(k==1?t.accent:t.raised,k==1?t.onColor(t.accent):t.text,s);
+                row.addView(b,box(k==0?CoverPanelGeometry.OPEN:k==1?CoverPanelGeometry.STOP:CoverPanelGeometry.CLOSE,s));
+                b.setOnClickListener(v->{if(callEntity(item,cover.entity,"cover",service,null)&&panelRefresh!=null)panelRefresh.run();});
+                buttons[n][k]=b;
+            }
+        }
+        Button back=Theme.button(this,"Wróć",false,17*s,Theme.RADIUS*s);back.setOnClickListener(v->closePanel());root.addView(back,box(CoverPanelGeometry.BACK,s));
+        panelRefresh=()->{
+            for(int n=0;n<2;n++){
+                DashboardSpec.Cover cover=item.covers.get(n);EntityStates.Entity e=states.get(cover.entity);
+                stateViews[n].setText(CoverText.state(e));
+                for(int k=0;k<3;k++){
+                    boolean pending=k!=1&&pendingActions.contains(item.id+":"+cover.entity+":"+services[k]);
+                    buttons[n][k].setEnabled(live&&CoverText.has(e,bits[k])&&!pending);
+                }
+            }
+        };
+        panelRefresh.run();
+        Dialog dialog=new Dialog(this);panel=dialog;panelItem=item;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(Math.round(CoverPanelGeometry.PANEL.w*s),Math.round(CoverPanelGeometry.PANEL.h*s)));
+        dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->closePanel());
+        if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));dialog.getWindow().setGravity(Gravity.CENTER);}
+        dialog.show();
+    }
+    private static FrameLayout.LayoutParams box(OverlayGeometry.Box b,float s){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(Math.round(b.w*s),Math.round(b.h*s));p.leftMargin=Math.round(b.x*s);p.topMargin=Math.round(b.y*s);return p;}
+    private void closePanel(){if(panel!=null){Dialog d=panel;panel=null;d.setOnCancelListener(null);d.dismiss();}panelTitle=null;panelItem=null;panelRefresh=null;}
 
     // --- voice ---
     private void startVoice(){
