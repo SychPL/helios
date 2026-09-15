@@ -85,12 +85,12 @@ public class SendspinClientTest {
     }
     private byte marker(byte[] pcm){return pcm[0];}
 
-    @Test public void helloAdvertisesFourRolesAndPcmAndClockSyncSchedulesChunksInOrder() throws Exception {
+    @Test public void helloAdvertisesThreeRolesAndPcmAndClockSyncSchedulesChunksInOrder() throws Exception {
         SendspinClient client=client();
         try{
             JSONObject hello=server.hellos.poll(1,TimeUnit.SECONDS);
             assertEquals("client-1",hello.getString("client_id"));assertEquals(1,hello.getInt("version"));
-            assertEquals("[\"player@v1\",\"metadata@v1\",\"artwork@v1\",\"controller@v1\"]",hello.getJSONArray("supported_roles").toString());
+            assertEquals("[\"player@v1\",\"metadata@v1\",\"controller@v1\"]",hello.getJSONArray("supported_roles").toString());assertFalse(hello.has("artwork@v1_support"));
             JSONObject fmt=hello.getJSONObject("player@v1_support").getJSONArray("supported_formats").getJSONObject(0);
             assertEquals("pcm",fmt.getString("codec"));assertEquals(48000,fmt.getInt("sample_rate"));
             server.streamStart(48000);Thread.sleep(200);
@@ -115,8 +115,8 @@ public class SendspinClientTest {
             server.send("server/command",new JSONObject().put("player",new JSONObject().put("command","mute").put("mute",true)));
             assertEquals("30/true",players.poll(3,TimeUnit.SECONDS));assertTrue(sink.muted);
             server.send("server/state",new JSONObject().put("controller",new JSONObject().put("supported_commands",new JSONArray().put("play").put("pause").put("volume")).put("volume",70))
-                .put("metadata",new JSONObject().put("title","Track").put("artist","Artist").put("progress",new JSONObject().put("track_progress",1000).put("track_duration",200000))));
-            SendspinClient.Metadata m=metadata.poll(3,TimeUnit.SECONDS);assertEquals("Track",m.title);assertEquals(200000,m.durationMs);
+                .put("metadata",new JSONObject().put("title","Track").put("artist","Artist").put("artwork_url","/imageproxy?path=x").put("progress",new JSONObject().put("track_progress",1000).put("track_duration",200000))));
+            SendspinClient.Metadata m=metadata.poll(3,TimeUnit.SECONDS);assertEquals("Track",m.title);assertEquals(200000,m.durationMs);assertEquals("/imageproxy?path=x",m.artworkUrl);
             Thread.sleep(100);
             assertTrue(client.command("pause"));assertEquals("pause",server.commands.poll(3,TimeUnit.SECONDS).getJSONObject("controller").getString("command"));
             assertFalse(client.command("next"));assertFalse(client.command("volume"));

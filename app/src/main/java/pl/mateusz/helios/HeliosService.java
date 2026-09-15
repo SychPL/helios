@@ -158,19 +158,43 @@ public final class HeliosService extends Service {
                     if(state==SendspinClient.State.NONE){abandonMusicFocus();musicArtwork=null;}
                     publishMusic();
                 });}
-                public void onMetadata(SendspinClient.Metadata m){main.post(()->{musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;publishMusic();});}
+                public void onMetadata(SendspinClient.Metadata m){main.post(()->{musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;publishMusic();});fetchArtwork(m.artworkUrl);}
                 public void onController(java.util.List<String> commands,Integer groupVolume,Boolean groupMuted){main.post(()->{musicCommands=commands;publishMusic();});}
                 public void onArtwork(byte[] jpeg){main.post(()->{musicArtwork=jpeg;publishMusic();});}
                 public void onPlayer(int volume,boolean muted){main.post(()->{musicVolume=volume;musicMuted=muted;publishMusic();});}
-                public void onConnection(boolean connected,String detail){main.post(()->{localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;publishMusic();});}
+                public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("sendspin_"+(connected?"connected":"down"),detail==null?"":detail);main.post(()->{localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;publishMusic();});}
             });
             sendspin.start();
         }
         ma=new MusicAssistantClient(MusicAssistantClient.wsUrl(music.optString("url","")),music.optString("token",""),new MusicAssistantClient.Listener(){
-            public void onConnection(boolean connected,String detail){main.post(()->{maConnected=connected;if(connected)findLenovo();publishMusic();});}
+            public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("ma_"+(connected?"connected":"down"),detail==null?"":detail);main.post(()->{maConnected=connected;if(connected)findLenovo();publishMusic();});}
             public void onPlayerUpdated(JSONObject player){main.post(()->trackPlayer(player));}
         });
         ma.start();
+    }
+    private volatile String artworkUrlInFlight;
+    /** Cover art only from the MA host (image proxy or a same-host URL); other hosts are ignored so the token never leaks and nothing foreign is fetched. */
+    private void fetchArtwork(String url){
+        if(url==null||url.isEmpty()){main.post(()->{musicArtwork=null;publishMusic();});return;}
+        JSONObject music=connection==null?null:connection.optJSONObject("music_assistant");
+        if(music==null)return;
+        String base=music.optString("url","").replaceAll("/+$","");
+        String target=url.startsWith("http")?url:base+(url.startsWith("/")?"":"/")+url;
+        try{java.net.URI t=new java.net.URI(target),b=new java.net.URI(base);if(t.getHost()==null||!t.getHost().equalsIgnoreCase(b.getHost()))return;}catch(Exception e){return;}
+        artworkUrlInFlight=target;
+        network.execute(()->{
+            java.net.HttpURLConnection c=null;
+            try{
+                c=(java.net.HttpURLConnection)new java.net.URL(target).openConnection();c.setConnectTimeout(5000);c.setReadTimeout(8000);c.setInstanceFollowRedirects(false);
+                if(c.getResponseCode()!=200)return;
+                try(java.io.InputStream in=c.getInputStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){
+                    byte[] chunk=new byte[8192];int n;while((n=in.read(chunk))!=-1){if(out.size()+n>1048576)return;out.write(chunk,0,n);}
+                    byte[] bytes=out.toByteArray();
+                    main.post(()->{if(target.equals(artworkUrlInFlight)){musicArtwork=bytes;publishMusic();}});
+                }
+            }catch(Exception ignored){}
+            finally{if(c!=null)c.disconnect();}
+        });
     }
     private void stopMusic(){
         if(sendspin!=null){sendspin.stop();sendspin=null;}

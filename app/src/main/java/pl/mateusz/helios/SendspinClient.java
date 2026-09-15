@@ -15,8 +15,8 @@ import java.util.concurrent.*;
 final class SendspinClient {
     enum State {NONE,PLAYING,PAUSED}
     static final class Metadata {
-        final String title,artist,album;final long progressMs,durationMs;
-        Metadata(String title,String artist,String album,long progressMs,long durationMs){this.title=title;this.artist=artist;this.album=album;this.progressMs=progressMs;this.durationMs=durationMs;}
+        final String title,artist,album,artworkUrl;final long progressMs,durationMs;
+        Metadata(String title,String artist,String album,String artworkUrl,long progressMs,long durationMs){this.title=title;this.artist=artist;this.album=album;this.artworkUrl=artworkUrl;this.progressMs=progressMs;this.durationMs=durationMs;}
     }
     interface Listener {
         void onState(State state);
@@ -125,10 +125,9 @@ final class SendspinClient {
             .put("buffer_capacity",BUFFER_CAPACITY).put("supported_commands",new JSONArray().put("volume").put("mute"));
         JSONObject payload=new JSONObject().put("client_id",clientId).put("name",name).put("version",PROTOCOL_VERSION)
             .put("device_info",new JSONObject().put("manufacturer","Lenovo").put("product_name","Smart Clock 2").put("software_version",softwareVersion))
-            .put("supported_roles",new JSONArray().put("player@v1").put("metadata@v1").put("artwork@v1").put("controller@v1"))
-            .put("player@v1_support",support).put("metadata@v1_support",new JSONObject())
-            .put("artwork@v1_support",new JSONObject().put("channels",new JSONArray().put(new JSONObject().put("source","album").put("format","jpeg").put("width",320).put("height",320))))
-            .put("controller@v1_support",new JSONObject());
+            // ponytail: no artwork@v1 - MA 2.10.3 (aiosendspin 9.1.1) closes a legacy connection that advertises it (verified 2026-09-15); the cover comes from metadata.artwork_url via the MA host.
+            .put("supported_roles",new JSONArray().put("player@v1").put("metadata@v1").put("controller@v1"))
+            .put("player@v1_support",support).put("metadata@v1_support",new JSONObject()).put("controller@v1_support",new JSONObject());
         return new JSONObject().put("type","client/hello").put("payload",payload);
     }
     private static long micros(){return System.nanoTime()/1000;}
@@ -160,7 +159,7 @@ final class SendspinClient {
                 JSONObject metadata=payload.optJSONObject("metadata");
                 if(metadata!=null){
                     JSONObject progress=metadata.optJSONObject("progress");
-                    listener.onMetadata(new Metadata(metadata.optString("title",null),metadata.optString("artist",null),metadata.optString("album",null),
+                    listener.onMetadata(new Metadata(metadata.optString("title",null),metadata.optString("artist",null),metadata.optString("album",null),metadata.isNull("artwork_url")?null:metadata.optString("artwork_url",null),
                         progress==null?0:progress.optLong("track_progress",0),progress==null?0:progress.optLong("track_duration",0)));
                 }
                 JSONObject controller=payload.optJSONObject("controller");
