@@ -55,6 +55,7 @@ public final class HeliosService extends Service {
     private final RecentPlays recent=new RecentPlays();
     private Runnable onDeviceLost;
     private Consumer<String> onDeviceChanged;
+    private java.util.function.BiConsumer<String,String> diagnostics;
     private final HaDashboardClient.Listener cache=new HaDashboardClient.Listener(){
         @Override public void onDashboard(JSONObject raw,DashboardSpec spec,Map<String,EntityStates.Entity> states,String issue){
             if(raw!=null&&issue==null)getSharedPreferences("helios",MODE_PRIVATE).edit().putString("dashboard_v2",raw.toString()).apply();
@@ -71,7 +72,10 @@ public final class HeliosService extends Service {
         startForeground(1,notification);
         installationId=getSharedPreferences("helios",MODE_PRIVATE).getString("installation_id",null);
         if(installationId==null){installationId=UUID.randomUUID().toString();getSharedPreferences("helios",MODE_PRIVATE).edit().putString("installation_id",installationId).apply();}
-        dock=new DockController(this,this::publish);dock.start();
+        dock=new DockController(this,new DockController.Listener(){
+            public void onChanged(){publish();}
+            public void onDiagnostic(String event,String detail){if(diagnostics!=null)diagnostics.accept(event,detail);}
+        });dock.start();
         volume=new DeviceVolume(this,v->publish());volume.start();
         audioManager=(AudioManager)getSystemService(Context.AUDIO_SERVICE);
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
@@ -96,6 +100,7 @@ public final class HeliosService extends Service {
     void setVoiceState(String state){if(!state.equals(voiceState)){voiceState=state;publish();}}
     void setOnDeviceLost(Runnable action){onDeviceLost=action;}
     void setOnDeviceChanged(Consumer<String> action){onDeviceChanged=action;}
+    void setDiagnostics(java.util.function.BiConsumer<String,String> sink){diagnostics=sink;}
     void publish(){if(device!=null)device.publish();}
     /** Our own conversation finished: the sink may resume only if the system grants focus again. */
     void onVoiceReady(){if(session!=null){session.onVoiceReady(this::requestMusicFocus);publishMusic();}}

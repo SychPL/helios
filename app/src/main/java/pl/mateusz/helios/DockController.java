@@ -11,7 +11,9 @@ import android.os.*;
  * Everything unknown stays null until the OEM reports it; isLedOn=false never means "no dock".
  */
 final class DockController {
-    interface Listener { void onChanged(); }
+    interface Listener { void onChanged(); default void onDiagnostic(String event,String detail){} }
+    /** OEM factory default lamp level; shown as the setpoint until the first explicit setBrightness (docs/lamp-control.md). */
+    static final int DEFAULT_LEVEL=7;
     private static final String SERVICE_DESCRIPTOR="com.google.assistant.IAssistantOemAccessoryService";
     private static final String CONNECTION_DESCRIPTOR="com.google.assistant.IAccessoryConnectionListener";
     private static final int OP_REGISTER_CONNECTION=2,OP_TURN_ON=3,OP_TURN_OFF=4,OP_SET_BRIGHTNESS=5,OP_IS_LED_ON=6,OP_REGISTER_CHARGER=7;
@@ -26,16 +28,16 @@ final class DockController {
     private volatile String padVersion,unavailable="Łączenie z usługą docka…";
     private final IBinder connectionListener=new Binder(){
         @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags) throws RemoteException {
-            if(code==2){data.enforceInterface(CONNECTION_DESCRIPTOR);data.readInt();padVersion=data.readString();dockConnected=true;charging=null;}
-            else if(code==3){data.enforceInterface(CONNECTION_DESCRIPTOR);data.readInt();dockConnected=false;charging=null;ledOn=null;ledBrightness=null;}
-            else return super.onTransact(code,data,reply,flags);
+            if(code==2){data.enforceInterface(CONNECTION_DESCRIPTOR);int state=data.readInt();padVersion=data.readString();dockConnected=true;charging=null;listener.onDiagnostic("dock_connect","state="+state+" padVersion="+padVersion);}
+            else if(code==3){data.enforceInterface(CONNECTION_DESCRIPTOR);int state=data.readInt();dockConnected=false;charging=null;ledOn=null;ledBrightness=null;listener.onDiagnostic("dock_disconnect","state="+state);}
+            else{listener.onDiagnostic("dock_connection_code","code="+code);return super.onTransact(code,data,reply,flags);}
             if(reply!=null)reply.writeNoException();
             changed();return true;
         }
     };
     private final IBinder chargerListener=new Binder(){
         @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags) throws RemoteException {
-            if(code==2)charging=true;else if(code==3)charging=false;else return super.onTransact(code,data,reply,flags);
+            if(code==2){charging=true;listener.onDiagnostic("dock_charge_start","");}else if(code==3){charging=false;listener.onDiagnostic("dock_charge_stop","");}else{listener.onDiagnostic("dock_charger_code","code="+code);return super.onTransact(code,data,reply,flags);}
             if(reply!=null)reply.writeNoException();
             changed();return true;
         }
@@ -48,8 +50,8 @@ final class DockController {
                 service.linkToDeath(death,0);
                 register(OP_REGISTER_CONNECTION,connectionListener);
                 register(OP_REGISTER_CHARGER,chargerListener);
-                ledOn=isLedOn();unavailable=null;
-            }catch(Exception e){binder=null;unavailable="Binder OEM: "+e.getClass().getSimpleName();}
+                ledOn=isLedOn();if(ledBrightness==null)ledBrightness=DEFAULT_LEVEL;unavailable=null;listener.onDiagnostic("dock_service_connected","ledOn="+ledOn);
+            }catch(Exception e){binder=null;unavailable="Binder OEM: "+e.getClass().getSimpleName();listener.onDiagnostic("dock_service_error",e.toString());}
             changed();
         }
         @Override public void onServiceDisconnected(ComponentName name){binder=null;unavailable="Usługa docka rozłączona";resetUnknown();changed();}
@@ -101,7 +103,7 @@ final class DockController {
         intent.setComponent(new ComponentName("com.google.assistant.oemapp","com.google.assistant.oemapp.ScoriaAssistantOemAccessoryService"));
         try{bound=context.bindService(intent,connection,Context.BIND_AUTO_CREATE);}
         catch(SecurityException e){bound=false;}
-        if(!bound){unavailable="Brak fabrycznej usługi docka";changed();scheduleBind();}
+        if(!bound){unavailable="Brak fabrycznej usługi docka";listener.onDiagnostic("dock_bind_failed","");changed();scheduleBind();}
     }
     private void scheduleBind(){
         if(stopped)return;

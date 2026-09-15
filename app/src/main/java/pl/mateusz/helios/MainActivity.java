@@ -49,6 +49,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             service=((HeliosService.Local)binder).service();
             service.setOnDeviceLost(()->{if(voice!=null)voice.cancelFollowUp();});
+            service.setDiagnostics(MainActivity.this::onEvent);
             service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage("Sparowano z HA");main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
             if(pendingProvision!=null){JSONObject received=pendingProvision;pendingProvision=null;applyProvisioning(received);}
             service.setMusicListener(snapshot->{
