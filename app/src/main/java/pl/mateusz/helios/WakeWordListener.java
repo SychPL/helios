@@ -18,6 +18,10 @@ final class WakeWordListener {
     void stop(){stopped=true;}
 
     boolean listen(Context context,Runnable ready) throws Exception {return listen(context,ready,null);}
+    /** Where AudioFlinger actually routed the capture: built-in mic, USB, Bluetooth SCO... (type constants from AudioDeviceInfo). */
+    static String routed(AudioRecord recorder){
+        try{android.media.AudioDeviceInfo d=recorder.getRoutedDevice();return d==null?"none":d.getType()+":"+d.getProductName()+":"+java.util.Arrays.toString(d.getSampleRates());}catch(Exception e){return "?";}
+    }
     /** diagnostics (optional) receives "wake_level" lines every 15 s: captured RMS and frame count, so silence from a stolen microphone is distinguishable from a model that never fires. */
     boolean listen(Context context,Runnable ready,java.util.function.Consumer<String> diagnostics) throws Exception {
         AudioRecord recorder=null;
@@ -59,7 +63,7 @@ final class WakeWordListener {
                     offset=0;
                     long now=SystemClock.elapsedRealtime();
                     if(diagnostics!=null&&now-lastReport>=15_000){
-                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" rate="+recorder.getSampleRate()+" channels="+recorder.getChannelCount()+" session="+recorder.getAudioSessionId()+" elapsed_ms="+(now-lastReport));
+                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" rate="+recorder.getSampleRate()+" channels="+recorder.getChannelCount()+" session="+recorder.getAudioSessionId()+" elapsed_ms="+(now-lastReport)+" device="+routed(recorder));
                         energy=0;frames=0;peak=0;lastReport=now;
                     }
                 }
