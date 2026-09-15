@@ -134,7 +134,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         startForegroundService(intent);bindService(intent,serviceConnection,Context.BIND_AUTO_CREATE);
         if(config==null)connect();
     }
-    @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()));}
+    @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
     @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
     @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
@@ -470,6 +470,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         try{
             JSONObject row=new JSONObject().put("time_ms",System.currentTimeMillis()).put("event",event).put("detail",detail);
             String encoded=row.toString();
+            java.io.File log=new java.io.File(getFilesDir(),"assist-events.jsonl");
+            if(log.length()>2_000_000)log.delete(); // ponytail: unbounded append since 0.4; a simple rotate keeps storage flat on a clock nobody can clean up
             try(FileOutputStream file=openFileOutput("assist-events.jsonl",MODE_APPEND)){file.write((encoded+"\n").getBytes("UTF-8"));}
             String endpoint=config==null?"":config.optString("diagnostics_url","");
             if(!endpoint.isEmpty()&&!diagnostics.isShutdown())diagnostics.execute(()->{
