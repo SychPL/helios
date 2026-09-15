@@ -1,0 +1,6 @@
+upstream/
+protocol-spec/
+.gradle/
+**/build/
+*.log
+local.properties

@@ -6,6 +6,10 @@ Implementowalny opis pierwszego etapu: [SPEC 0.5 — dashboard konfigurowany z H
 
 Potwierdzona wcześniej lokalna możliwość sprzętowa, poza zaakceptowanym zakresem sześciu elementów: [sterowanie lampką docka](lamp-control.md).
 
+Następny etap: [SPEC 0.6 — lokalny odtwarzacz i pilot Music Assistant](SPEC-0.6-music-assistant.md).
+
+Równoległy etap: [SPEC 0.7 — urządzenie Helios w Home Assistant](SPEC-0.7-home-assistant-integration.md): wersja, lampka, ładowanie i przypisanie do obszaru. Domyślny cel polecenia bez nazwy pokoju ma wynikać z obszaru zegara; identyfikacja mówcy jest opcjonalnym kierunkiem badawczym, nie gotową funkcją.
+
 ## Zakres i rozróżnienie pojęć
 
 - **Menu zegara** oznacza lokalne menu systemowe Heliosa, służące między innymi do powrotu, zamykania paneli i wejścia do ustawień.
@@ -91,12 +95,12 @@ Potwierdzona wcześniej lokalna możliwość sprzętowa, poza zaakceptowanym zak
 - Nie ustalono, czy docelowy renderer dashboardu pozostanie natywnym widokiem Androida, czy zostanie zastąpiony innym rozwiązaniem.
 - Nie ustalono jeszcze dokładnego kontraktu YAML/JSON. Zakres pierwszego etapu wymaga jednak pól opisujących kolejność, rozmiar, podpis, ikonę, widoczność, akcję dotknięcia i opcjonalne potwierdzenie.
 
-## Stan bieżący i luka względem wymagań
+## Stan historyczny 0.4 i luka zamknięta w 0.5
 
-- `MainActivity` tworzy natywny `DashboardView`, którego układ jest zaprojektowany dla ekranu 800×480 i zapisany w Javie.
-- `HaDashboardClient` pobiera z panelu HA sekcję `helios` oraz widok `menu-zegara`.
-- Bieżąca sekcja `helios` obsługuje zegar, pogodę i maksymalnie trzy wskaźniki. Nie stanowi jeszcze konfiguracji całego dashboardu opisanej w tym dokumencie.
-- W wersji 0.4 pozycje menu zegara pochodzą z kart HA w widoku `menu-zegara`. To zachowanie jest sprzeczne z nowym wymaganiem stałego, lokalnego menu i będzie wymagało zmiany w przyszłej implementacji.
+- W 0.4 `MainActivity` tworzyło natywny `DashboardView` ze stałym układem 800×480 zapisanym w Javie.
+- W 0.4 `HaDashboardClient` pobierał sekcję `helios` oraz widok `menu-zegara`.
+- Sekcja `helios` wersji 1 obsługiwała zegar, pogodę i maksymalnie trzy wskaźniki, nie konfigurację całego dashboardu.
+- W wersji 0.4 pozycje menu pochodziły z kart HA w widoku `menu-zegara`. W 0.5 zastąpiono je stałym lokalnym menu i wdrożono konfigurowalną siatkę zgodnie z SPEC 0.5.
 - Dokumentacja wersji 0.4 opisuje stan już zaimplementowany i pozostaje materiałem historycznym. Niniejszy dokument wyznacza późniejszy kierunek produktu i ma pierwszeństwo przy projektowaniu kolejnej wersji.
 
 ## Kryteria przyszłego odbioru

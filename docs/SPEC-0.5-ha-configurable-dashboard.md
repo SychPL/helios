@@ -1,6 +1,8 @@
 # Specyfikacja Helios 0.5 — dashboard konfigurowany z Home Assistant
 
-Status: zaimplementowano w Helios 0.5.0 (build, lint i testy JVM 2026-09-15; instalacja na zegarze i test integracyjny z HA oczekują na użytkownika). Ustalenia produktowe zaakceptowano 2026-09-15. Szczegóły oznaczone jako „propozycja projektowa” są rutynowymi rozstrzygnięciami przyjętymi na potrzeby implementowalnej specyfikacji, a nie osobnymi decyzjami użytkownika.
+Status: zaimplementowano w Helios 0.5.0. Dnia 2026-09-15 potwierdzono wersję na fizycznym zegarze, zmigrowano panel HA do schematu 2 i sprawdzono wyświetlenie danych; build, lint i 13 testów JVM przeszły. Odbiór dźwięku i dopowiedzenia pozostaje otwarty; [raport odbioru](../artifacts/native-0.5-acceptance-20260915.md). Ustalenia produktowe zaakceptowano 2026-09-15. Szczegóły oznaczone jako „propozycja projektowa” są rutynowymi rozstrzygnięciami przyjętymi na potrzeby implementowalnej specyfikacji, a nie osobnymi decyzjami użytkownika.
+
+Planowany następny etap: [SPEC 0.6 — Music Assistant](SPEC-0.6-music-assistant.md). Dodaje kafelek muzyki i alternatywny układ półekranowy; nie należy włączać ich do zakresu 0.5.
 
 ## 1. Cel
 

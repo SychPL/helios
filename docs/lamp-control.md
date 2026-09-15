@@ -81,11 +81,7 @@ Według raportu źródłowego na OTA 627 potwierdzono kolejno: połączenie z us
 
 Sterowanie lampką jest lokalną możliwością sprzętową Heliosa. Nie oznacza automatycznie, że lampka jest encją Home Assistant ani że została zaakceptowana jako siódmy typ elementu pierwszego etapu dashboardu 0.5.
 
-Możliwe kierunki przyszłej integracji, wymagające osobnej decyzji:
-
-- lokalny element dashboardu lub pozycja stałego menu, sterujące binderem bez HA;
-- most Helios–HA eksponujący lampkę jako encję, wraz z ustaleniem źródła prawdy i synchronizacji;
-- wykorzystanie listenera docka do lokalnego statusu lub automatyzacji.
+Użytkownik wybrał most Helios–HA eksponujący lampkę i ładowanie jako encje. Kontrakt, źródło prawdy, parowanie i obsługę nieznanych stanów opisuje [SPEC 0.7](SPEC-0.7-home-assistant-integration.md). Nadal jest to projekt do implementacji, nie część aplikacji 0.5. Nie wymaga nowego typu kafelka: lampkę można pokazać istniejącym typem `light`, a ładowanie typem `entity`.
 
 Przed implementacją należy ponownie sprawdzić bind, wszystkie używane transakcje i listener na docelowym urządzeniu/firmware oraz bezpiecznie obsłużyć brak pakietu OEM, brak docka i rozłączenie bindera.
 
@@ -114,4 +110,10 @@ Materiały źródłowe:
 
 Dokument źródłowy zawiera hipotezę, że fabryczny interfejs Casta może zmieniać lampkę po zdarzeniach ładowania, ponieważ rejestruje ten sam listener. Nie zostało to potwierdzone: podczas jednej z obserwacji lampka pozostawała wyłączona. Nie należy projektować zachowania Heliosa w oparciu o tę hipotezę.
 
-Detekcja ładowania jest lokalną możliwością sprzętową, tak jak sterowanie lampką. Nie oznacza jeszcze zaakceptowanego elementu dashboardu ani encji HA. Jej ewentualne pokazanie w stałym pasku, dashboardzie lub Home Assistant wymaga osobnej decyzji o UX, źródle prawdy i zachowaniu dla nieznanego stanu początkowego.
+Detekcja ładowania jest lokalną możliwością sprzętową, tak jak sterowanie lampką. Włączenie jej do Home Assistant jest już w zakresie SPEC 0.7; nie oznacza to automatycznego dodania jej do stałego paska ani dashboardu każdego zegara.
+
+## Wersja docka i brak identyfikacji telefonu
+
+Dalszy wynik w dokumencie źródłowym z 2026-09-15: `registerConnectionListener` wywołał `onConnect(state=0, padVersion="22.127")`. Sonda [DockInfoProbe.java](../../tools/lamp-probe/DockInfoProbe.java) potwierdza wersję docka, nie telefonu. SN/model występują wewnątrz stosu OEM, ale nie są eksponowane przez potwierdzony binder.
+
+Opisany stos używa `/dev/ttyACM0`, ramek 64 B i statusu 8 B; Android wykorzystuje bajt 3 dla LED i bajt 5 dla ładowania. Interpretacja innych bajtów jako napięcia/prądu pozostaje hipotezą. W dostępnym interfejsie nie znaleziono identyfikatora telefonu. Nie wolno na tej podstawie identyfikować osoby mówiącej ani właściciela telefonu; wynik nie jest ogólnym twierdzeniem o wszystkich implementacjach Qi.

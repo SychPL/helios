@@ -1,0 +1,23 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'pl.mateusz.helios.sendspinprobe'
+    compileSdk 35
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'pl.mateusz.helios.sendspinprobe'
+        minSdk 29
+        targetSdk 29
+        versionCode 1
+        versionName 'probe'
+        ndk { abiFilters 'armeabi-v7a' }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    packaging { resources.excludes += ['META-INF/versions/**', 'META-INF/DEPENDENCIES'] }
+}
+dependencies {
+    implementation 'probe:sendspin'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1'
+}
