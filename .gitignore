@@ -1,0 +1,17 @@
+.local/
+**/*.class
+**/__pycache__/
+artifacts/**/dex/
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+.env
+.env.*
+*.apk
+*.keystore
+*.jks
+artifacts/**
+!artifacts/**/
+!artifacts/**/*.md

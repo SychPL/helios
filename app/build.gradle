@@ -1,0 +1,28 @@
+plugins { id 'com.android.application' }
+
+def provisionFile = rootProject.file('.local/provision.json')
+def provisionUrl = provisionFile.exists() ? new groovy.json.JsonSlurper().parse(provisionFile).url : ''
+
+android {
+    namespace 'pl.mateusz.helios'
+    compileSdk 35
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'pl.mateusz.helios'
+        minSdk 29
+        targetSdk 29
+        versionCode 4
+        versionName '0.2.1'
+        buildConfigField 'String', 'PROVISION_URL', groovy.json.JsonOutput.toJson(provisionUrl)
+    }
+    buildFeatures { buildConfig true }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+    packaging { resources.excludes += ['META-INF/versions/**', 'META-INF/DEPENDENCIES'] }
+}
+
+dependencies {
+    implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    implementation 'org.slf4j:slf4j-api:2.0.13'
+    implementation 'org.slf4j:slf4j-nop:2.0.13'
+    testImplementation 'junit:junit:4.13.2'
+}

@@ -1,0 +1,6 @@
+<resources>
+    <style name="HeliosDrawerAnimation">
+        <item name="android:windowEnterAnimation">@anim/drawer_enter</item>
+        <item name="android:windowExitAnimation">@anim/drawer_exit</item>
+    </style>
+</resources>

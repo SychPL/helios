@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/home-assistant/android",
+  "commit": "bdf91410ee54bf3a2baf698af5c071c5cbac4ea2",
+  "files": {
+    "LICENSE.md": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "microwakeword/src/main/cpp/CMakeLists.txt": "a885ce41a565519235be4439d79f4ae530e57bc48fc7365bcda89b15f9613e01",
+    "microwakeword/src/main/cpp/Logging.h": "a919e0935f1b6dc1db8465a4b653e21c0492a9d484213e2478f8bc535962b4bc",
+    "microwakeword/src/main/cpp/MicroFrontendWrapper.cpp": "32f761aacc11f99ef67b33e4e2ebfef6e81d815618745cf07495d1ae53a00a81",
+    "microwakeword/src/main/cpp/MicroFrontendWrapper.h": "856d6e9c38a9ff4d8ec1a3d23d3f156c65bafb9a0cf35e7251c563a03e70bdeb",
+    "microwakeword/src/main/cpp/MicroWakeWordEngine.cpp": "c523a255435a990412c66de99e443b8567d701338091d123f4a6bdbac1f4f769",
+    "microwakeword/src/main/cpp/MicroWakeWordEngine.h": "337593bd01f1103b1afde39419b6647e6f4eebaf70ad2416dbf70640543ce1eb",
+    "microwakeword/src/main/cpp/MicroWakeWord_jni.cpp": "c9f142be837947df5fa7a4be84e656b21f62ecedd603c0d6231087fde410b623",
+    "app/src/main/assets/wakeword/okay_nabu.json": "f8026e2ce93a0855ca23483036fd2d74ee924a2588d9ea6a6c6c7478fbf4be57",
+    "app/src/main/assets/wakeword/okay_nabu.tflite": "0689abe1912a95a3318a0d8cb2e67bad0cbcfe3e24dd6e050c75debddfb6f891"
+  }
+}

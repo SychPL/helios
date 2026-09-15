@@ -1,0 +1,9 @@
+* text=auto
+gradlew text eol=lf
+*.bat text eol=crlf
+*.md whitespace=-blank-at-eol
+app/src/main/assets/*-OFL.txt -whitespace
+*.so binary
+*.tflite binary
+*.ttf binary
+*.jar binary
