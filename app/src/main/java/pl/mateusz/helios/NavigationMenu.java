@@ -20,13 +20,12 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 
-/** All navigation originates from a user tap in the foreground Activity. */
+/** Fixed local menu defined in the app; never sourced from HA, always usable without it. */
 final class NavigationMenu {
     private final Activity activity;
     private final java.util.function.Supplier<org.json.JSONObject> connection;
     private Dialog dialog;
-    private MenuSpec spec;
-    private String issue;
+    private String status="";
     private final Runnable talk,cancel;
     NavigationMenu(Activity activity,java.util.function.Supplier<org.json.JSONObject> connection,Runnable talk,Runnable cancel){this.activity=activity;this.connection=connection;this.talk=talk;this.cancel=cancel;}
     private int dp(int n){return Math.round(n*activity.getResources().getDisplayMetrics().density);}
@@ -36,18 +35,22 @@ final class NavigationMenu {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout panel=new LinearLayout(activity);panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(16),dp(12),dp(16),dp(12));panel.setBackgroundColor(0xFF242C25);
-        TextView title=new TextView(activity);title.setText(spec==null?"Menu odzyskiwania":spec.title);title.setTextSize(20);title.setTextColor(0xFFF1EFE6);title.setPadding(dp(8),dp(6),0,dp(8));panel.addView(title);
+        TextView title=new TextView(activity);title.setText("Menu Heliosa");title.setTextSize(20);title.setTextColor(0xFFF1EFE6);title.setPadding(dp(8),dp(6),0,dp(8));panel.addView(title);
         button(panel,"Zamknij menu",()->dialog.dismiss());
         ScrollView scroll=new ScrollView(activity);panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout rows=new LinearLayout(activity);rows.setOrientation(LinearLayout.VERTICAL);scroll.addView(rows);
-        if(issue!=null){TextView error=new TextView(activity);error.setText(issue);error.setTextColor(0xFFE6BD7B);rows.addView(error);}
-        if(spec==null){
-            button(rows,"Ustawienia zegara",()->execute("helios://settings"));
-            button(rows,"Konfiguracja w HA",()->execute("helios://dashboard"));
-        }else{
-            for(MenuSpec.Item item:spec.items)button(rows,item.name,()->execute(item.target));
-            if(spec.items.isEmpty()){TextView empty=new TextView(activity);empty.setText("Menu jest puste. Dodaj przyciski w HA.");empty.setTextColor(0xFFF1EFE6);rows.addView(empty);}
-        }
+        TextView diagnostics=new TextView(activity);diagnostics.setTextColor(0xFF9EA59B);diagnostics.setTextSize(13);diagnostics.setPadding(dp(8),0,dp(8),dp(8));
+        org.json.JSONObject cfg=connection.get();
+        diagnostics.setText("Helios "+BuildConfig.VERSION_NAME+"\nHA: "+(cfg==null?"brak parowania":cfg.optString("url",""))+"\n"+status);rows.addView(diagnostics);
+        button(rows,"Rozmowa z Nabu",()->{close();talk.run();});
+        button(rows,"Anuluj rozmowę",()->{close();cancel.run();});
+        button(rows,"Konfiguracja ekranu w HA",()->openHa(true));
+        button(rows,"Strona główna HA",()->openHa(false));
+        button(rows,"Ustawienia zegara",()->open(new Intent(Settings.ACTION_SETTINGS)));
+        button(rows,"Dostępność",()->open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        button(rows,"Ekran główny",()->open(new Intent(Settings.ACTION_HOME_SETTINGS)));
+        button(rows,"Aplikacje",this::apps);
+        button(rows,"Aktualizacja Heliosa",this::update);
         dialog.setContentView(panel);
         Window window=dialog.getWindow();
         if(window!=null){
@@ -55,40 +58,12 @@ final class NavigationMenu {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);window.setDimAmount(.55f);
             window.setGravity(Gravity.RIGHT|Gravity.TOP);
             window.setWindowAnimations(pl.mateusz.helios.R.style.HeliosDrawerAnimation);
-            window.setLayout(Math.min(dp(340),activity.getResources().getDisplayMetrics().widthPixels),WindowManager.LayoutParams.MATCH_PARENT);
         }
         dialog.show();
         if(window!=null)window.setLayout(Math.min(dp(340),activity.getResources().getDisplayMetrics().widthPixels),WindowManager.LayoutParams.MATCH_PARENT);
     }
-    void configure(MenuSpec spec){this.spec=spec;issue=null;refresh();}
-    void error(String message){issue=message;refresh();}
-    private void refresh(){if(dialog!=null&&dialog.isShowing()){close();show();}}
-    private void execute(String target){
-        try{MenuSpec.validateTarget(target);}catch(Exception error){unavailable();return;}
-        if(target.startsWith("/")){
-            org.json.JSONObject cfg=connection.get();if(cfg==null){unavailable();return;}
-            open(new Intent(Intent.ACTION_VIEW,Uri.parse(cfg.optString("url","").replaceAll("/$","")+target)));return;
-        }
-        Uri uri=Uri.parse(target);
-        if(!"helios".equals(uri.getScheme())){open(new Intent(Intent.ACTION_VIEW,uri));return;}
-        switch(uri.getHost()){
-            case "settings":open(new Intent(Settings.ACTION_SETTINGS));break;
-            case "accessibility":open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));break;
-            case "home":open(new Intent(Settings.ACTION_HOME_SETTINGS));break;
-            case "dashboard":openHa(true);break;
-            case "ha":openHa(false);break;
-            case "apps":apps();break;
-            case "app":openPackage(uri.getPath().substring(1));break;
-            case "talk":close();talk.run();break;
-            case "cancel":close();cancel.run();break;
-            case "update":
-                Uri provision=Uri.parse(BuildConfig.PROVISION_URL);
-                if(provision.getScheme()==null||provision.getEncodedAuthority()==null){unavailable();return;}
-                Uri apk=new Uri.Builder().scheme(provision.getScheme()).encodedAuthority(provision.getEncodedAuthority()).path("/helios.apk").build();
-                open(new Intent(Intent.ACTION_VIEW,apk));break;
-            default:unavailable();
-        }
-    }
+    /** Connection diagnostics shown inside the menu; safe to call at any time. */
+    void status(String text){status=text==null?"":text;}
     private void button(LinearLayout parent,String label,Runnable action){
         Button b=new Button(activity);b.setText(label);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(0xFFF1EFE6);
         b.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);b.setPadding(dp(12),0,dp(12),0);b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF354035));
@@ -105,9 +80,10 @@ final class NavigationMenu {
         String path=dashboard?"/"+config.optString("dashboard_path","helios-clock"):"/";
         open(new Intent(Intent.ACTION_VIEW,Uri.parse(base+path)));
     }
-    private void openPackage(String name){
-        Intent intent=activity.getPackageManager().getLaunchIntentForPackage(name);
-        if(intent==null)unavailable();else open(intent);
+    private void update(){
+        Uri provision=Uri.parse(BuildConfig.PROVISION_URL);
+        if(provision.getScheme()==null||provision.getEncodedAuthority()==null){unavailable();return;}
+        open(new Intent(Intent.ACTION_VIEW,new Uri.Builder().scheme(provision.getScheme()).encodedAuthority(provision.getEncodedAuthority()).path("/helios.apk").build()));
     }
     private void apps(){
         Intent query=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);

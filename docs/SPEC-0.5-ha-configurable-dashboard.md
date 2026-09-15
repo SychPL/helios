@@ -1,6 +1,6 @@
 # Specyfikacja Helios 0.5 — dashboard konfigurowany z Home Assistant
 
-Status: specyfikacja projektowa pierwszego etapu, jeszcze niezaimplementowana. Ustalenia produktowe zaakceptowano 2026-09-15. Szczegóły oznaczone jako „propozycja projektowa” są rutynowymi rozstrzygnięciami przyjętymi na potrzeby implementowalnej specyfikacji, a nie osobnymi decyzjami użytkownika.
+Status: zaimplementowano w Helios 0.5.0 (build, lint i testy JVM 2026-09-15; instalacja na zegarze i test integracyjny z HA oczekują na użytkownika). Ustalenia produktowe zaakceptowano 2026-09-15. Szczegóły oznaczone jako „propozycja projektowa” są rutynowymi rozstrzygnięciami przyjętymi na potrzeby implementowalnej specyfikacji, a nie osobnymi decyzjami użytkownika.
 
 ## 1. Cel
 
@@ -254,7 +254,7 @@ Wymaga encji z domeny `light`. Domyślna i jedyna dozwolona akcja to `toggle`; o
 
 ### 6.5. `cover`
 
-Wymaga encji z domeny `cover`. Domyślna i jedyna dozwolona akcja to `controls`; opcjonalne `tap_action.action` może ją zapisać jawnie. Dotknięcie otwiera stały lokalny panel z trzema widocznymi akcjami: otwórz, zatrzymaj i zamknij. Wywołują one odpowiednio `cover.open_cover`, `cover.stop_cover` i `cover.close_cover` dla skonfigurowanej encji. Panel ma widoczne zamknięcie; dotknięcie poza panelem niczego nie wykonuje.
+Wymaga encji z domeny `cover`. Domyślna i jedyna dozwolona akcja to `controls`; opcjonalne `tap_action.action` może ją zapisać jawnie. Dotknięcie otwiera stały lokalny panel z trzema widocznymi przyciskami ▲ (otwórz), ■ (zatrzymaj) i ▼ (zamknij) oraz procentem otwarcia z atrybutu `current_position`, gdy encja go ma. Wywołują one odpowiednio `cover.open_cover`, `cover.stop_cover` i `cover.close_cover` dla skonfigurowanej encji. Blokada oczekiwania jest per przycisk; zatrzymanie nigdy nie wymaga potwierdzenia. Panel ma widoczne zamknięcie; dotknięcie poza panelem niczego nie wykonuje. Element na siatce pokazuje stan i procent otwarcia.
 
 ### 6.6. `garage`
 
@@ -274,7 +274,7 @@ Po uruchomieniu Helios:
 
 Błąd nowej konfiguracji nie może usunąć ani częściowo zmienić działającego dashboardu. Aplikacja zachowuje ostatnią poprawną konfigurację, oznacza problem w stałym pasku i ponawia pobranie po kolejnym zapisie lub ponownym połączeniu. Jeśli urządzenie nie ma poprawnego cache wersji 2 — także po aktualizacji, gdy HA nadal udostępnia `version: 1` — pokazuje wbudowany układ awaryjny z samym lokalnym zegarem zajmującym całą siatkę oraz komunikat `Wymagana konfiguracja Helios version: 2` w pasku. Stałe menu pozostaje dostępne.
 
-Encje nieistniejące mogą nie wystąpić w początkowym snapshotcie. Helios nie czeka na każdą encję osobno: po pierwszym zdarzeniu uznaje snapshot za kompletny, a brakujące encje traktuje jako brak danych. Dekoder `subscribe_entities` musi rozszerzyć obecne wsparcie `s` o atrybuty z `a` w snapshotach i `+.a` w różnicach. Przechowuje wyłącznie atrybuty wymienione w poprawnej konfiguracji: `temperature`, `temperature_unit`, `wind_speed` i `wind_speed_unit` pogody oraz jawne `attribute` elementów; resztę pomija. Limit wiadomości klienta pozostaje 256 KiB.
+Encje nieistniejące mogą nie wystąpić w początkowym snapshotcie. Helios nie czeka na każdą encję osobno: po pierwszym zdarzeniu uznaje snapshot za kompletny, a brakujące encje traktuje jako brak danych. Dekoder `subscribe_entities` musi rozszerzyć obecne wsparcie `s` o atrybuty z `a` w snapshotach i `+.a` w różnicach. Przechowuje wyłącznie atrybuty wymienione w poprawnej konfiguracji: `temperature`, `temperature_unit`, `wind_speed` i `wind_speed_unit` pogody, `current_position` rolety i bramy oraz jawne `attribute` elementów; resztę pomija. Limit wiadomości klienta pozostaje 256 KiB.
 
 Obecny klient korzysta z poleceń WebSocket `lovelace/config`, zdarzenia `lovelace_updated` i `subscribe_entities`. Pierwsze dwa są wewnętrznymi mechanizmami konfiguracji Lovelace i ich dostępność, format odpowiedzi oraz uprawnienia trzeba zweryfikować na docelowej wersji Home Assistant przed implementacją 0.5. Jeśli nie zapewnią stabilnego kontraktu, należy wybrać dedykowany punkt integracji HA bez zmiany schematu `helios` widzianego przez renderer.
 

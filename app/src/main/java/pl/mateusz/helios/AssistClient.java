@@ -46,8 +46,8 @@ public final class AssistClient {
     }
     private final class Events {
         int handler=-1;
-        boolean sttReady, audioDone, sttDone, ended;
-        String ttsUrl;
+        boolean sttReady, vadStarted, audioDone, sttDone, ended, continueConversation;
+        String ttsUrl, conversationId;
         void accept(JSONObject message) throws Exception {
             if(message.optString("type").equals("result")&&!message.optBoolean("success"))throw new IOException("Pipeline rejected");
             JSONObject event=message.optJSONObject("event");if(event==null)return;
@@ -56,22 +56,28 @@ public final class AssistClient {
             if(type.equals("error"))throw new IOException(data==null?"Pipeline error":data.optString("code","Pipeline error"));
             if(type.equals("run-start"))handler=data.getJSONObject("runner_data").getInt("stt_binary_handler_id");
             if(type.equals("stt-start"))sttReady=true;
+            if(type.equals("stt-vad-start"))vadStarted=true;
             if(type.equals("stt-vad-end"))audioDone=true;
             if(type.equals("stt-end")){
-                audioDone=true;sttDone=true;
+                audioDone=true;sttDone=true;vadStarted=true;
                 String text=data.getJSONObject("stt_output").optString("text","");log("transcript",text);state("Usłyszano: "+text);
             }
             if(type.equals("intent-end")){
                 JSONObject output=data.optJSONObject("intent_output");
-                if(output!=null){JSONObject response=output.optJSONObject("response");if(response!=null)log("intent_response",response.toString());}
+                if(output!=null){
+                    JSONObject response=output.optJSONObject("response");if(response!=null)log("intent_response",response.toString());
+                    continueConversation=output.optBoolean("continue_conversation",false);
+                    if(output.has("conversation_id")&&!output.isNull("conversation_id"))conversationId=output.getString("conversation_id");
+                }
             }
             if(type.equals("tts-end"))ttsUrl=data.getJSONObject("tts_output").getString("url");
             if(type.equals("run-end"))ended=true;
         }
     }
+    /** One wake-up: a pipeline run, then follow-up runs on the same socket while the user keeps talking. */
     private void runVoice() {
-        Socket socket=null;AudioRecord recorder=null;
-        long started=SystemClock.elapsedRealtime();long sampleCount=0;double sumSq=0;
+        Socket socket=null;ToneGenerator tone=null;
+        long started=SystemClock.elapsedRealtime();
         try{
             log("test_start","");state("Łączenie z HA…");
             URI base=new URI(config.getString("url"));
@@ -81,8 +87,30 @@ public final class AssistClient {
             if(!socket.next(SystemClock.elapsedRealtime()+10000).optString("type").equals("auth_required"))throw new IOException("HA handshake failed");
             socket.send(new JSONObject().put("type","auth").put("access_token",config.getString("token")).toString());
             if(!socket.next(SystemClock.elapsedRealtime()+10000).optString("type").equals("auth_ok"))throw new IOException("HA authentication failed");
-            socket.send(new JSONObject().put("id",1).put("type","assist_pipeline/run").put("pipeline",config.getString("pipeline"))
-                    .put("start_stage","stt").put("end_stage","tts").put("timeout",60).put("input",new JSONObject().put("sample_rate",16000)).toString());
+            try{tone=new ToneGenerator(AudioManager.STREAM_MUSIC,70);}catch(RuntimeException ignored){}
+            String conversationId=null;long followUp=0;int run=1;
+            while(!closed){
+                Events events=runOnce(socket,base,run++,conversationId,followUp,tone);
+                if(events==null)break;
+                conversationId=events.conversationId;
+                // ponytail: after every answer listen again without the wake word; HA's continue_conversation only lengthens the window.
+                followUp=events.continueConversation?15000:6000;
+            }
+            log("test_completed","elapsed_ms="+(SystemClock.elapsedRealtime()-started));state("Gotowe · mikrofon wyłączony");
+        }catch(Exception e){log("test_error",e.getClass().getSimpleName()+": "+e.getMessage());state("Błąd: "+e.getMessage());}
+        finally{
+            if(tone!=null)tone.release();
+            if(socket!=null)socket.close();log("ready","microphone_off");
+        }
+    }
+    /** Returns the run's events after playback, or null when a follow-up window passed without speech. */
+    private Events runOnce(Socket socket,URI base,int run,String conversationId,long followUp,ToneGenerator tone) throws Exception {
+        AudioRecord recorder=null;long sampleCount=0;double sumSq=0;finishAudio=false;
+        try{
+            JSONObject request=new JSONObject().put("id",run).put("type","assist_pipeline/run").put("pipeline",config.getString("pipeline"))
+                    .put("start_stage","stt").put("end_stage","tts").put("timeout",60).put("input",new JSONObject().put("sample_rate",16000));
+            if(conversationId!=null)request.put("conversation_id",conversationId);
+            socket.send(request.toString());
             Events events=new Events();long setupDeadline=SystemClock.elapsedRealtime()+20000;
             while(!events.sttReady){events.accept(socket.next(setupDeadline));if(events.ended)throw new IOException("Pipeline ended before microphone");}
             if(events.handler<0||events.handler>255)throw new IOException("Invalid audio handler");
@@ -90,12 +118,15 @@ public final class AssistClient {
             if(min<=0)throw new IOException("Microphone buffer unavailable");
             if(ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED)throw new IOException("Microphone permission required");
             recorder=new AudioRecord(7,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(8192,min*4));
-            recorder.startRecording();log("microphone_started","source=7 rate=16000 mono PCM16 gain=1");state("Mów teraz\nKtóra jest godzina?");
-            short[] pcm=new short[320];long captureDeadline=SystemClock.elapsedRealtime()+30000,nextPulse=SystemClock.elapsedRealtime()+1000;
+            if(tone!=null){tone.startTone(ToneGenerator.TONE_PROP_BEEP,120);SystemClock.sleep(150);}
+            recorder.startRecording();log("microphone_started","source=7 rate=16000 mono PCM16 gain=1 run="+run);state(followUp>0?"Słucham dalej…":"Mów teraz\nKtóra jest godzina?");
+            short[] pcm=new short[320];long captureStart=SystemClock.elapsedRealtime(),captureDeadline=captureStart+30000,nextPulse=captureStart+1000;
+            boolean quiet=false;
             while(!closed&&!finishAudio&&!events.audioDone&&!events.ended&&SystemClock.elapsedRealtime()<captureDeadline){
                 if(socket.failed)throw new IOException("HA disconnected");
                 JSONObject m;while((m=socket.messages.poll())!=null)events.accept(m);
                 if(events.audioDone||events.ended)break;
+                if(followUp>0&&!events.vadStarted&&SystemClock.elapsedRealtime()-captureStart>followUp){quiet=true;break;}
                 int n=recorder.read(pcm,0,pcm.length,AudioRecord.READ_NON_BLOCKING);
                 if(n<0)throw new IOException("Microphone read failed: "+n);
                 if(n==0){SystemClock.sleep(5);continue;}
@@ -107,16 +138,15 @@ public final class AssistClient {
             recorder.stop();recorder.release();recorder=null;
             log("microphone_released","samples="+sampleCount+" rms="+(sampleCount>0?Math.sqrt(sumSq/sampleCount):0));
             if(closed)throw new IOException("Cancelled");
+            if(quiet){log("follow_up_quiet","run="+run);return null;}
             if(!events.sttDone&&!events.ended)socket.send(new byte[]{(byte)events.handler});
             state("Czekam na odpowiedź…");long responseDeadline=SystemClock.elapsedRealtime()+45000;
             while(!events.ended)events.accept(socket.next(responseDeadline));
             if(events.ttsUrl==null)throw new IOException("No TTS response");
             play(base.resolve(events.ttsUrl).toString());
-            log("test_completed","elapsed_ms="+(SystemClock.elapsedRealtime()-started));state("Gotowe · mikrofon wyłączony");
-        }catch(Exception e){log("test_error",e.getClass().getSimpleName()+": "+e.getMessage());state("Błąd: "+e.getMessage());}
-        finally{
+            return events;
+        }finally{
             if(recorder!=null){try{recorder.stop();}catch(Exception ignored){}recorder.release();log("microphone_released","cleanup");}
-            if(socket!=null)socket.close();log("ready","microphone_off");
         }
     }
     private void play(String url) throws Exception {

@@ -1,5 +1,17 @@
 {
-  "source": "https://raw.githubusercontent.com/Templarian/MaterialDesign/master/svg/home-assistant.svg",
-  "sha256": "3467f7cc10ab7eebec9d066b51353caec080a9c5995066130f9775d733cd91cc",
-  "license": "MDI-LICENSE"
+  "home_assistant_icon": {
+    "source": "https://raw.githubusercontent.com/Templarian/MaterialDesign/master/svg/home-assistant.svg",
+    "sha256": "3467f7cc10ab7eebec9d066b51353caec080a9c5995066130f9775d733cd91cc",
+    "license": "MDI-LICENSE"
+  },
+  "dashboard_icons": {
+    "names": [
+      "information",
+      "weather-rainy",
+      "lightbulb",
+      "window-shutter",
+      "garage-open"
+    ],
+    "source": "original line drawings in IconView.java (no external assets); registry of names lives in DashboardSpec.ICONS"
+  }
 }

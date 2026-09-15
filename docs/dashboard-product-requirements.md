@@ -1,6 +1,6 @@
 # Wymagania produktowe dashboardu Helios
 
-Status: zaakceptowany kierunek rozwoju, jeszcze niezaimplementowany. Dokument zapisuje ustalenia z rozmowy z użytkownikiem z 2026-09-15. Nie opisuje bieżących możliwości wersji 0.4.0.
+Status: zaakceptowany kierunek rozwoju; pierwszy etap zaimplementowano jako Helios 0.5.0. Dokument zapisuje ustalenia z rozmowy z użytkownikiem z 2026-09-15. Nie opisuje bieżących możliwości wersji 0.4.0.
 
 Implementowalny opis pierwszego etapu: [SPEC 0.5 — dashboard konfigurowany z Home Assistant](SPEC-0.5-ha-configurable-dashboard.md).
 

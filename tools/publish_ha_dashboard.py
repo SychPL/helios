@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--replace', action='store_true')
     args = parser.parse_args()
     desired = yaml.safe_load(args.file.read_text(encoding='utf-8'))
-    assert isinstance(desired, dict) and desired['helios']['version'] == 1
+    assert isinstance(desired, dict) and desired['helios']['version'] == 2
     config = json.loads((ROOT / '.local/ha.json').read_text(encoding='utf-8-sig'))
     parsed = urllib.parse.urlparse(config['url'])
     endpoint = urllib.parse.urlunparse(parsed._replace(scheme='wss' if parsed.scheme == 'https' else 'ws', path='/api/websocket'))

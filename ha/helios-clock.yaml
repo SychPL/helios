@@ -1,19 +1,73 @@
 title: Helios
 helios:
-  version: 1
-  clock: true
-  weather: weather.forecast_dom
-  indicators:
-    - entity: sensor.camera_garage_garage_gate_classification
-      name: Garaż
-      when: ["open"]
-      clear_when: ["close"]
+  version: 2
+  grid:
+    columns: 4
+    rows: 3
+  items:
+    - id: clock
+      type: clock
+      column: 1
+      row: 1
+      width: 2
+      height: 2
+      title: Dom
+
+    - id: weather
+      type: weather
+      entity: weather.forecast_dom
+      column: 3
+      row: 1
+      width: 2
+      height: 1
+      title: Pogoda
+
+    - id: garage-state
+      type: entity
+      entity: sensor.camera_garage_garage_gate_classification
+      column: 3
+      row: 2
+      width: 2
+      height: 1
+      title: Brama garażowa
       icon: garage-open
-      label: Garaż otwarty
-      color: orange
+
+    # Przykłady sterowania. Odkomentuj i wpisz własne encje.
+    # - id: living-room-light
+    #   type: light
+    #   entity: light.salon
+    #   column: 1
+    #   row: 3
+    #   width: 1
+    #   height: 1
+    #   title: Salon
+    #
+    # - id: living-room-cover
+    #   type: cover
+    #   entity: cover.roleta_salon
+    #   column: 2
+    #   row: 3
+    #   width: 1
+    #   height: 1
+    #   title: Roleta
+    #
+    # - id: garage
+    #   type: garage
+    #   entity: cover.brama_garazowa
+    #   column: 3
+    #   row: 3
+    #   width: 2
+    #   height: 1
+    #   title: Brama otwarta
+    #   visible_when:
+    #     entity: binary_sensor.helios_show_open_garage_evening
+    #     state: "on"
+    #   confirmation:
+    #     enabled: true
+    #     text: Zamknąć bramę garażową?
 views:
-  - title: Zegar
-    path: zegar
+  - title: Konfiguracja
+    path: konfiguracja
     cards:
       - type: markdown
         title: Konfiguracja zegara Helios
@@ -21,11 +75,6 @@ views:
           **Edytuj pulpit → menu ⋮ → Edytor konfiguracji tekstowej.**
           Zmieniaj sekcję `helios` na początku YAML. Zapis odświeża zegar.
 
-          `when` określa stany ostrzegawcze, a `clear_when` stany poprawne.
-          Pozostałe wartości oraz brak połączenia są oznaczane jako brak danych.
-          Zegar obsługuje do trzech wskaźników. Konfiguracja wymaga Heliosa 0.3.0.
-      - type: entities
-        title: Czujnik garażu
-        entities:
-          - entity: sensor.camera_garage_garage_gate_classification
-            name: Klasyfikacja bramy
+          Zegar renderuje wyłącznie elementy `clock`, `weather`, `entity`, `light`,
+          `cover` i `garage` z sekcji `helios` (siatka 4×3). Karty Lovelace nie są
+          renderowane na zegarze. Konfiguracja wymaga Heliosa 0.5.0 i `version: 2`.
