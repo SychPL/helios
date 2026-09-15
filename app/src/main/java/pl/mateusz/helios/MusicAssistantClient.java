@@ -96,7 +96,7 @@ final class MusicAssistantClient {
 
     synchronized void call(String command,JSONObject args,String lane,Consumer<Object> ok,Consumer<String> fail){
         Socket s=socket;
-        if(s==null||!authenticated){fail.accept("Brak połączenia z Music Assistant");return;}
+        if(s==null||!authenticated||s.failed){fail.accept("Brak połączenia z Music Assistant");return;}
         String previous=lanes.get(lane);
         if(previous!=null&&pending.containsKey(previous)){
             if(lane.equals("search")){Pending old=pending.remove(previous);if(old!=null)old.fail.accept("superseded");}
