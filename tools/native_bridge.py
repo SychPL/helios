@@ -1,5 +1,6 @@
 """Temporary clock-only APK/config delivery and controlled-test diagnostics."""
 import argparse
+import re
 import http.server
 import json
 from pathlib import Path
@@ -30,14 +31,18 @@ started=time.monotonic()
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def allowed(self):return self.client_address[0] in ('192.168.1.113',host,'127.0.0.1')
-    def send(self,payload,content_type='application/octet-stream'):
-        self.send_response(200);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(payload)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(payload)
+    def send(self,payload,content_type='application/octet-stream',filename=None):
+        self.send_response(200);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(payload)));self.send_header('Cache-Control','no-store')
+        if filename:self.send_header('Content-Disposition','attachment; filename="'+filename+'"')  # versioned name: the clock's Downloads never confuse an old APK with the new one
+        self.end_headers();self.wfile.write(payload)
     def do_GET(self):
         if not self.allowed():return self.send_error(403)
         if self.path==route+'/config':
             if time.monotonic()-started>1800:return self.send_error(410)
             self.send(json.dumps(config).encode(),'application/json');print('Helios configuration delivered',flush=True)
-        elif self.path in (route+'/helios.apk', '/helios.apk'):self.send((ROOT/'app/build/outputs/apk/debug/app-debug.apk').read_bytes(),'application/vnd.android.package-archive')
+        elif self.path in (route+'/helios.apk', '/helios.apk'):
+            version=re.search(r"versionName\s+'([^']+)'",(ROOT/'app/build.gradle').read_text(encoding='utf-8')).group(1)
+            self.send((ROOT/'app/build/outputs/apk/debug/app-debug.apk').read_bytes(),'application/vnd.android.package-archive','helios-'+version+'.apk');print('APK '+version+' delivered',flush=True)
         elif self.path==route+'/install.dex':self.send((ROOT/'.local/helios-installer/classes.dex').read_bytes())
         else:self.send_error(404)
     def do_POST(self):
