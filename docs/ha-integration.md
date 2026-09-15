@@ -1,6 +1,6 @@
 # Integracja Helios w Home Assistant (0.7)
 
-Zegar łączy się z HA jednym gniazdem WebSocket (tym samym, co dashboard) i rejestruje subskrypcję `helios/connect`. Po stronie HA komponent `custom_components/helios` tworzy urządzenie **Helios** z encjami:
+Zegar łączy się z HA jednym gniazdem WebSocket (tym samym, co dashboard) i rejestruje subskrypcję `helios/connect`. Po stronie HA integracja **Helios** z osobnego repozytorium HACS [SychPL/ha-helios](https://github.com/SychPL/ha-helios) tworzy urządzenie z encjami:
 
 | Encja | Źródło na zegarze |
 | --- | --- |
@@ -16,7 +16,7 @@ Kontrakt kanału i allowlista komend (`lamp.turn_on`, `lamp.turn_off`, `lamp.set
 
 ## Instalacja komponentu
 
-1. Skopiuj katalog `ha/custom_components/helios` do `config/custom_components/helios` w HA (Samba, SSH lub edytor plików dodatku). Bez zależności pip.
+1. HACS → Integracje → ⋮ → Niestandardowe repozytoria → `https://github.com/SychPL/ha-helios`, kategoria Integracja → zainstaluj **Helios** (alternatywnie skopiuj `custom_components/helios` z tego repozytorium do `config/custom_components/helios`). Bez zależności pip.
 2. Zrestartuj HA.
 3. Ustawienia → Urządzenia i usługi → Dodaj integrację → **Helios**. HA pokaże 6-cyfrowy kod ważny 5 minut.
 4. Na zegarze przytrzymaj HELIOS → **Paruj z HA (kod)** → wpisz kod → OK. Zegar musi już być sparowany z HA (token) i połączony.
@@ -34,4 +34,4 @@ Ponowne parowanie tego samego zegara (np. nowe konto HA dla tokena) odświeża i
 
 Menu → **Urządzenie: głośność i lampka**: suwak głośności (zmiana po puszczeniu), przełącznik lampki, jasność 1-10. Menu → **Odśwież parowanie** pobiera ponownie dokument parowania z mostu (`tools/native_bridge.py`); zmiana danych HA wymaga potwierdzenia, sekcja `music_assistant` (0.6) jest dołączana z `.local/ma.json`, gdy plik istnieje.
 
-Testy czystych helperów komponentu: `python -m pytest ha/tests`. Integracja nie była jeszcze uruchomiona na HA 2026.8.3 - pierwszy odbiór wg SPEC 0.7 pkt 7.
+Kod, testy (`pytest tests`) i workflow hassfest/HACS żyją w `SychPL/ha-helios`; ten katalog `ha/` zawiera tylko YAML panelu. Integracja nie była jeszcze uruchomiona na HA 2026.8.3 - pierwszy odbiór wg SPEC 0.7 pkt 7.

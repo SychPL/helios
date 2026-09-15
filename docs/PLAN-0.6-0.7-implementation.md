@@ -92,7 +92,7 @@ Globalne ograniczenia (z obu spec-ów): brak dowolnych usług, komend, intentów
 
 ### T1.6 Custom component `helios` w HA
 
-**Pliki:** `ha/custom_components/helios/{manifest.json, __init__.py, const.py, config_flow.py, websocket.py, coordinator.py, entity.py, sensor.py, binary_sensor.py, light.py, number.py, strings.json, translations/pl.json}`, `ha/custom_components/helios/tests/test_helpers.py`.
+**Pliki (od 2026-09-15 w osobnym repozytorium HACS `SychPL/ha-helios`):** `custom_components/helios/{manifest.json, __init__.py, const.py, config_flow.py, websocket.py, coordinator.py, entity.py, sensor.py, binary_sensor.py, light.py, number.py, strings.json, translations/pl.json}`, `ha/custom_components/helios/tests/test_helpers.py`.
 
 **Kontrakt (SPEC 0.7 pkt 3):**
 - `config_flow.py`: krok `user` generuje 6-cyfrowy kod, zapisuje `{code, expires: now+5min, flow_id}` w `hass.data[DOMAIN]["pairing"]`, pokazuje `async_show_progress` z kodem; po `helios/connect` z pasującym kodem websocket woła `flow.async_configure` → `async_show_progress_done` → `async_create_entry(unique_id=installation_id, data={installation_id, user_id})`. Limit 5 prób złego kodu na flow, potem `abort`. Ponowne parowanie tego samego `installation_id` → `async_update_reload_and_abort` istniejącego wpisu.
