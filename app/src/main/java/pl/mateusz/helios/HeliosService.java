@@ -119,7 +119,6 @@ public final class HeliosService extends Service {
     /** HA registry device id of this clock, null until the device channel is connected. */
     String deviceId(){return deviceId;}
     boolean devicePaired(){return device!=null&&device.active();}
-    void pair(String code){if(device!=null)device.pair(code);}
     void setVoiceState(String state){if(!state.equals(voiceState)){voiceState=state;publish();if(state.equals("listening"))blinkLamp();}}
     /** One short flash of the dock lamp when the clock starts listening for a command; a lit lamp winks off instead. Errors are ignored: the lamp is a hint, not a gate. */
     private void blinkLamp(){

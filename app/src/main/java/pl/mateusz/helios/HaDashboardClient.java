@@ -73,6 +73,8 @@ final class HaDashboardClient {
         }catch(JSONException e){done.accept("Nie udało się wysłać polecenia");}
     }
     private static String errorText(JSONObject m,String fallback){JSONObject error=m.optJSONObject("error");return error==null?fallback:error.optString("message",fallback);}
+    /** HA's structural error.code of a result; subscriptions end with this code (never the translated message), "subscription_rejected" without one. */
+    static String errorCode(JSONObject m){JSONObject error=m.optJSONObject("error");return error==null?"subscription_rejected":error.optString("code","subscription_rejected");}
     /** Sends a command on the authenticated session; result receives HA's whole result message or a synthesized failure. Returns the id or -1. */
     int request(JSONObject payload,Consumer<JSONObject> result){
         Socket s=socket;
@@ -86,10 +88,10 @@ final class HaDashboardClient {
             }
         }catch(Exception e){result.accept(failure("Nie udało się wysłać polecenia"));return -1;}
     }
-    /** Like request, but events with this id go to event until the session ends (ended). Not renewed automatically: subscribe again in onSessionStarted. */
+    /** Like request, but events with this id go to event until the session ends (ended receives a code: HA's error.code, "disconnected", "send_failed"). Not renewed automatically: subscribe again in onSessionStarted. */
     int subscribe(JSONObject payload,Consumer<JSONObject> event,Consumer<String> ended){
         Socket s=socket;
-        if(s==null||!authenticated){ended.accept("Brak połączenia z Home Assistant");return -1;}
+        if(s==null||!authenticated){ended.accept("disconnected");return -1;}
         try{
             synchronized(this){
                 int id=ids.getAndIncrement();
@@ -97,13 +99,13 @@ final class HaDashboardClient {
                 try{s.send(payload.put("id",id).toString());}catch(Exception e){subscriptions.remove(id);throw e;}
                 return id;
             }
-        }catch(Exception e){ended.accept("Nie udało się wysłać subskrypcji");return -1;}
+        }catch(Exception e){ended.accept("send_failed");return -1;}
     }
     private synchronized int send(Socket s,JSONObject payload) throws Exception {int id=ids.getAndIncrement();s.send(payload.put("id",id).toString());return id;}
     static JSONObject failure(String message){try{return new JSONObject().put("success",false).put("error",new JSONObject().put("code","helios").put("message",message));}catch(JSONException e){throw new IllegalStateException(e);}}
     private void failPending(String reason){
         for(Integer id:new ArrayList<>(pending.keySet())){Pending p=pending.remove(id);if(p!=null)p.done.accept(failure(reason));}
-        for(Integer id:new ArrayList<>(subscriptions.keySet())){Subscription sub=subscriptions.remove(id);if(sub!=null)sub.ended.accept(reason);}
+        for(Integer id:new ArrayList<>(subscriptions.keySet())){Subscription sub=subscriptions.remove(id);if(sub!=null)sub.ended.accept("disconnected");}
     }
     private void expirePending(){
         long now=System.nanoTime();
@@ -176,7 +178,7 @@ final class HaDashboardClient {
                 Pending call=pending.remove(id);
                 if(call!=null){call.done.accept(m);continue;}
                 if(subscriptions.containsKey(id)){
-                    if(!m.optBoolean("success")){Subscription sub=subscriptions.remove(id);if(sub!=null)sub.ended.accept(errorText(m,"Subskrypcja odrzucona"));}
+                    if(!m.optBoolean("success")){Subscription sub=subscriptions.remove(id);if(sub!=null)sub.ended.accept(errorCode(m));}
                     continue;
                 }
                 if(!m.optBoolean("success")){

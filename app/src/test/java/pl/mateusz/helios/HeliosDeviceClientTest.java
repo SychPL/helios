@@ -14,6 +14,8 @@ public class HeliosDeviceClientTest {
     private final BlockingQueue<String> executed=new LinkedBlockingQueue<>();
     private final BlockingQueue<String> devices=new LinkedBlockingQueue<>();
     private final BlockingQueue<String> appearances=new LinkedBlockingQueue<>();
+    private final BlockingQueue<String> issues=new LinkedBlockingQueue<>();
+    private final BlockingQueue<String> connections=new LinkedBlockingQueue<>();
     private volatile CountDownLatch hold;
     private static Telemetry snapshot(int volume){return new Telemetry("0.7.0",8,"idle",true,null,false,null,"22.127",volume,5,"none");}
     private HeliosDeviceClient client() throws Exception {
@@ -25,6 +27,8 @@ public class HeliosDeviceClientTest {
         },new HeliosDeviceClient.Listener(){
             public void onDevice(String deviceId,String areaId,String name){devices.add(deviceId+"/"+areaId);}
             public void onAppearance(JSONObject a){appearances.add(a.toString());}
+            public void onConnection(JSONObject payload){connections.add(payload.toString());}
+            public void onChannelIssue(String text){issues.add(text);}
         });
         client.start();ha.start();return client;
     }
@@ -43,7 +47,7 @@ public class HeliosDeviceClientTest {
         HeliosDeviceClient client=client();
         try{
             JSONObject connect=server.connects.poll(5,TimeUnit.SECONDS);
-            assertEquals("install-1",connect.getString("installation_id"));assertEquals(1,connect.getInt("protocol"));assertEquals("0.7.0",connect.getString("app_version"));
+            assertEquals("install-1",connect.getString("installation_id"));assertEquals(2,connect.getInt("protocol"));assertEquals("0.7.0",connect.getString("app_version"));
             assertEquals("[\"lamp\",\"volume\",\"music\"]",connect.getJSONArray("capabilities").toString());assertFalse(connect.has("pairing_code"));
             assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));assertEquals("dev1",client.deviceId());
             JSONObject state=device("helios/state").getJSONObject("state");
@@ -96,7 +100,7 @@ public class HeliosDeviceClientTest {
             assertTrue(server.device.stream().noneMatch(m->m.optString("type").equals("helios/result")));
         }finally{client.stop();ha.stop();server.stop(2000);}
     }
-    @Test public void publishIsCoalescedAndPairingCodeIsSentOnce() throws Exception {
+    @Test public void publishIsCoalesced() throws Exception {
         long previous=HeliosDeviceClient.MIN_PUBLISH_INTERVAL_MS;HeliosDeviceClient.MIN_PUBLISH_INTERVAL_MS=400;
         HeliosDeviceClient client=client();
         try{
@@ -105,12 +109,88 @@ public class HeliosDeviceClientTest {
             JSONObject coalesced=device("helios/state");assertEquals(50,coalesced.getJSONObject("state").getInt("volume_percent"));
             assertNull(server.device.poll(600,TimeUnit.MILLISECONDS));
             client.publish();assertNull(server.device.poll(600,TimeUnit.MILLISECONDS));
-            server.connects.clear();client.pair("123456");
-            JSONObject paired=server.connects.poll(5,TimeUnit.SECONDS);assertEquals("123456",paired.getString("pairing_code"));
-            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));
-            server.client.close(1001,"drop");assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
-            JSONObject again=server.connects.poll(7,TimeUnit.SECONDS);assertFalse(again.has("pairing_code"));
         }finally{HeliosDeviceClient.MIN_PUBLISH_INTERVAL_MS=previous;client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void removedResubscribesWithBackoffAndReplacedDoesNot() throws Exception {
+        HeliosDeviceClient client=client();
+        try{
+            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));server.connects.clear();
+            long t0=System.currentTimeMillis();
+            server.sendEvent(server.connectId,new JSONObject().put("type","removed"));
+            assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
+            assertNotNull("resubscribe after removed",server.connects.poll(4,TimeUnit.SECONDS));
+            assertTrue(System.currentTimeMillis()-t0>=1900);
+            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));assertTrue(client.active());
+            server.connects.clear();
+            server.sendEvent(server.connectId,new JSONObject().put("type","replaced"));
+            assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
+            assertEquals("Inne urządzenie przejęło to parowanie",issues.poll(2,TimeUnit.SECONDS));
+            assertNull("no resubscribe after replaced",server.connects.poll(3,TimeUnit.SECONDS));
+        }finally{client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void aRejectedStateOrResultCountsAsRemoved() throws Exception {
+        HeliosDeviceClient client=client();
+        try{
+            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));device("helios/state");server.connects.clear();
+            server.stateUnauthorized=true;telemetry.set(snapshot(41));client.publish();
+            assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
+            server.stateUnauthorized=false;
+            assertNotNull(server.connects.poll(4,TimeUnit.SECONDS));assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));device("helios/state");server.connects.clear();
+            server.stateUnauthorized=true; // the server flag covers helios/result too
+            server.sendCommand("r1","lamp.turn_on",new JSONObject());
+            assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
+            server.stateUnauthorized=false;
+            assertNotNull(server.connects.poll(4,TimeUnit.SECONDS));
+        }finally{client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void removedFollowedByADeadSocketResubscribesExactlyOnceInTheNewSession() throws Exception {
+        HeliosDeviceClient client=client();
+        try{
+            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));server.connects.clear();
+            server.sendEvent(server.connectId,new JSONObject().put("type","removed"));
+            assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
+            server.client.close(1001,"drop"); // before the 2 s retry fires
+            assertNotNull(server.connects.poll(7,TimeUnit.SECONDS)); // the new session's onSessionStarted
+            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));
+            assertNull("no second subscription from the stale retry",server.connects.poll(4,TimeUnit.SECONDS));
+        }finally{client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void unauthorizedConnectStopsRetryingAndReportsIt() throws Exception {
+        server=new HaDashboardClientTest.Server();server.rejectConnect=true;server.start();assertTrue(server.ready.await(5,TimeUnit.SECONDS));
+        ha=new HaDashboardClient(new JSONObject().put("url","http://127.0.0.1:"+server.getPort()).put("token","t"),null);
+        HeliosDeviceClient client=new HeliosDeviceClient(ha,"install-1",telemetry::get,(c,a)->null,new HeliosDeviceClient.Listener(){
+            public void onDevice(String d,String a,String n){devices.add(d+"/"+a);}
+            public void onChannelIssue(String text){issues.add(text);}
+        });
+        client.start();ha.start();
+        try{
+            assertNotNull(server.connects.poll(5,TimeUnit.SECONDS));
+            assertEquals("Zegar usunięty z HA - sparuj ponownie",issues.poll(5,TimeUnit.SECONDS));
+            assertNull(server.connects.poll(3,TimeUnit.SECONDS));
+        }finally{client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void aNotReadyConnectRetriesWithBackoff() throws Exception {
+        server=new HaDashboardClientTest.Server();server.rejectConnect=true;server.connectError="not_ready";server.start();assertTrue(server.ready.await(5,TimeUnit.SECONDS));
+        ha=new HaDashboardClient(new JSONObject().put("url","http://127.0.0.1:"+server.getPort()).put("token","t"),null);
+        HeliosDeviceClient client=new HeliosDeviceClient(ha,"install-1",telemetry::get,(c,a)->null,new HeliosDeviceClient.Listener(){
+            public void onDevice(String d,String a,String n){devices.add(d+"/"+a);}
+            public void onChannelIssue(String text){issues.add(text);}
+        });
+        client.start();ha.start();
+        try{
+            assertNotNull(server.connects.poll(5,TimeUnit.SECONDS));assertEquals("null/null",devices.poll(5,TimeUnit.SECONDS));
+            server.rejectConnect=false;
+            assertNotNull("retried after not_ready",server.connects.poll(4,TimeUnit.SECONDS));assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));
+            assertNull(issues.poll(200,TimeUnit.MILLISECONDS));
+        }finally{client.stop();ha.stop();server.stop(2000);}
+    }
+    @Test public void connectionEventReachesTheListener() throws Exception {
+        HeliosDeviceClient client=client();
+        try{
+            assertEquals("dev1/bedroom",devices.poll(5,TimeUnit.SECONDS));
+            server.sendEvent(server.connectId,new JSONObject().put("type","connection").put("pipeline","p1").put("dashboard_path","helios-clock").put("music_assistant",JSONObject.NULL).put("diagnostics_url",JSONObject.NULL));
+            String c=connections.poll(5,TimeUnit.SECONDS);assertNotNull(c);assertTrue(c,c.contains("\"pipeline\":\"p1\""));
+        }finally{client.stop();ha.stop();server.stop(2000);}
     }
     @Test public void appearanceSnapshotsReachTheListenerAndUnknownEventsAreIgnored() throws Exception {
         HeliosDeviceClient client=client();

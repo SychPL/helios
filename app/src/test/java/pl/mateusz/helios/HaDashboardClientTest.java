@@ -33,13 +33,15 @@ public class HaDashboardClientTest {
         final BlockingQueue<JSONObject> custom=new LinkedBlockingQueue<>();
         final BlockingQueue<JSONObject> connects=new LinkedBlockingQueue<>();
         final BlockingQueue<JSONObject> device=new LinkedBlockingQueue<>();
-        volatile boolean rejectConnect;
+        volatile boolean rejectConnect,stateUnauthorized,garbleAuth;
+        volatile String connectError="unauthorized";
+        final AtomicInteger opens=new AtomicInteger();
         volatile int connectId=-1;
         final Map<WebSocket,Integer> lastId=new ConcurrentHashMap<>();
         volatile int entitiesId=-1,customSubscriptionId=-1,updatesId=-1;
         Server(){super(new InetSocketAddress("127.0.0.1",0));}
         @Override public void onStart(){ready.countDown();}
-        @Override public void onOpen(WebSocket ws,ClientHandshake handshake){client=ws;lastId.put(ws,0);ws.send("{\"type\":\"auth_required\"}");}
+        @Override public void onOpen(WebSocket ws,ClientHandshake handshake){client=ws;opens.incrementAndGet();lastId.put(ws,0);ws.send("{\"type\":\"auth_required\"}");}
         @Override public void onClose(WebSocket ws,int code,String reason,boolean remote){lastId.remove(ws);}
         @Override public void onError(WebSocket ws,Exception ex){}
         JSONObject document() throws Exception {
@@ -51,7 +53,7 @@ public class HaDashboardClientTest {
         @Override public void onMessage(WebSocket ws,String message){
             try{
                 JSONObject request=new JSONObject(message);String type=request.getString("type");int id=request.optInt("id");
-                if(type.equals("auth")){ws.send(rejectToken?"{\"type\":\"auth_invalid\",\"message\":\"bad\"}":"{\"type\":\"auth_ok\"}");return;}
+                if(type.equals("auth")){ws.send(garbleAuth?"{\"type\":\"weird\"}":rejectToken?"{\"type\":\"auth_invalid\",\"message\":\"bad\"}":"{\"type\":\"auth_ok\"}");return;}
                 Integer previous=lastId.get(ws);
                 if(previous!=null&&id<=previous){ws.send(new JSONObject().put("id",id).put("type","result").put("success",false).put("error",new JSONObject().put("code","id_reuse").put("message","Identifier values have to increase")).toString());return;}
                 lastId.put(ws,id);
@@ -64,11 +66,15 @@ public class HaDashboardClientTest {
                 }
                 if(type.equals("helios/connect")){
                     connects.add(request);connectId=id;
-                    if(rejectConnect){ws.send(new JSONObject().put("id",id).put("type","result").put("success",false).put("error",new JSONObject().put("code","unauthorized").put("message","Nieznane urządzenie")).toString());return;}
+                    if(rejectConnect){ws.send(new JSONObject().put("id",id).put("type","result").put("success",false).put("error",new JSONObject().put("code",connectError).put("message","Nieznane urządzenie")).toString());return;}
                     ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).toString());
                     sendEvent(id,new JSONObject().put("type","connected").put("device_id","dev1").put("area_id","bedroom"));return;
                 }
-                if(type.equals("helios/state")||type.equals("helios/result")){device.add(request);ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).toString());return;}
+                if(type.equals("helios/state")||type.equals("helios/result")){
+                    device.add(request);
+                    if(stateUnauthorized){ws.send(new JSONObject().put("id",id).put("type","result").put("success",false).put("error",new JSONObject().put("code","unauthorized").put("message","Brak aktywnej subskrypcji")).toString());return;}
+                    ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).toString());return;
+                }
                 if(type.equals("helios/echo")){custom.add(request);ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).put("result",request.opt("value")).toString());return;}
                 if(type.equals("helios/subscribe")){customSubscriptionId=id;ws.send(new JSONObject().put("id",id).put("type","result").put("success",true).toString());sendEvent(id,new JSONObject().put("type","hello"));return;}
                 if(type.equals("helios/rejected")){ws.send(new JSONObject().put("id",id).put("type","result").put("success",false).put("error",new JSONObject().put("code","unauthorized").put("message","Odmowa")).toString());return;}
@@ -220,10 +226,10 @@ public class HaDashboardClientTest {
             assertEquals("again",events.poll(5,TimeUnit.SECONDS).getString("type"));
             BlockingQueue<String> rejectedEnd=new LinkedBlockingQueue<>();
             client.subscribe(new JSONObject().put("type","helios/rejected"),e->fail("no events"),rejectedEnd::add);
-            assertEquals("Odmowa",rejectedEnd.poll(5,TimeUnit.SECONDS));
+            assertEquals("unauthorized",rejectedEnd.poll(5,TimeUnit.SECONDS));
             assertEquals("ok",call(client,"light","toggle","light.first"));
             server.client.close(1001,"Test disconnect");
-            assertEquals("Połączenie z HA przerwane",ended.poll(5,TimeUnit.SECONDS));
+            assertEquals("disconnected",ended.poll(5,TimeUnit.SECONDS));
             assertNotNull(sessions.poll(7,TimeUnit.SECONDS));
         }finally{client.stop();server.stop(2000);}
     }

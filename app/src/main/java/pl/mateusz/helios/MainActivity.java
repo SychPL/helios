@@ -409,7 +409,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 b.setOnClickListener(v->{
                     String current=code.getText().toString();
                     if(key.equals("⌫")){if(!current.isEmpty())code.setText(current.substring(0,current.length()-1));}
-                    else if(key.equals("OK")){if(current.length()==6){pairing=true;service.pair(current);closePanel();dashboard.setMessage("Paruję z HA…");main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("Kod odrzucony lub HA nie odpowiada");}},15000);}}
+                    else if(key.equals("OK")){if(current.length()==6){pairing=true;closePanel();dashboard.setMessage("Paruję z HA…");main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("Kod odrzucony lub HA nie odpowiada");}},15000);}}
                     else if(current.length()<6)code.setText(current+key);
                 });
             }
