@@ -68,11 +68,15 @@ final class WakeWordListener {
             // rate and downsamples back to 16 kHz (artifacts/wakeword-microphone-20260915.md). ponytail: remove with the HAL fix.
             AdaptiveDecimator decimator=new AdaptiveDecimator(16000,1500);
             short[] raw=new short[1280];short[] frame=new short[160];int offset=0;
-            double energy=0;long frames=0,peak=0,lastReport=SystemClock.elapsedRealtime();
+            double energy=0;long frames=0,peak=0,lastReport=SystemClock.elapsedRealtime();int lastFactor=1;
             while(!stopped){
                 int n=recorder.read(raw,0,raw.length,AudioRecord.READ_NON_BLOCKING);
                 if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
                 if(n>0)decimator.push(raw,n,SystemClock.elapsedRealtime());
+                if(decimator.factor()!=lastFactor){ // the HAL changed its mind mid-session: visible in the log, no restart needed
+                    if(diagnostics!=null)diagnostics.accept("factor_changed "+lastFactor+"->"+decimator.factor()+" measured_rate="+Math.round(decimator.measuredRate()));
+                    lastFactor=decimator.factor();
+                }
                 int m;
                 while(offset<frame.length&&(m=decimator.poll(frame,offset,frame.length-offset))>0)offset+=m;
                 if(offset==frame.length){
