@@ -19,6 +19,10 @@ Równoległy etap: [SPEC 0.7 — urządzenie Helios w Home Assistant](SPEC-0.7-h
 
 ## Zaakceptowane wymagania
 
+### Muzyka: pełny ekran, pauza kolejki, głośność urządzenia - projekt kolejnego przyrostu
+
+[SPEC 0.11](SPEC-0.11-music-fullscreen.md): ręcznie otwierany pełny ekran muzyki (okładka w lewej połowie, zegar/tytuł/wykonawca/przyciski po prawej, pasek postępu na całą szerokość), pauza rozpoznawana ze stanu kolejki MA (odtwarzacz Sendspin w MA 2.10.3 nie ma PAUSE, więc pauza to stop strumienia), głośność MA sterująca głośnością urządzenia zamiast wzmocnieniem strumienia. Decyzje użytkownika z 16 września 2026.
+
 ### Sypialnia i pogoda wieczorna — projekt kolejnego przyrostu
 
 [SPEC 0.9 — rolety, światło i pogoda na jutro](SPEC-0.9-bedroom-dashboard.md) opisuje stały kafelek otwierający osobne sterowanie dwiema roletami sypialni, światło widoczne po zmroku lub przy zamkniętej rolecie oraz wieczorną prognozę na jutro w istniejącym polu pogody. Projekt przyjmuje próg 18:00 dla prognozy i zamknięcie co najmniej jednej rolety dla światła; te doprecyzowania podlegają recenzji. Dolny rząd powiadomień pozostaje bez zmian. Dokument nie oznacza implementacji ani wdrożenia; proponowany schemat 4 dotyczy nowych funkcji, nie wyglądu z 0.8b.
