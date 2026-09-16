@@ -38,7 +38,6 @@ final class SendspinClient {
         void onMetadata(Metadata metadata);
         void onController(List<String> supportedCommands,Integer groupVolume,Boolean groupMuted);
         void onArtwork(byte[] jpeg);
-        void onPlayer(int volume,boolean muted);
         void onConnection(boolean connected,String detail);
         /** Raw protocol trace for diagnostics: stream/start|end|clear, group/update with its playback_state, server/hello. */
         default void onProtocol(String detail){}

@@ -10,13 +10,15 @@ import java.util.function.Consumer;
 
 /**
  * Music Assistant WebSocket API (2.10.3): auth first, message_id correlation, player events.
- * One request in flight per lane (players, play, cmd); a new search supersedes the previous one; stop is never blocked.
+ * One request in flight per lane (players, play, cmd); a new search or queue query supersedes the previous one; stop is never blocked.
  * The token is sent only to the configured host and never logged.
  */
 final class MusicAssistantClient {
     interface Listener {
         void onConnection(boolean connected,String detail);
         void onPlayerUpdated(JSONObject player);
+        /** queue_updated event: queue_id, state (playing|paused|idle|stopped), current_item... (plan 0.11 P1). */
+        default void onQueueUpdated(JSONObject queue){}
     }
     static volatile long TIMEOUT_MS=10_000;
     static final int SEARCH_LIMIT=50,QUERY_MIN=2,QUERY_MAX=100;
@@ -75,8 +77,9 @@ final class MusicAssistantClient {
             call("music/search",args,"search",r->ok.accept(r instanceof JSONObject?(JSONObject)r:new JSONObject()),fail);
         }catch(JSONException e){fail.accept("Błąd zapytania");}
     }
+    /** The player's active queue; its own lane so a pause check never blocks or is blocked by players/all, and a newer check supersedes an older one. */
     void activeQueue(String playerId,Consumer<JSONObject> ok,Consumer<String> fail){
-        try{call("player_queues/get_active_queue",new JSONObject().put("player_id",playerId),"players",r->ok.accept(r instanceof JSONObject?(JSONObject)r:null),fail);}catch(JSONException e){fail.accept("Błąd");}
+        try{call("player_queues/get_active_queue",new JSONObject().put("player_id",playerId),"queue",r->{if(r instanceof JSONObject)ok.accept((JSONObject)r);else fail.accept("Brak kolejki");},fail);}catch(JSONException e){fail.accept("Błąd");}
     }
     /** Tracks play now; albums, playlists and radio replace the queue and start from the first item. */
     void playMedia(String queueId,String uri,boolean replace,Consumer<Object> ok,Consumer<String> fail){
@@ -103,7 +106,7 @@ final class MusicAssistantClient {
         if(s==null||!authenticated||s.failed){fail.accept("Brak połączenia z Music Assistant");return;}
         String previous=lanes.get(lane);
         if(previous!=null&&pending.containsKey(previous)){
-            if(lane.equals("search")){Pending old=pending.remove(previous);if(old!=null)old.fail.accept("superseded");}
+            if(lane.equals("search")||lane.equals("queue")){Pending old=pending.remove(previous);if(old!=null)old.fail.accept("superseded");}
             else if(!lane.equals("stop")){fail.accept("Poprzednie polecenie jeszcze trwa");return;}
         }
         String id=String.valueOf(nextId++);
@@ -174,6 +177,8 @@ final class MusicAssistantClient {
                 else finish(id,m.opt("result"),null);
             }else if("player_updated".equals(m.optString("event"))){
                 JSONObject data=m.optJSONObject("data");if(data!=null)listener.onPlayerUpdated(data);
+            }else if("queue_updated".equals(m.optString("event"))){
+                JSONObject data=m.optJSONObject("data");if(data!=null)listener.onQueueUpdated(data);
             }
         }
     }

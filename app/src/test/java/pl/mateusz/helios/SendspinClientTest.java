@@ -75,7 +75,6 @@ public class SendspinClientTest {
     private final BlockingQueue<String> connections=new LinkedBlockingQueue<>();
     private final BlockingQueue<SendspinClient.Metadata> metadata=new LinkedBlockingQueue<>();
     private final BlockingQueue<Integer> artworks=new LinkedBlockingQueue<>();
-    private final BlockingQueue<String> players=new LinkedBlockingQueue<>();
     private final BlockingQueue<String> commands=new LinkedBlockingQueue<>(); // volume:NN, mute:bool, failed:reason, audio, idle, gap:N
     private volatile boolean focus=true;
     private SendspinClient client() throws Exception {
@@ -85,7 +84,6 @@ public class SendspinClientTest {
             public void onMetadata(SendspinClient.Metadata m){metadata.add(m);}
             public void onController(List<String> commands,Integer volume,Boolean muted){}
             public void onArtwork(byte[] jpeg){artworks.add(jpeg==null?-1:jpeg.length);}
-            public void onPlayer(int volume,boolean muted){players.add(volume+"/"+muted);}
             public void onConnection(boolean connected,String detail){connections.add((connected?"up:":"down:")+detail);}
             public boolean onStreamStart(){return focus;}
             public void onStreamFailed(String reason){commands.add("failed:"+reason);}

@@ -45,8 +45,18 @@ public final class HeliosService extends Service {
     private AudioTrackSink sink;
     private MusicSession session;
     private AudioManager audioManager;
-    private final AudioManager.OnAudioFocusChangeListener musicFocus=change->main.post(()->{if(session!=null){session.onFocusChange(change);publishMusic();}});
+    /** Focus is decided on the Sendspin thread before the output opens (plan 0.11 V1), so the flag lives under its own lock, not on main. */
+    private final Object focusLock=new Object();
     private boolean musicFocusHeld;
+    private final AudioManager.OnAudioFocusChangeListener musicFocus=change->{
+        synchronized(focusLock){if(change==AudioManager.AUDIOFOCUS_LOSS)musicFocusHeld=false;else if(change==AudioManager.AUDIOFOCUS_GAIN)musicFocusHeld=true;}
+        main.post(()->{if(session!=null){session.onFocusChange(change);publishMusic();}});
+    };
+    /** Pause = MA stopped the stream and keeps the queue paused (SPEC 0.11 pkt 4); the card stays until the queue says otherwise. Main thread only. */
+    private final QueuePause queuePause=new QueuePause();
+    private long queueCheckToken; // bumps on every new session and every definitive end: late get_active_queue answers are dropped
+    private String queueId,sendspinClientId;
+    private final Runnable queueExpiry=this::onQueueExpiry;
     private String musicTitle,musicArtist,musicAlbum,remoteInfo,musicIssue,lenovoPlayerId,playerName="Helios";
     private android.graphics.Bitmap musicArtwork;private int musicAccent;
     private long musicProgressMs=-1,musicDurationMs=-1,musicProgressAt; // last server progress and when it arrived (elapsedRealtime), so the panel can extrapolate
@@ -86,7 +96,7 @@ public final class HeliosService extends Service {
             public void onChanged(){publish();}
             public void onDiagnostic(String event,String detail){if(diagnostics!=null)diagnostics.accept(event,detail);}
         });dock.start();
-        volume=new DeviceVolume(this,v->publish());volume.start();
+        volume=new DeviceVolume(this,v->publish());volume.addListener(v->reportPlayerState());volume.start();
         audioManager=(AudioManager)getSystemService(Context.AUDIO_SERVICE);
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
         if(saved!=null)try{connection=new JSONObject(saved);}catch(Exception ignored){}
@@ -204,8 +214,14 @@ public final class HeliosService extends Service {
     // --- music ---
     boolean musicConfigured(){return connection!=null&&connection.optJSONObject("music_assistant")!=null;}
     void setMusicListener(MusicListener listener){musicListener=listener;if(listener!=null)listener.onMusic(musicSnapshot());}
+    /** Single source of the music state for the panel, telemetry and stats: the transport first, then the MA queue pause. */
+    MusicSession.Ui musicUi(){
+        MusicSession.Ui ui=session==null?MusicSession.Ui.NONE:session.ui();
+        if(ui!=MusicSession.Ui.NONE)return ui;
+        return queuePause.paused(SystemClock.elapsedRealtime())?MusicSession.Ui.PAUSED:MusicSession.Ui.NONE;
+    }
     MusicSnapshot musicSnapshot(){
-        return new MusicSnapshot(session==null?MusicSession.Ui.NONE:session.ui(),musicTitle,musicArtist,musicAlbum,musicArtwork,musicAccent,musicVolume,musicMuted,musicCommands,maConnected,localConnected,remoteInfo,musicIssue,musicProgressMs,musicDurationMs,musicProgressAt);
+        return new MusicSnapshot(musicUi(),musicTitle,musicArtist,musicAlbum,musicArtwork,musicAccent,musicVolume,musicMuted,musicCommands,maConnected,localConnected,remoteInfo,musicIssue,musicProgressMs,musicDurationMs,musicProgressAt);
     }
     MusicAssistantClient ma(){return ma;}
     String lenovoPlayerId(){return lenovoPlayerId;}
@@ -214,23 +230,36 @@ public final class HeliosService extends Service {
     private void publishMusic(){if(musicListener!=null)musicListener.onMusic(musicSnapshot());}
     /** Once a minute while playing: underruns and dropped chunks for the acceptance measurements (plan R5); stops by itself when playback stops. */
     private final Runnable musicStats=new Runnable(){public void run(){
-        if(session==null||session.ui()!=MusicSession.Ui.PLAYING||sink==null||sendspin==null){musicStatsScheduled=false;return;}
-        if(diagnostics!=null)diagnostics.accept("music_stats","underruns="+sink.underruns()+" dropped="+sendspin.dropped());
+        if(musicUi()!=MusicSession.Ui.PLAYING||sink==null||sendspin==null){musicStatsScheduled=false;return;}
+        if(diagnostics!=null)diagnostics.accept("music_stats","underruns="+sink.underruns()+" dropped="+sendspin.dropped()+" "+sendspin.stats());
         main.postDelayed(this,60_000);
     }};
     private boolean musicStatsScheduled;
     private boolean requestMusicFocus(){
-        int result=audioManager.requestAudioFocus(musicFocus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN);
-        musicFocusHeld=result==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;return musicFocusHeld;
+        synchronized(focusLock){
+            if(musicFocusHeld)return true;
+            int result=audioManager.requestAudioFocus(musicFocus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN);
+            musicFocusHeld=result==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;return musicFocusHeld;
+        }
     }
-    private void abandonMusicFocus(){if(musicFocusHeld){audioManager.abandonAudioFocus(musicFocus);musicFocusHeld=false;}}
+    private void abandonMusicFocus(){synchronized(focusLock){if(musicFocusHeld){audioManager.abandonAudioFocus(musicFocus);musicFocusHeld=false;}}}
+    /** client/state with the device level and the sink mute: after volume/mute commands (in arrival order on main) and on every device change. */
+    private void reportPlayerState(){
+        musicVolume=volume.percent();
+        if(sendspin!=null)sendspin.reportVolume(musicVolume,musicMuted);
+    }
+    private boolean queuePaused(){return session!=null&&session.ui()==MusicSession.Ui.NONE&&queuePause.paused(SystemClock.elapsedRealtime());}
     /** Local overlay controls. Transport commands go over Sendspin when the server advertises them, else through the MA API; volume always through the MA API to this player. */
     void musicCommand(String command,Consumer<String> done){
         Consumer<String> report=issue("Muzyka",done);
-        if(command.equals("play")&&session!=null&&!session.onUserPlay(this::requestMusicFocus)){report.accept("Głośnik jest zajęty przez inną aplikację");return;}
-        if(sendspin!=null&&sendspin.command(command)){report.accept(null);return;}
+        boolean queuePaused=queuePaused(); // no transport session: play/stop go to the MA queue, focus is asked for on the next stream/start
+        if(command.equals("play")&&!queuePaused&&session!=null&&!session.onUserPlay(this::requestMusicFocus)){report.accept("Głośnik jest zajęty przez inną aplikację");return;}
+        if(!queuePaused&&sendspin!=null&&sendspin.command(command)){report.accept(null);return;}
         if(ma==null||lenovoPlayerId==null){report.accept("Brak połączenia z Music Assistant");return;}
-        ma.playerCommand(lenovoPlayerId,command,r->main.post(()->report.accept(null)),e->main.post(()->report.accept(e)));
+        ma.playerCommand(lenovoPlayerId,command,r->main.post(()->{
+            if(command.equals("stop")&&queuePaused()){queuePause.onQueueState("stopped",SystemClock.elapsedRealtime());artworkLoader.clear();publishMusic();publish();}
+            report.accept(null);
+        }),e->main.post(()->report.accept(e)));
     }
     void musicVolume(int level,Consumer<String> done){
         Consumer<String> report=issue("Głośność",done);
@@ -250,7 +279,7 @@ public final class HeliosService extends Service {
     }
     void musicMute(boolean muted,Consumer<String> done){
         Consumer<String> report=issue("Muzyka",done);
-        if(ma==null||lenovoPlayerId==null){if(sink!=null){sink.setMuted(muted);musicMuted=muted;publishMusic();report.accept(null);}else report.accept("Brak odtwarzacza");return;}
+        if(ma==null||lenovoPlayerId==null){if(sink!=null){sink.setMuted(muted);musicMuted=muted;reportPlayerState();publishMusic();report.accept(null);}else report.accept("Brak odtwarzacza");return;}
         ma.mute(lenovoPlayerId,muted,r->main.post(()->report.accept(null)),e->main.post(()->report.accept(e)));
     }
     private void startMusic(){
@@ -259,37 +288,112 @@ public final class HeliosService extends Service {
         playerName=getSharedPreferences("helios",MODE_PRIVATE).getString("device_name",music.optString("player_name","Helios"));
         String clientId=getSharedPreferences("helios",MODE_PRIVATE).getString("sendspin_client_id",null);
         if(clientId==null){clientId=UUID.randomUUID().toString();getSharedPreferences("helios",MODE_PRIVATE).edit().putString("sendspin_client_id",clientId).apply();}
+        sendspinClientId=clientId;
         sink=new AudioTrackSink();
         session=new MusicSession(new MusicSession.Sink(){
             public void pause(){sink.pause();}
             public void resume(){sink.resume();}
-            public void duck(boolean on){sink.setGain(on?musicVolume/100f*0.2f:musicVolume/100f);}
+            public void duck(boolean on){sink.setGain(on?0.2f:1f);} // the level is the device volume (plan 0.11 V2); the stream gain only ducks
         },()->sendspin!=null&&sendspin.command("pause"));
         String sendspinUrl=music.optString("sendspin_url","");
         if(!sendspinUrl.isEmpty()){
             sendspin=new SendspinClient(sendspinUrl,clientId,playerName,BuildConfig.VERSION_NAME,sink,new SendspinClient.Listener(){
                 public void onProtocol(String detail){if(diagnostics!=null)diagnostics.accept("sendspin_msg",detail);}
-                public void onState(SendspinClient.State state){if(diagnostics!=null)diagnostics.accept("music_transport",state.name());main.post(()->{
-                    if(session==null)return;
-                    MusicSession.Ui before=session.ui();session.onTransport(state);
-                    if(state!=SendspinClient.State.NONE&&before==MusicSession.Ui.NONE)requestMusicFocus();
-                    if(state==SendspinClient.State.PLAYING&&!musicStatsScheduled){musicStatsScheduled=true;main.postDelayed(musicStats,60_000);}
-                    if(state==SendspinClient.State.NONE){abandonMusicFocus();artworkLoader.clear();}
-                    publishMusic();publish();
-                });}
-                public void onMetadata(SendspinClient.Metadata m){final long at=android.os.SystemClock.elapsedRealtime();main.post(()->{musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;musicProgressMs=m.progressMs;musicDurationMs=m.durationMs;musicProgressAt=at;publishMusic();});artworkLoader.request(m.artworkUrl);}
+                /** Sendspin thread, before the output opens: focus already held or granted now; otherwise the stream is refused and MA gets pause. */
+                public boolean onStreamStart(){
+                    if(requestMusicFocus())return true;
+                    main.post(()->{musicIssue="Głośnik jest zajęty przez inną aplikację";publishMusic();});return false;
+                }
+                public void onStreamFailed(String reason){abandonMusicFocus();main.post(()->{musicIssue=reason;publishMusic();});}
+                /** Ten silent seconds: the client already closed the output and ended the session; drop focus and stop MA feeding a dead player. */
+                public void onAudioIdle(){abandonMusicFocus();main.post(()->{if(ma!=null&&lenovoPlayerId!=null)ma.playerCommand(lenovoPlayerId,"pause",r->{},e->{if(diagnostics!=null)diagnostics.accept("music_queue","error="+e);});});}
+                public void onVolumeCommand(int percent){main.post(()->{volume.set(percent);reportPlayerState();publishMusic();});}
+                public void onMuteCommand(boolean muted){main.post(()->{if(sink!=null)sink.setMuted(muted);musicMuted=muted;reportPlayerState();publishMusic();});}
+                public void onGap(int count,long lateMs){if(diagnostics!=null)diagnostics.accept("music_gap","drops="+count+" late_ms="+lateMs);}
+                public void onState(SendspinClient.State state){
+                    if(diagnostics!=null)diagnostics.accept("music_transport",state.name());
+                    if(state==SendspinClient.State.NONE)abandonMusicFocus(); // the output is already closed on the client's thread
+                    main.post(()->{
+                        if(session==null)return;
+                        long now=SystemClock.elapsedRealtime();
+                        MusicSession.Ui before=session.ui();session.onTransport(state);
+                        volume.setFast(state!=SendspinClient.State.NONE);
+                        if(state!=SendspinClient.State.NONE){
+                            if(before==MusicSession.Ui.NONE){queuePause.onNewSession();queueCheckToken++;main.removeCallbacks(queueExpiry);}
+                            if(state==SendspinClient.State.PLAYING&&!musicStatsScheduled){musicStatsScheduled=true;main.postDelayed(musicStats,60_000);}
+                        }else{
+                            queueCheckToken++;
+                            if(before!=MusicSession.Ui.NONE&&queuePause.onSessionEnded(localConnected&&maConnected,now)){checkQueue(queueCheckToken,now);scheduleQueueExpiry();}
+                            else{queuePause.onNewSession();artworkLoader.clear();}
+                        }
+                        publishMusic();publish();
+                    });
+                }
+                public void onMetadata(SendspinClient.Metadata m){final long at=android.os.SystemClock.elapsedRealtime();main.post(()->{
+                    if(m.title==null&&queuePaused())return; // MA clears the metadata after stop; the paused card keeps the last track
+                    musicTitle=m.title;musicArtist=m.artist;musicAlbum=m.album;musicProgressMs=m.progressMs;musicDurationMs=m.durationMs;musicProgressAt=at;publishMusic();
+                });if(m.title!=null||m.artworkUrl!=null)artworkLoader.request(m.artworkUrl);}
                 public void onController(java.util.List<String> commands,Integer groupVolume,Boolean groupMuted){main.post(()->{musicCommands=commands;publishMusic();});}
                 public void onArtwork(byte[] jpeg){} // artwork@v1 is not advertised (MA 2.10.3 closes on it); covers come by URL
-                public void onPlayer(int volume,boolean muted){main.post(()->{musicVolume=volume;musicMuted=muted;publishMusic();});}
-                public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("sendspin_"+(connected?"connected":"down"),detail==null?"":detail);if(!connected)artworkLoader.clear();main.post(()->{localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;publishMusic();});}
+                public void onConnection(boolean connected,String detail){
+                    if(diagnostics!=null)diagnostics.accept("sendspin_"+(connected?"connected":"down"),detail==null?"":detail);
+                    if(!connected){abandonMusicFocus();artworkLoader.clear();}
+                    main.post(()->{
+                        localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;
+                        if(connected){if(sink!=null)sink.setMuted(false);musicMuted=false;reportPlayerState();} // a fresh server/hello starts unmuted at the device level
+                        else if(queuePaused()){queuePause.onNewSession();queueCheckToken++;}
+                        publishMusic();
+                    });
+                }
             });
             sendspin.start();
         }
         ma=new MusicAssistantClient(MusicAssistantClient.wsUrl(music.optString("url","")),music.optString("token",""),new MusicAssistantClient.Listener(){
             public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("ma_"+(connected?"connected":"down"),detail==null?"":detail);main.post(()->{maConnected=connected;if(connected)findLenovo();publishMusic();});}
             public void onPlayerUpdated(JSONObject player){main.post(()->trackPlayer(player));}
+            public void onQueueUpdated(JSONObject queue){main.post(()->{
+                String id=queue.optString("queue_id",""),state=queue.isNull("state")?null:queue.optString("state");
+                if(!id.equals(queueId!=null?queueId:lenovoPlayerId)||!queuePaused())return;
+                if(diagnostics!=null)diagnostics.accept("music_queue","event="+state);
+                queuePause.onQueueState(state,SystemClock.elapsedRealtime());scheduleQueueExpiry();
+                if(!queuePaused())artworkLoader.clear();
+                publishMusic();publish();
+            });}
         });
         ma.start();
+    }
+    /** Confirms a tentative queue pause with get_active_queue; waits up to 10 s for the player id when the session ended before MA listed the player. */
+    private void checkQueue(long token,long startedAt){
+        long now=SystemClock.elapsedRealtime();
+        if(token!=queueCheckToken||!queuePaused())return;
+        if(ma==null||!maConnected){endQueuePause("error=no_ma");return;}
+        if(lenovoPlayerId==null){
+            if(now-startedAt>10_000){endQueuePause("error=no_player");return;}
+            if(diagnostics!=null&&now-startedAt<600)diagnostics.accept("music_queue","deferred");
+            main.postDelayed(()->checkQueue(token,startedAt),500);return;
+        }
+        ma.activeQueue(lenovoPlayerId,q->main.post(()->{
+            if(token!=queueCheckToken||!queuePaused())return;
+            String state=q.isNull("state")?null:q.optString("state");queueId=q.optString("queue_id",lenovoPlayerId);
+            if(diagnostics!=null)diagnostics.accept("music_queue","state="+state);
+            queuePause.onQueueState(state,SystemClock.elapsedRealtime());scheduleQueueExpiry();
+            if(!queuePaused())artworkLoader.clear();
+            publishMusic();publish();
+        }),e->main.post(()->{
+            if(token!=queueCheckToken||"superseded".equals(e))return;
+            if(!"Brak kolejki".equals(e))musicIssue="Muzyka: "+e;
+            endQueuePause("error="+e);
+        }));
+    }
+    private void onQueueExpiry(){if(session!=null&&session.ui()==MusicSession.Ui.NONE&&!queuePause.paused(SystemClock.elapsedRealtime()))artworkLoader.clear();publishMusic();publish();}
+    private void endQueuePause(String why){
+        if(diagnostics!=null)diagnostics.accept("music_queue",why);
+        queuePause.onNewSession();main.removeCallbacks(queueExpiry);artworkLoader.clear();publishMusic();publish();
+    }
+    private void scheduleQueueExpiry(){
+        main.removeCallbacks(queueExpiry);
+        long in=queuePause.expiresInMs(SystemClock.elapsedRealtime());
+        if(in>=0)main.postDelayed(queueExpiry,in+50);
     }
     /** Cover art only from the MA host (image proxy or a same-host URL); other hosts are ignored so the token never leaks and nothing foreign is fetched. */
     static{System.setProperty("http.keepAlive","false");} // covers and backgrounds are rare, one-shot GETs; a pooled socket the server already closed fails with 'unexpected end of stream' and is never retried
@@ -333,18 +437,24 @@ public final class HeliosService extends Service {
         if(sendspin!=null){sendspin.stop();sendspin=null;}
         if(ma!=null){ma.stop();ma=null;}
         if(sink!=null){sink.stop();sink=null;}
-        abandonMusicFocus();session=null;lenovoPlayerId=null;maConnected=false;localConnected=false;remoteInfo=null;artworkLoader.clear();musicArtwork=null;musicProgressMs=-1;musicDurationMs=-1;musicTitle=null;musicArtist=null;musicAlbum=null;
+        abandonMusicFocus();session=null;lenovoPlayerId=null;queueId=null;maConnected=false;localConnected=false;remoteInfo=null;artworkLoader.clear();musicArtwork=null;musicProgressMs=-1;musicDurationMs=-1;musicTitle=null;musicArtist=null;musicAlbum=null;
+        queuePause.onNewSession();queueCheckToken++;main.removeCallbacks(queueExpiry);musicMuted=false;volume.setFast(false);
         publishMusic();
     }
     private void findLenovo(){
         if(ma==null)return;
         ma.players(players->main.post(()->{for(int i=0;i<players.length();i++)trackPlayer(players.optJSONObject(i));}),e->{});
     }
-    /** Lenovo is the sendspin player carrying our name; any other playing player feeds the music tile's "remote" line. */
+    /** Lenovo is the sendspin player whose id is our Sendspin client id (name only as a fallback); any other playing player feeds the music tile's "remote" line. */
     private void trackPlayer(JSONObject player){
         if(player==null)return;
-        boolean lenovo="sendspin".equals(player.optString("provider"))&&playerName.equals(player.optString("name"));
-        if(lenovo){lenovoPlayerId=player.optString("player_id",lenovoPlayerId);if(musicIssue!=null&&(musicIssue.startsWith("Głośność: ")||musicIssue.startsWith("Muzyka: ")||musicIssue.startsWith("Przewijanie: ")))musicIssue=null;}
+        boolean sendspinPlayer="sendspin".equals(player.optString("provider"));
+        boolean lenovo=sendspinPlayer&&sendspinClientId!=null&&sendspinClientId.equals(player.optString("player_id"));
+        if(!lenovo&&sendspinPlayer&&lenovoPlayerId==null&&playerName.equals(player.optString("name"))){lenovo=true;if(diagnostics!=null)diagnostics.accept("music_player","match=name");}
+        if(lenovo){
+            lenovoPlayerId=player.optString("player_id",lenovoPlayerId);if(musicIssue!=null&&(musicIssue.startsWith("Głośność: ")||musicIssue.startsWith("Muzyka: ")||musicIssue.startsWith("Przewijanie: ")))musicIssue=null;
+            if(queuePaused()){queuePause.onPlayerUpdate(player.optString("playback_state"),SystemClock.elapsedRealtime());scheduleQueueExpiry();}
+        }
         else if("playing".equals(player.optString("playback_state"))&&!player.optBoolean("hide_in_ui",false)){
             JSONObject media=player.optJSONObject("current_media");
             remoteInfo=player.optString("name","")+(media==null||media.isNull("title")?"":" · "+media.optString("title",""));
@@ -379,7 +489,7 @@ public final class HeliosService extends Service {
     }
     private void stopHa(){if(device!=null){device.stop();device=null;}if(ha!=null){ha.stop();ha=null;}deviceId=null;}
     private Telemetry telemetry(){
-        MusicSession.Ui ui=session==null?MusicSession.Ui.NONE:session.ui();
+        MusicSession.Ui ui=musicUi();
         return new Telemetry(BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE,voiceState,dock.dockConnected(),dock.charging(),dock.ledOn(),dock.ledBrightness(),dock.padVersion(),volume.percent(),(SystemClock.elapsedRealtime()-startedAt)/1000,ui==MusicSession.Ui.PLAYING?"playing":ui==MusicSession.Ui.PAUSED?"paused":"none");
     }
     /** Allowlisted hardware commands from HA; the caller already validated names and argument ranges. */
