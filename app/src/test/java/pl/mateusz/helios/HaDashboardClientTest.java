@@ -233,6 +233,29 @@ public class HaDashboardClientTest {
             assertNotNull(sessions.poll(7,TimeUnit.SECONDS));
         }finally{client.stop();server.stop(2000);}
     }
+    @Test public void authInvalidStopsTheReconnectLoopButAGarbledHandshakeRetries() throws Exception {
+        HaDashboardClient client=client(null);
+        server.garbleAuth=true;
+        BlockingQueue<String> auth=new LinkedBlockingQueue<>();
+        client.attach(new HaDashboardClient.Listener(){
+            public void onDashboard(JSONObject r,DashboardSpec s,Map<String,EntityStates.Entity> v,String i){}
+            public void onStates(Map<String,EntityStates.Entity> v){}
+            public void onUnavailable(String reason){}
+            public void onAuthInvalid(){auth.add("invalid");}
+        });
+        client.start();
+        try{
+            Thread.sleep(3000);
+            assertTrue("a garbled handshake keeps reconnecting",server.opens.get()>=2);assertNull(auth.poll(100,TimeUnit.MILLISECONDS));
+            server.garbleAuth=false;
+            assertEquals("started",sessions.poll(7,TimeUnit.SECONDS));
+            server.rejectToken=true;server.client.close(1001,"drop");
+            assertEquals("invalid",auth.poll(7,TimeUnit.SECONDS));
+            assertTrue(errors.stream().anyMatch(e->e.contains("odrzucił token")));
+            int opens=server.opens.get();Thread.sleep(3000);
+            assertEquals("no reconnect after auth_invalid",opens,server.opens.get());assertFalse(client.live());assertNull(auth.poll(200,TimeUnit.MILLISECONDS));
+        }finally{client.stop();server.stop(2000);}
+    }
     @Test public void probeAcceptsGoodTokenAndRejectsBadOne() throws Exception {
         server=new Server();server.start();assertTrue(server.ready.await(5,TimeUnit.SECONDS));
         try{

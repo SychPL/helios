@@ -23,6 +23,8 @@ final class HaDashboardClient {
         void onUnavailable(String reason);
         /** Authenticated session established; modules (re)create their subscriptions here. */
         default void onSessionStarted(){}
+        /** HA refused the stored token: the loop stops for good (SPEC 0.10 pkt 8.2); only a new pairing brings the client back. */
+        default void onAuthInvalid(){}
     }
     static volatile long CALL_TIMEOUT_MS=10000;
     private final JSONObject connection;
@@ -149,7 +151,7 @@ final class HaDashboardClient {
             try{reload=session();delay=2;}
             catch(InterruptedException e){Thread.currentThread().interrupt();break;}
             catch(Exception e){if(!stopped)emitUnavailable("HA niedostępny - dane nieaktualne");}
-            finally{authenticated=false;live=false;Socket old=socket;socket=null;if(old!=null)old.close();failPending("Połączenie z HA przerwane");}
+            finally{if(authenticated)delay=2;authenticated=false;live=false;Socket old=socket;socket=null;if(old!=null)old.close();failPending("Połączenie z HA przerwane");} // a session that authenticated resets the backoff: the next attempt is 2 s away, not the tail of an old handshake storm
             if(!stopped&&!reload)try{Thread.sleep(delay*1000L);delay=Math.min(30,delay*2);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
         }
     }
@@ -160,7 +162,9 @@ final class HaDashboardClient {
         if(!s.connectBlocking(10,TimeUnit.SECONDS))throw new IOException("HA connection failed");
         if(!s.required().optString("type").equals("auth_required"))throw new IOException("HA handshake");
         s.send(new JSONObject().put("type","auth").put("access_token",connection.getString("token")).toString());
-        if(!s.required().optString("type").equals("auth_ok"))throw new IOException("HA authentication");
+        JSONObject auth=s.required();String authType=auth.optString("type");
+        if(authType.equals("auth_invalid")){stopped=true;emitUnavailable("HA odrzucił token - sparuj ponownie");for(Listener l:listeners)l.onAuthInvalid();return false;} // permanent: no retry until a new token is stored
+        if(!authType.equals("auth_ok"))throw new IOException("HA authentication"); // anything else is a transient handshake failure and retries as before
         String path=connection.optString("dashboard_path","helios-clock");
         int updatesId=send(s,new JSONObject().put("type","subscribe_events").put("event_type","lovelace_updated"));
         int configId=send(s,new JSONObject().put("type","lovelace/config").put("url_path",path));
