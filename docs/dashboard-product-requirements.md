@@ -19,6 +19,10 @@ Równoległy etap: [SPEC 0.7 — urządzenie Helios w Home Assistant](SPEC-0.7-h
 
 ## Zaakceptowane wymagania
 
+### Onboarding bez tokena - projekt kolejnego przyrostu
+
+[SPEC 0.10](SPEC-0.10-onboarding.md): zegar wybiera HA z listy mDNS (dwa serwery w sieci, wybór jawny) albo z ręcznego adresu, paruje się kodem przez nieuwierzytelniony endpoint integracji, dostaje własnego użytkownika HA z tokenem usuwanym razem z wpisem, dane Music Assistant z wpisu core `music_assistant` z osobnym tokenem MA, aktualizacje APK z GitHub Releases z menu; istniejący zegar paruje się ponownie kodem. Decyzje użytkownika z 16 września 2026.
+
 ### Muzyka: pełny ekran, pauza kolejki, głośność urządzenia - projekt kolejnego przyrostu
 
 [SPEC 0.11](SPEC-0.11-music-fullscreen.md): ręcznie otwierany pełny ekran muzyki (okładka w lewej połowie, zegar/tytuł/wykonawca/przyciski po prawej, pasek postępu na całą szerokość), pauza rozpoznawana ze stanu kolejki MA (odtwarzacz Sendspin w MA 2.10.3 nie ma PAUSE, więc pauza to stop strumienia), głośność MA sterująca głośnością urządzenia zamiast wzmocnieniem strumienia. Decyzje użytkownika z 16 września 2026.
