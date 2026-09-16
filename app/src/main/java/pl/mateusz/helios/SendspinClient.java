@@ -290,7 +290,7 @@ final class SendspinClient {
         refreshState();
     }
     private void endSession(){
-        closeStream();pendingFormat=null;playbackState="stopped";lastWriteMicros=-1;clock.reset();supportedCommands=Collections.emptyList();
+        pendingFormat=null;closeStream();playbackState="stopped";lastWriteMicros=-1;clock.reset();supportedCommands=Collections.emptyList();
         sessionActive=false;metadataState.reset();
         refreshState();
     }
