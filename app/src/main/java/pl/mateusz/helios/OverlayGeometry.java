@@ -10,12 +10,12 @@ final class OverlayGeometry {
         boolean contains(float px,float py){return px>=x&&px<x+w&&py>=y&&py<y+h;}
     }
     static final Box PANEL=new Box(400,60,392,412);
-    static final Box STATUS=new Box(16,16,280,48),CLOSE=new Box(320,0,72,72),ART=new Box(16,76,144,144),TITLE=new Box(176,76,200,84),ARTIST=new Box(176,168,200,48);
+    static final Box STATUS=new Box(16,16,232,48),FULL=new Box(248,0,72,72),CLOSE=new Box(320,0,72,72),ART=new Box(16,76,144,144),TITLE=new Box(176,76,200,84),ARTIST=new Box(176,168,200,48);
     static final Box PREVIOUS=new Box(16,228,72,72),PLAY=new Box(112,228,72,72),NEXT=new Box(208,228,72,72),STOP=new Box(304,228,72,72);
     static final Box MUTE=new Box(16,316,72,72),SEEK=new Box(96,316,280,72); // SEEK: track position, not volume (the clock has hardware volume keys)
     static final Box HANDLE=new Box(728,204,72,72);
-    static final Box[] TOUCH={CLOSE,PREVIOUS,PLAY,NEXT,STOP,MUTE,SEEK};
-    static final Box[] ALL={STATUS,CLOSE,ART,TITLE,ARTIST,PREVIOUS,PLAY,NEXT,STOP,MUTE,SEEK};
+    static final Box[] TOUCH={FULL,CLOSE,PREVIOUS,PLAY,NEXT,STOP,MUTE,SEEK};
+    static final Box[] ALL={STATUS,FULL,CLOSE,ART,TITLE,ARTIST,PREVIOUS,PLAY,NEXT,STOP,MUTE,SEEK};
     private OverlayGeometry(){}
     /** Grid cell in screen units (same formula as DashboardView.arrange). */
     static Box cell(int column,int row){

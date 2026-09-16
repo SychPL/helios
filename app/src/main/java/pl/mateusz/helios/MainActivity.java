@@ -134,6 +134,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         startForegroundService(intent);bindService(intent,serviceConnection,Context.BIND_AUTO_CREATE);
         if(config==null)connect();
     }
+    /** Back on the music full screen returns to the panel (SPEC 0.11 pkt 3.2); elsewhere the launcher behaviour stays. */
+    @Override public void onBackPressed(){if(dashboard.musicOverlay().closeFullscreen())return;super.onBackPressed();}
     @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
     @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
     @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}

@@ -47,6 +47,11 @@ final class IconView extends View {
                 canvas.drawLine(12,8,20,16,paint);canvas.drawLine(20,16,12,24,paint);break;
             case "chevron-left":
                 canvas.drawLine(20,8,12,16,paint);canvas.drawLine(12,16,20,24,paint);break;
+            case "chevron-down":
+                canvas.drawLine(8,12,16,20,paint);canvas.drawLine(16,20,24,12,paint);break;
+            case "fullscreen": // four corners
+                canvas.drawLine(6,12,6,6,paint);canvas.drawLine(6,6,12,6,paint);canvas.drawLine(20,6,26,6,paint);canvas.drawLine(26,6,26,12,paint);
+                canvas.drawLine(26,20,26,26,paint);canvas.drawLine(26,26,20,26,paint);canvas.drawLine(12,26,6,26,paint);canvas.drawLine(6,26,6,20,paint);break;
             case "speaker":case "speaker-off":
                 path.reset();path.moveTo(5,12);path.lineTo(10,12);path.lineTo(17,6);path.lineTo(17,26);path.lineTo(10,20);path.lineTo(5,20);path.close();canvas.drawPath(path,fill);
                 if(icon.equals("speaker")){path.reset();path.addArc(14,8,26,24,-50,100);canvas.drawPath(path,paint);}

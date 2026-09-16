@@ -41,7 +41,7 @@ public final class DashboardView extends FrameLayout {
         brand=text("HELIOS",sans);brand.setLetterSpacing(.18f);
         status=text("",sans);status.setMaxLines(1);status.setEllipsize(TextUtils.TruncateAt.END);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         connection=new ImageView(context);connection.setImageResource(R.drawable.ic_home_assistant);addView(connection);
-        overlay=new MusicOverlay(context,sans);addView(overlay);
+        overlay=new MusicOverlay(context,sans,mono);addView(overlay);
         applyTheme();connected(false);
     }
     public MusicOverlay musicOverlay(){return overlay;}
@@ -95,7 +95,7 @@ public final class DashboardView extends FrameLayout {
     public void musicInfo(String text){musicInfo=text==null||text.isEmpty()?"—":text;for(Tile t:tiles.values())if(t.item.type.equals("music"))t.render(Collections.emptyMap(),true);}
     public void clock(String time,String weekday,String date){
         boolean refit=!this.time.equals(time)&&this.time.length()!=time.length();
-        this.time=time;this.weekday=weekday;this.date=date;
+        this.time=time;this.weekday=weekday;this.date=date;overlay.setClock(time);
         for(Tile t:tiles.values())if(t.item.type.equals("clock")){if(refit)t.scale(scale,t.unitW,t.unitH);t.clock();}
         long now=System.currentTimeMillis(); // a forecast expires without any HA delta: re-render just that tile (SPEC 0.9 pkt 6.2)
         for(Tile t:tiles.values())if(t.forecastExpiresAt>0&&t.forecastExpiresAt<=now&&lastStates!=null){t.forecastExpiresAt=0;t.render(lastStates,lastLive);}
