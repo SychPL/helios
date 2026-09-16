@@ -268,7 +268,8 @@ public final class HeliosService extends Service {
         String sendspinUrl=music.optString("sendspin_url","");
         if(!sendspinUrl.isEmpty()){
             sendspin=new SendspinClient(sendspinUrl,clientId,playerName,BuildConfig.VERSION_NAME,sink,new SendspinClient.Listener(){
-                public void onState(SendspinClient.State state){main.post(()->{
+                public void onProtocol(String detail){if(diagnostics!=null)diagnostics.accept("sendspin_msg",detail);}
+                public void onState(SendspinClient.State state){if(diagnostics!=null)diagnostics.accept("music_transport",state.name());main.post(()->{
                     if(session==null)return;
                     MusicSession.Ui before=session.ui();session.onTransport(state);
                     if(state!=SendspinClient.State.NONE&&before==MusicSession.Ui.NONE)requestMusicFocus();

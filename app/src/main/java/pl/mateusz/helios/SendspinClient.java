@@ -39,6 +39,8 @@ final class SendspinClient {
         void onArtwork(byte[] jpeg);
         void onPlayer(int volume,boolean muted);
         void onConnection(boolean connected,String detail);
+        /** Raw protocol trace for diagnostics: stream/start|end|clear, group/update with its playback_state, server/hello. */
+        default void onProtocol(String detail){}
     }
     static final int PROTOCOL_VERSION=1;
     static final int MAX_TEXT=262144,MAX_BINARY=1048576,BUFFER_CAPACITY=262144;
@@ -163,15 +165,15 @@ final class SendspinClient {
                 long t4=micros();
                 clock.sample(payload.getLong("client_transmitted"),payload.getLong("server_received"),payload.getLong("server_transmitted"),t4);
                 break;}
-            case "stream/start":{
+            case "stream/start":{listener.onProtocol("stream/start");
                 JSONObject p=payload.optJSONObject("player");
                 if(p!=null)streamStart(new String[]{p.optString("codec","pcm"),String.valueOf(p.optInt("sample_rate",48000)),String.valueOf(p.optInt("channels",2)),String.valueOf(p.optInt("bit_depth",16))});
                 break;}
-            case "stream/clear":if(affectsPlayer(payload)){queue.clear();queuedBytes=0;sink.flush();}break;
-            case "stream/end":if(affectsPlayer(payload)){endRequested=true;endRequestedAt=micros();}break;
+            case "stream/clear":listener.onProtocol("stream/clear");if(affectsPlayer(payload)){queue.clear();queuedBytes=0;sink.flush();}break;
+            case "stream/end":listener.onProtocol("stream/end");if(affectsPlayer(payload)){endRequested=true;endRequestedAt=micros();}break;
             case "group/update":
                 if(payload.has("playback_state")){
-                    playbackState=payload.getString("playback_state");
+                    playbackState=payload.getString("playback_state");listener.onProtocol("group/update "+playbackState+(sessionActive?" session":" no-session"));
                     if(playbackState.equals("stopped")||playbackState.equals("idle"))sessionActive=false;
                     refreshState();
                 }
