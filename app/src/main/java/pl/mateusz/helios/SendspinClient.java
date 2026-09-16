@@ -7,6 +7,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.PriorityQueue;
 
 /**
  * Minimal Sendspin legacy (version 1, cleartext) client for Music Assistant: player, metadata, artwork and controller roles.
@@ -41,10 +42,24 @@ final class SendspinClient {
         void onConnection(boolean connected,String detail);
         /** Raw protocol trace for diagnostics: stream/start|end|clear, group/update with its playback_state, server/hello. */
         default void onProtocol(String detail){}
+        /** Called on the WebSocket thread before the output is opened; false = no audio focus, the stream is refused and MA gets pause. */
+        default boolean onStreamStart(){return true;}
+        /** Opening the output failed after focus was granted; the session is already ended. */
+        default void onStreamFailed(String reason){}
+        /** First chunk actually written after a stream/start (audio thread). */
+        default void onStreamAudio(){}
+        /** Ten seconds without a successful write on an open, unpaused output: the client has already closed the output and ended the session. */
+        default void onAudioIdle(){}
+        /** MA asked for a player volume (0-100): the service applies it to the device and confirms with reportVolume(). */
+        default void onVolumeCommand(int percent){}
+        default void onMuteCommand(boolean muted){}
+        /** A run of at least five chunks dropped as late (audible gap). */
+        default void onGap(int count,long lateMs){}
     }
     static final int PROTOCOL_VERSION=1;
     static final int MAX_TEXT=262144,MAX_BINARY=1048576,BUFFER_CAPACITY=262144;
-    static final long LEAD_MICROS=200_000,LATE_MICROS=50_000,DRAIN_LIMIT_MICROS=2_000_000,PLAYING_WINDOW_MICROS=1_500_000;
+    // A single speaker prefers continuity over sync: chunks up to LATE_MICROS late are still played (SPEC 0.11 pkt 5b); RESYNC_LATE_MICROS triggers a clock burst.
+    static final long LEAD_MICROS=200_000,LATE_MICROS=1_500_000,RESYNC_LATE_MICROS=200_000,RESYNC_MIN_INTERVAL_MICROS=30_000_000,DRAIN_LIMIT_MICROS=2_000_000,PLAYING_WINDOW_MICROS=1_500_000;
     static volatile long SYNC_INTERVAL_MS=10_000;
     private static final byte FRAME_AUDIO=0x04,FRAME_ARTWORK_0=0x08;
 
@@ -55,9 +70,16 @@ final class SendspinClient {
     private volatile boolean stopped;
     private volatile Socket socket;
     private Thread worker,player;
-    private final PriorityBlockingQueue<Chunk> queue=new PriorityBlockingQueue<>(64,Comparator.comparingLong(c->c.serverMicros));
-    private volatile long queuedBytes;
+    private final PriorityQueue<Chunk> queue=new PriorityQueue<>(64,Comparator.comparingLong(c->c.serverMicros));
+    private final Object queueLock=new Object(); // queue, queuedBytes and the sink's flush/stop move together under this monitor
+    private long queuedBytes;
     private volatile int dropped;
+    private volatile int syncBurst; // >0: the session loop sends client/time every 200 ms (after hello and after a late chunk)
+    private long lastResyncMicros=-RESYNC_MIN_INTERVAL_MICROS,streamOpenedMicros;
+    private volatile boolean audioSinceStart,streamDenied;
+    private int gapRun;
+    volatile long idleMicros=10_000_000; // tests shorten it
+    private long lateMaxMicros;private int resyncs,gaps; // per-minute stats for music_stats
     private volatile String playbackState="stopped";
     private volatile long lastWriteMicros=-1;
     private volatile boolean streamOpen,endRequested;
@@ -84,6 +106,19 @@ final class SendspinClient {
     }
     State state(){return state;}
     int dropped(){return dropped;}
+    /** Stream health since the previous call: largest lateness, current queue depth in ms of audio, resyncs and gaps (plan S). */
+    synchronized String stats(){
+        long queued;synchronized(queueLock){queued=queuedBytes;}
+        String[] f=format;long queueMs=f==null?0:queued*1000L/Math.max(1,Integer.parseInt(f[1])*Integer.parseInt(f[2])*2);
+        String out="late_max_ms="+lateMaxMicros/1000+" queue_ms="+queueMs+" resyncs="+resyncs+" gaps="+gaps;
+        lateMaxMicros=0;resyncs=0;gaps=0;return out;
+    }
+    /** client/state with the device's real level (plan V1): the service calls it after applying a volume command and on every device change. */
+    void reportVolume(int percent,boolean muted){
+        Socket s=socket;if(s==null||!s.helloDone)return;
+        volume=Math.max(0,Math.min(100,percent));this.muted=muted;
+        try{s.send(new JSONObject().put("type","client/state").put("payload",new JSONObject().put("player",new JSONObject().put("volume",volume).put("muted",muted).put("output_delay_ms",0))).toString());}catch(Exception ignored){}
+    }
     List<String> supportedCommands(){return supportedCommands;}
     boolean connected(){Socket s=socket;return s!=null&&s.helloDone;}
     /** Transport controls only (play, pause, next, previous, stop); volume goes through the MA API to this player, never to the group. */
@@ -125,13 +160,13 @@ final class SendspinClient {
         Socket s=new Socket(new URI(url));socket=s;
         if(!s.connectBlocking(10,TimeUnit.SECONDS))throw new java.io.IOException("Sendspin: brak połączenia");
         s.send(hello().toString());
-        long nextSync=0;int burst=5;
+        long nextSync=0;syncBurst=5;
         while(!stopped){
             if(s.failed)throw new java.io.IOException("Sendspin: połączenie przerwane");
             long now=System.currentTimeMillis();
-            if(s.helloDone&&now>=nextSync){
+            if(s.helloDone&&(now>=nextSync||syncBurst>0&&now>=nextSync-SYNC_INTERVAL_MS+200)){
                 s.send(new JSONObject().put("type","client/time").put("payload",new JSONObject().put("client_transmitted",micros())).toString());
-                nextSync=now+(burst>0?200:SYNC_INTERVAL_MS);if(burst>0)burst--;
+                nextSync=now+(syncBurst>0?200:SYNC_INTERVAL_MS);if(syncBurst>0)syncBurst--;
             }
             Object message=s.inbox.poll(100,TimeUnit.MILLISECONDS);
             if(message==null)continue;
@@ -169,12 +204,12 @@ final class SendspinClient {
                 JSONObject p=payload.optJSONObject("player");
                 if(p!=null)streamStart(new String[]{p.optString("codec","pcm"),String.valueOf(p.optInt("sample_rate",48000)),String.valueOf(p.optInt("channels",2)),String.valueOf(p.optInt("bit_depth",16))});
                 break;}
-            case "stream/clear":listener.onProtocol("stream/clear");if(affectsPlayer(payload)){queue.clear();queuedBytes=0;sink.flush();}break;
+            case "stream/clear":listener.onProtocol("stream/clear");if(affectsPlayer(payload))synchronized(queueLock){queue.clear();queuedBytes=0;sink.flush();}break;
             case "stream/end":listener.onProtocol("stream/end");if(affectsPlayer(payload)){endRequested=true;endRequestedAt=micros();}break;
             case "group/update":
                 if(payload.has("playback_state")){
                     playbackState=payload.getString("playback_state");listener.onProtocol("group/update "+playbackState+(sessionActive?" session":" no-session"));
-                    if(playbackState.equals("stopped")||playbackState.equals("idle"))sessionActive=false;
+                    if(playbackState.equals("stopped")||playbackState.equals("idle")){pendingFormat=null;closeStream();sessionActive=false;} // MA stop = end of playback now, no drain of leftovers
                     refreshState();
                 }
                 break;
@@ -194,11 +229,9 @@ final class SendspinClient {
                 if(p!=null){
                     String command=p.optString("command");
                     listener.onProtocol("server/command "+p.toString());
-                    if(command.equals("volume")&&p.has("volume")){volume=Math.max(0,Math.min(100,p.getInt("volume")));sink.setGain(volume/100f);}
-                    else if(command.equals("mute")&&p.has("mute")){muted=p.getBoolean("mute");sink.setMuted(muted);}
-                    else break;
-                    listener.onPlayer(volume,muted);
-                    s.send(new JSONObject().put("type","client/state").put("payload",new JSONObject().put("player",new JSONObject().put("volume",volume).put("muted",muted).put("output_delay_ms",0))).toString());
+                    // the service owns the device volume and the sink mute; it confirms with reportVolume() on the main thread, in arrival order
+                    if(command.equals("volume")&&p.has("volume"))listener.onVolumeCommand(Math.max(0,Math.min(100,p.getInt("volume"))));
+                    else if(command.equals("mute")&&p.has("mute"))listener.onMuteCommand(p.getBoolean("mute"));
                 }
                 break;}
             default:break; // unknown message types are ignored on purpose
@@ -212,51 +245,88 @@ final class SendspinClient {
     private void binary(byte[] frame){
         long serverMicros=ByteBuffer.wrap(frame,1,8).getLong();
         if(frame[0]==FRAME_AUDIO){
-            if(!streamOpen&&pendingFormat==null)return;
+            if(streamDenied||(!streamOpen&&pendingFormat==null))return;
             byte[] pcm=Arrays.copyOfRange(frame,9,frame.length);
-            if(queuedBytes+pcm.length>BUFFER_CAPACITY){dropped++;return;}
-            queue.add(new Chunk(serverMicros,pcm));queuedBytes+=pcm.length;
+            synchronized(queueLock){
+                if(queuedBytes+pcm.length>BUFFER_CAPACITY){dropped++;return;}
+                queue.add(new Chunk(serverMicros,pcm));queuedBytes+=pcm.length;
+            }
             if(!sessionActive){sessionActive=true;refreshState();} // real local audio arrived: the session exists from here on
         }else if(frame[0]==FRAME_ARTWORK_0){
             listener.onArtwork(frame.length>9?Arrays.copyOfRange(frame,9,frame.length):null);
         }
     }
     private synchronized void streamStart(String[] newFormat){
-        if(streamOpen&&Arrays.equals(newFormat,format)){endRequested=false;return;} // same format: the next track continues on the open output
+        audioSinceStart=false;streamDenied=false;
+        if(streamOpen&&Arrays.equals(newFormat,format)){endRequested=false;streamOpenedMicros=micros();return;} // same format: the next track continues on the open output
         if(streamOpen){pendingFormat=newFormat;endRequested=true;endRequestedAt=micros();return;}
-        try{sink.open(newFormat[0],Integer.parseInt(newFormat[1]),Integer.parseInt(newFormat[2]),Integer.parseInt(newFormat[3]));format=newFormat;streamOpen=true;endRequested=false;}
-        catch(Exception e){listener.onConnection(true,"Nie można otworzyć wyjścia audio: "+e.getMessage());}
+        if(!listener.onStreamStart()){ // no audio focus: refuse the stream before any chunk can reach the output
+            streamDenied=true;pendingFormat=null;
+            if(!command("pause"))listener.onProtocol("stream/start denied without controller pause");
+            return;
+        }
+        try{sink.open(newFormat[0],Integer.parseInt(newFormat[1]),Integer.parseInt(newFormat[2]),Integer.parseInt(newFormat[3]));format=newFormat;streamOpen=true;endRequested=false;streamOpenedMicros=micros();lastWriteMicros=-1;}
+        catch(Exception e){
+            streamOpen=false;format=null;pendingFormat=null;sessionActive=false;refreshState();
+            listener.onStreamFailed("Nie można otworzyć wyjścia audio: "+e.getMessage());
+        }
     }
     private synchronized void closeStream(){
-        queue.clear();queuedBytes=0;
-        if(streamOpen)sink.stop();
+        synchronized(queueLock){queue.clear();queuedBytes=0;if(streamOpen)sink.stop();}
         streamOpen=false;endRequested=false;format=null;
         if(pendingFormat!=null){String[] next=pendingFormat;pendingFormat=null;streamStart(next);}
+    }
+    /** Ten seconds without a successful write on an open, unpaused output: close it and end the session (the service drops focus and pauses MA). */
+    private synchronized void audioIdle(){
+        if(!streamOpen)return;
+        pendingFormat=null;closeStream();sessionActive=false;refreshState();
+        listener.onProtocol("audio idle: output closed");listener.onAudioIdle();
     }
     private void endSession(){
         closeStream();pendingFormat=null;playbackState="stopped";lastWriteMicros=-1;clock.reset();supportedCommands=Collections.emptyList();
         sessionActive=false;metadataState.reset();
         refreshState();
     }
-    /** Playback thread: chunks leave in timestamp order once the clock is known; late ones are dropped, early ones wait. */
+    /** Playback thread: chunks leave in timestamp order once the clock is known; chunks up to LATE_MICROS late are played (continuity first), older ones dropped, early ones wait. */
     private void playback(){
         while(!stopped){
             try{
-                Chunk head=queue.peek();
+                checkIdle();
+                Chunk head;long gen;boolean drop=false,wait=false;long waitMicros=0,lateness=0;
+                synchronized(queueLock){
+                    head=queue.peek();gen=sink.generation();
+                    if(head!=null&&clock.known()){
+                        long target=clock.toLocalMicros(head.serverMicros),now=micros();lateness=now-target;
+                        if(lateness>LATE_MICROS){queue.poll();queuedBytes-=head.pcm.length;drop=true;}
+                        else if(now<target-LEAD_MICROS){wait=true;waitMicros=target-LEAD_MICROS-now;}
+                        else{queue.poll();queuedBytes-=head.pcm.length;}
+                    }
+                }
                 if(head==null){
-                    if(endRequested&&streamOpen&&(queue.isEmpty()))closeStream();
+                    if(endRequested&&streamOpen)synchronized(queueLock){if(queue.isEmpty())closeStreamIfEmpty();}
                     Thread.sleep(10);continue;
                 }
                 if(!clock.known()){Thread.sleep(20);continue;}
-                long target=clock.toLocalMicros(head.serverMicros),now=micros();
-                if(endRequested&&now-endRequestedAt>DRAIN_LIMIT_MICROS){closeStream();continue;}
-                if(now>target+LATE_MICROS){queue.poll();queuedBytes-=head.pcm.length;dropped++;continue;}
-                if(now<target-LEAD_MICROS){Thread.sleep(Math.min(20,(target-LEAD_MICROS-now)/1000+1));continue;}
-                queue.poll();queuedBytes-=head.pcm.length;
-                if(streamOpen){sink.write(head.pcm,0,head.pcm.length);lastWriteMicros=micros();}
+                if(endRequested&&micros()-endRequestedAt>DRAIN_LIMIT_MICROS){closeStream();continue;}
+                if(drop){dropped++;if(++gapRun==5){gaps++;listener.onGap(gapRun,lateness/1000);}continue;}
+                if(wait){Thread.sleep(Math.min(20,waitMicros/1000+1));continue;}
+                gapRun=0;
+                if(lateness>lateMaxMicros)lateMaxMicros=lateness;
+                if(lateness>RESYNC_LATE_MICROS){long now=micros();if(now-lastResyncMicros>=RESYNC_MIN_INTERVAL_MICROS){lastResyncMicros=now;resyncs++;syncBurst=5;}}
+                if(streamOpen&&sink.write(head.pcm,0,head.pcm.length,gen)){
+                    lastWriteMicros=micros();
+                    if(!audioSinceStart){audioSinceStart=true;listener.onStreamAudio();}
+                }
             }catch(InterruptedException e){break;}
             catch(Exception e){dropped++;}
         }
+    }
+    private void closeStreamIfEmpty(){closeStream();}
+    /** Open, unpaused output with no successful write for IDLE_MICROS: the HAL, the clock sync or MA went quiet - end the session rather than hold focus in silence. */
+    private void checkIdle(){
+        if(!streamOpen||sink.paused())return;
+        long since=Math.max(lastWriteMicros,streamOpenedMicros);
+        if(since>0&&micros()-since>idleMicros)audioIdle();
     }
     /** Single publisher of onState (WebSocket thread): stream/end and buffer drain never touch the session, so pause and end may arrive in any order without a NONE in between. */
     private synchronized void refreshState(){

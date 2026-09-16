@@ -24,9 +24,10 @@ final class MusicSession {
         if(state==SendspinClient.State.PAUSED||pausedByFocus)return Ui.PAUSED;
         return Ui.PLAYING;
     }
+    /** NONE means the output is already closed (SendspinClient closes it synchronously): lift ducking and the focus pause so the next stream starts clean. */
     void onTransport(SendspinClient.State next){
         state=next;
-        if(next==SendspinClient.State.NONE){pausedByFocus=false;ducked=false;}
+        if(next==SendspinClient.State.NONE){restore();permanentLoss=false;}
     }
     void onFocusChange(int change){
         switch(change){

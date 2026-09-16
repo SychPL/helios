@@ -9,6 +9,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 public class SendspinClientTest {
@@ -19,16 +20,22 @@ public class SendspinClientTest {
     static final class FakeSink implements AudioSink {
         final List<String> events=new CopyOnWriteArrayList<>();
         final BlockingQueue<byte[]> writes=new LinkedBlockingQueue<>();
-        volatile boolean open;volatile float gain=1f;volatile boolean muted;volatile String format;
-        public void open(String codec,int sampleRate,int channels,int bitDepth){open=true;format=codec+"/"+sampleRate+"/"+channels+"/"+bitDepth;events.add("open:"+format);}
+        volatile boolean open,paused,failOpen;volatile float gain=1f;volatile boolean muted;volatile String format;volatile long generation;volatile int stale;
+        public void open(String codec,int sampleRate,int channels,int bitDepth) throws Exception {if(failOpen)throw new IllegalStateException("no track");open=true;generation++;format=codec+"/"+sampleRate+"/"+channels+"/"+bitDepth;events.add("open:"+format);}
         public boolean isOpen(){return open;}
-        public void write(byte[] pcm,int offset,int length){writes.add(Arrays.copyOfRange(pcm,offset,offset+length));events.add("write:"+pcm[0]);}
-        public void flush(){events.add("flush");}
-        public void stop(){open=false;events.add("stop");}
+        public long generation(){return generation;}
+        public boolean paused(){return paused;}
+        public boolean write(byte[] pcm,int offset,int length,long expected){
+            if(!open||paused)return false;
+            if(expected!=generation){stale++;return false;}
+            writes.add(Arrays.copyOfRange(pcm,offset,offset+length));events.add("write:"+pcm[0]);return true;
+        }
+        public void flush(){generation++;events.add("flush");}
+        public void stop(){generation++;open=false;events.add("stop");}
         public void setGain(float value){gain=value;events.add("gain:"+value);}
         public void setMuted(boolean value){muted=value;events.add("muted:"+value);}
-        public void pause(){events.add("pause");}
-        public void resume(){events.add("resume");}
+        public void pause(){paused=true;events.add("pause");}
+        public void resume(){paused=false;events.add("resume");}
         public long writtenFrames(){return writes.size();}
     }
     static class Server extends WebSocketServer {
@@ -37,6 +44,7 @@ public class SendspinClientTest {
         final BlockingQueue<JSONObject> commands=new LinkedBlockingQueue<>();
         final BlockingQueue<JSONObject> states=new LinkedBlockingQueue<>();
         final BlockingQueue<JSONObject> goodbyes=new LinkedBlockingQueue<>();
+        final AtomicInteger times=new AtomicInteger();
         volatile WebSocket client;
         Server(){super(new InetSocketAddress("127.0.0.1",0));}
         @Override public void onStart(){ready.countDown();}
@@ -48,7 +56,7 @@ public class SendspinClientTest {
                 JSONObject m=new JSONObject(message);String type=m.getString("type");JSONObject payload=m.optJSONObject("payload");
                 switch(type){
                     case "client/hello":hellos.add(payload);send("server/hello",new JSONObject().put("server_id","srv").put("name","Fake MA").put("version",1).put("active_roles",new JSONArray().put("player@v1").put("metadata@v1").put("artwork@v1").put("controller@v1")));break;
-                    case "client/time":{long t=serverNow();send("server/time",new JSONObject().put("client_transmitted",payload.getLong("client_transmitted")).put("server_received",t).put("server_transmitted",t+50));break;}
+                    case "client/time":{times.incrementAndGet();long t=serverNow();send("server/time",new JSONObject().put("client_transmitted",payload.getLong("client_transmitted")).put("server_received",t).put("server_transmitted",t+50));break;}
                     case "client/command":commands.add(payload);break;
                     case "client/state":states.add(payload);break;
                     case "client/goodbye":goodbyes.add(payload);break;
@@ -68,6 +76,8 @@ public class SendspinClientTest {
     private final BlockingQueue<SendspinClient.Metadata> metadata=new LinkedBlockingQueue<>();
     private final BlockingQueue<Integer> artworks=new LinkedBlockingQueue<>();
     private final BlockingQueue<String> players=new LinkedBlockingQueue<>();
+    private final BlockingQueue<String> commands=new LinkedBlockingQueue<>(); // volume:NN, mute:bool, failed:reason, audio, idle, gap:N
+    private volatile boolean focus=true;
     private SendspinClient client() throws Exception {
         server=new Server();server.start();assertTrue(server.ready.await(5,TimeUnit.SECONDS));
         SendspinClient c=new SendspinClient("ws://127.0.0.1:"+server.getPort()+"/sendspin","client-1","Helios","0.8.0",sink,new SendspinClient.Listener(){
@@ -77,6 +87,13 @@ public class SendspinClientTest {
             public void onArtwork(byte[] jpeg){artworks.add(jpeg==null?-1:jpeg.length);}
             public void onPlayer(int volume,boolean muted){players.add(volume+"/"+muted);}
             public void onConnection(boolean connected,String detail){connections.add((connected?"up:":"down:")+detail);}
+            public boolean onStreamStart(){return focus;}
+            public void onStreamFailed(String reason){commands.add("failed:"+reason);}
+            public void onStreamAudio(){commands.add("audio");}
+            public void onAudioIdle(){commands.add("idle");}
+            public void onVolumeCommand(int percent){commands.add("volume:"+percent);}
+            public void onMuteCommand(boolean muted){commands.add("mute:"+muted);}
+            public void onGap(int count,long lateMs){commands.add("gap:"+count);}
         });
         c.start();
         assertEquals("up:connected",connections.poll(5,TimeUnit.SECONDS));
@@ -97,7 +114,7 @@ public class SendspinClientTest {
             assertEquals("open:pcm/48000/2/16",sink.events.get(0));
             long base=serverNow();
             server.audio(base+500_000,(byte)3);server.audio(base+300_000,(byte)1);server.audio(base+400_000,(byte)2);
-            server.audio(base-1_000_000,(byte)9); // a second late: dropped, never written
+            server.audio(base-2_000_000,(byte)9); // two seconds late: dropped, never written
             assertEquals(1,marker(sink.writes.poll(3,TimeUnit.SECONDS)));assertEquals(2,marker(sink.writes.poll(3,TimeUnit.SECONDS)));assertEquals(3,marker(sink.writes.poll(3,TimeUnit.SECONDS)));
             assertNull(sink.writes.poll(300,TimeUnit.MILLISECONDS));assertTrue(client.dropped()>=1);
             server.send("group/update",new JSONObject().put("playback_state","playing"));
@@ -106,14 +123,18 @@ public class SendspinClientTest {
             assertEquals(SendspinClient.State.PAUSED,states.poll(3,TimeUnit.SECONDS));
         }finally{client.stop();server.stop(2000);}
     }
-    @Test public void volumeAndMuteFromTheServerReachTheSinkAndAreConfirmedAsClientState() throws Exception {
+    @Test public void volumeAndMuteFromTheServerGoToTheListenerAndReportVolumeConfirmsAsClientState() throws Exception {
         SendspinClient client=client();
         try{
             server.send("server/command",new JSONObject().put("player",new JSONObject().put("command","volume").put("volume",30)));
-            assertEquals("30/false",players.poll(3,TimeUnit.SECONDS));assertEquals(0.3f,sink.gain,0.001f);
-            JSONObject state=server.states.poll(3,TimeUnit.SECONDS);assertEquals(30,state.getJSONObject("player").getInt("volume"));
+            assertEquals("volume:30",commands.poll(3,TimeUnit.SECONDS));
+            assertNull(server.states.poll(300,TimeUnit.MILLISECONDS)); // the client does not confirm by itself: the service does after the device changed
+            assertEquals(1f,sink.gain,0.001f);assertFalse(sink.events.toString(),sink.events.contains("gain:0.3"));
             server.send("server/command",new JSONObject().put("player",new JSONObject().put("command","mute").put("mute",true)));
-            assertEquals("30/true",players.poll(3,TimeUnit.SECONDS));assertTrue(sink.muted);
+            assertEquals("mute:true",commands.poll(3,TimeUnit.SECONDS));assertFalse(sink.muted);
+            client.reportVolume(30,true);
+            JSONObject state=server.states.poll(3,TimeUnit.SECONDS).getJSONObject("player");
+            assertEquals(30,state.getInt("volume"));assertTrue(state.getBoolean("muted"));assertEquals(0,state.getInt("output_delay_ms"));
             server.send("server/state",new JSONObject().put("controller",new JSONObject().put("supported_commands",new JSONArray().put("play").put("pause").put("volume")).put("volume",70))
                 .put("metadata",new JSONObject().put("title","Track").put("artist","Artist").put("artwork_url","/imageproxy?path=x").put("progress",new JSONObject().put("track_progress",1000).put("track_duration",200000))));
             SendspinClient.Metadata m=metadata.poll(3,TimeUnit.SECONDS);assertEquals("Track",m.title);assertEquals(200000,m.durationMs);assertEquals("/imageproxy?path=x",m.artworkUrl);
@@ -205,6 +226,86 @@ public class SendspinClientTest {
             assertEquals(SendspinClient.State.NONE,states.poll(3,TimeUnit.SECONDS));
             server.send("group/update",new JSONObject().put("playback_state","paused"));
             assertNull(states.poll(500,TimeUnit.MILLISECONDS));
+        }finally{client.stop();server.stop(2000);}
+    }
+    @Test public void streamStartWithoutFocusIsRefusedWithAPauseAndFramesAreDropped() throws Exception {
+        SendspinClient client=client();
+        try{
+            server.send("server/state",new JSONObject().put("controller",new JSONObject().put("supported_commands",new JSONArray().put("play").put("pause"))));
+            Thread.sleep(100);
+            focus=false;
+            server.streamStart(48000);
+            assertEquals("pause",server.commands.poll(3,TimeUnit.SECONDS).getJSONObject("controller").getString("command"));
+            server.audio(serverNow()+300_000,(byte)1);Thread.sleep(500);
+            assertFalse(sink.open);assertTrue(sink.events.toString(),sink.events.isEmpty());assertNull(states.poll(200,TimeUnit.MILLISECONDS));
+            focus=true;server.send("group/update",new JSONObject().put("playback_state","playing"));
+            server.streamStart(48000);Thread.sleep(200);assertTrue(sink.open); // the next stream/start asks again
+            server.audio(serverNow()+300_000,(byte)2);
+            assertEquals(2,marker(sink.writes.poll(3,TimeUnit.SECONDS)));assertEquals("audio",commands.poll(3,TimeUnit.SECONDS));
+            assertEquals(SendspinClient.State.PLAYING,states.poll(3,TimeUnit.SECONDS));
+        }finally{client.stop();server.stop(2000);}
+    }
+    @Test public void openFailureEndsTheSessionAndReportsStreamFailed() throws Exception {
+        SendspinClient client=client();
+        try{
+            sink.failOpen=true;
+            server.streamStart(48000);
+            assertTrue(commands.poll(3,TimeUnit.SECONDS).startsWith("failed:Nie można otworzyć wyjścia audio"));
+            server.audio(serverNow()+300_000,(byte)1);Thread.sleep(300);
+            assertFalse(sink.open);assertNull(states.poll(200,TimeUnit.MILLISECONDS));assertEquals(SendspinClient.State.NONE,client.state());
+        }finally{client.stop();server.stop(2000);}
+    }
+    @Test public void silentOutputClosesAfterIdleTimeoutUnlessPaused() throws Exception {
+        SendspinClient client=client();
+        client.idleMicros=1_000_000;
+        try{
+            server.send("group/update",new JSONObject().put("playback_state","playing"));
+            server.streamStart(48000);Thread.sleep(200);
+            server.audio(serverNow()+300_000,(byte)1);
+            assertEquals(SendspinClient.State.PLAYING,states.poll(3,TimeUnit.SECONDS));assertEquals(1,marker(sink.writes.poll(3,TimeUnit.SECONDS)));assertEquals("audio",commands.poll(3,TimeUnit.SECONDS));
+            sink.pause();Thread.sleep(1500); // the focus pause holds the output: idle time does not count
+            assertTrue(sink.open);assertNull(commands.poll(100,TimeUnit.MILLISECONDS));
+            sink.resume();
+            assertEquals("idle",commands.poll(3,TimeUnit.SECONDS));
+            assertFalse(sink.open);assertEquals(SendspinClient.State.NONE,states.poll(3,TimeUnit.SECONDS));
+            server.audio(serverNow()+300_000,(byte)2);Thread.sleep(300);assertNull(sink.writes.poll(100,TimeUnit.MILLISECONDS)); // frames refused until the next stream/start
+        }finally{client.stop();server.stop(2000);}
+    }
+    @Test public void lateChunksPlayUpToTheLimitTriggerAResyncAndLongRunsOfDropsReportAGap() throws Exception {
+        SendspinClient client=client();
+        try{
+            server.streamStart(48000);Thread.sleep(200);
+            int before=server.times.get();
+            server.audio(serverNow()-800_000,(byte)1); // 800 ms late: played, continuity first
+            assertEquals(1,marker(sink.writes.poll(3,TimeUnit.SECONDS)));assertEquals("audio",commands.poll(3,TimeUnit.SECONDS));
+            Thread.sleep(700);
+            assertTrue("resync burst expected",server.times.get()-before>=3);
+            String stats=client.stats();assertTrue(stats,stats.contains("resyncs=1")&&stats.matches(".*late_max_ms=(7|8|9)\\d\\d.*"));
+            for(int i=0;i<5;i++)server.audio(serverNow()-2_000_000,(byte)9); // two seconds late: dropped
+            assertEquals("gap:5",commands.poll(3,TimeUnit.SECONDS));
+            assertNull(sink.writes.poll(200,TimeUnit.MILLISECONDS));assertTrue(client.dropped()>=5);
+            assertTrue(client.stats().contains("gaps=1"));
+        }finally{client.stop();server.stop(2000);}
+    }
+    @Test public void stoppedClosesTheOutputImmediatelyAndClearRefreshesTheGeneration() throws Exception {
+        SendspinClient client=client();
+        try{
+            server.send("group/update",new JSONObject().put("playback_state","playing"));
+            server.streamStart(48000);Thread.sleep(200);
+            server.audio(serverNow()+300_000,(byte)1);
+            assertEquals(1,marker(sink.writes.poll(3,TimeUnit.SECONDS)));
+            server.send("stream/clear",new JSONObject());Thread.sleep(100);
+            assertTrue(sink.events.contains("flush"));
+            server.audio(serverNow()+300_000,(byte)2);
+            assertEquals(2,marker(sink.writes.poll(3,TimeUnit.SECONDS))); // generation re-read per chunk after flush
+            assertEquals(0,sink.stale);
+            assertEquals(SendspinClient.State.PLAYING,states.poll(3,TimeUnit.SECONDS));
+            server.audio(serverNow()+1_500_000,(byte)3); // queued far ahead
+            server.send("group/update",new JSONObject().put("playback_state","stopped"));
+            long until=System.currentTimeMillis()+300;while(System.currentTimeMillis()<until&&sink.open)Thread.sleep(10);
+            assertFalse("stopped must close without draining",sink.open);
+            assertEquals(SendspinClient.State.NONE,states.poll(3,TimeUnit.SECONDS));
+            assertNull(sink.writes.poll(1500,TimeUnit.MILLISECONDS));
         }finally{client.stop();server.stop(2000);}
     }
     @Test public void clockOffsetPicksTheSampleWithTheSmallestRoundTrip(){
