@@ -129,26 +129,35 @@ public final class AssistClient {
             int min=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
             if(min<=0)throw new IOException("Microphone buffer unavailable");
             if(ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED)throw new IOException("Microphone permission required");
-            recorder=new AudioRecord(7,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(8192,min*4));
+            // VOICE_RECOGNITION (6): the same source as the wake listener; VOICE_COMMUNICATION's AEC chain made the flood jitter (86-95 k/s), which breaks factor calibration.
+            recorder=new AudioRecord(6,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(16384,min*4));
             if(tone!=null){tone.startTone(ToneGenerator.TONE_PROP_BEEP,120);SystemClock.sleep(150);}
-            recorder.startRecording();log("microphone_started","source=7 rate=16000 mono PCM16 gain=1 run="+run);state(followUp>0?"Słucham dalej…":"Mów teraz\nKtóra jest godzina?");
-            short[] pcm=new short[320];long captureStart=SystemClock.elapsedRealtime(),captureDeadline=captureStart+30000,nextPulse=captureStart+1000;
+            recorder.startRecording();log("microphone_started","source=6 rate=16000 mono PCM16 gain=1 run="+run);state(followUp>0?"Słucham dalej…":"Mów teraz\nKtóra jest godzina?");
+            // Same HAL sample flood as the wake listener: decimate the measured factor back to 16 kHz before sending to HA's STT
+            // (artifacts/wakeword-microphone-20260915.md). Short window so the start of the utterance is not clipped while calibrating.
+            // raw is the read buffer (>= 20 ms even at 96 k/s, so the AudioRecord buffer never overruns), pcm the 20 ms output packet.
+            AdaptiveDecimator decimator=new AdaptiveDecimator(16000,800);
+            short[] raw=new short[2048],pcm=new short[320];long captureStart=SystemClock.elapsedRealtime(),captureDeadline=captureStart+30000,nextPulse=captureStart+1000;
             boolean quiet=false;
             while(!closed&&!finishAudio&&!events.audioDone&&!events.ended&&SystemClock.elapsedRealtime()<captureDeadline){
                 if(socket.failed)throw new IOException("HA disconnected");
                 JSONObject m;while((m=socket.messages.poll())!=null)events.accept(m);
                 if(events.audioDone||events.ended)break;
                 if(followUp>0&&!events.vadStarted&&SystemClock.elapsedRealtime()-captureStart>followUp){quiet=true;break;}
-                int n=recorder.read(pcm,0,pcm.length,AudioRecord.READ_NON_BLOCKING);
+                int n=recorder.read(raw,0,raw.length,AudioRecord.READ_NON_BLOCKING);
                 if(n<0)throw new IOException("Microphone read failed: "+n);
-                if(n==0){SystemClock.sleep(5);continue;}
-                byte[] packet=new byte[n*2+1];packet[0]=(byte)events.handler;
-                for(int i=0;i<n;i++){int value=pcm[i];sumSq+=(double)value*value;packet[1+i*2]=(byte)value;packet[2+i*2]=(byte)(value>>8);pcm[i]=0;}
-                sampleCount+=n;socket.send(packet);
-                if(SystemClock.elapsedRealtime()>=nextPulse){log("capture_progress","samples="+sampleCount);nextPulse=SystemClock.elapsedRealtime()+1000;}
+                if(n>0)decimator.push(raw,n,SystemClock.elapsedRealtime());
+                int out;
+                while((out=decimator.poll(pcm,0,pcm.length))>0){
+                    byte[] packet=new byte[out*2+1];packet[0]=(byte)events.handler;
+                    for(int i=0;i<out;i++){int value=pcm[i];sumSq+=(double)value*value;packet[1+i*2]=(byte)value;packet[2+i*2]=(byte)(value>>8);}
+                    sampleCount+=out;socket.send(packet);
+                }
+                if(n==0&&out==0)SystemClock.sleep(5);
+                if(SystemClock.elapsedRealtime()>=nextPulse){log("capture_progress","samples="+sampleCount+" decim="+decimator.factor());nextPulse=SystemClock.elapsedRealtime()+1000;}
             }
             recorder.stop();recorder.release();recorder=null;
-            log("microphone_released","samples="+sampleCount+" rms="+(sampleCount>0?Math.sqrt(sumSq/sampleCount):0));
+            log("microphone_released","samples="+sampleCount+" rms="+(sampleCount>0?Math.sqrt(sumSq/sampleCount):0)+" decim="+decimator.factor()+" measured_rate="+Math.round(decimator.measuredRate()));
             if(closed)throw new IOException("Cancelled");
             if(quiet){log("follow_up_quiet","run="+run);return null;}
             if(!events.sttDone&&!events.ended)socket.send(new byte[]{(byte)events.handler});

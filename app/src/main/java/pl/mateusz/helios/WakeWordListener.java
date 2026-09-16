@@ -64,12 +64,17 @@ final class WakeWordListener {
             recorder.startRecording();
             if(recorder.getRecordingState()!=AudioRecord.RECORDSTATE_RECORDING)throw new IllegalStateException("Microphone not recording");
             ready.run();
-            short[] frame=new short[160];int offset=0;
+            // Since 2026-09-15 this HAL delivers ~6x the requested rate regardless of format; the decimator measures the true
+            // rate and downsamples back to 16 kHz (artifacts/wakeword-microphone-20260915.md). ponytail: remove with the HAL fix.
+            AdaptiveDecimator decimator=new AdaptiveDecimator(16000,1500);
+            short[] raw=new short[1280];short[] frame=new short[160];int offset=0;
             double energy=0;long frames=0,peak=0,lastReport=SystemClock.elapsedRealtime();
             while(!stopped){
-                int n=recorder.read(frame,offset,frame.length-offset,AudioRecord.READ_NON_BLOCKING);
+                int n=recorder.read(raw,0,raw.length,AudioRecord.READ_NON_BLOCKING);
                 if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
-                offset+=n;
+                if(n>0)decimator.push(raw,n,SystemClock.elapsedRealtime());
+                int m;
+                while(offset<frame.length&&(m=decimator.poll(frame,offset,frame.length-offset))>0)offset+=m;
                 if(offset==frame.length){
                     for(short sample:frame){energy+=(double)sample*sample;if(Math.abs(sample)>peak)peak=Math.abs(sample);}
                     frames++;
@@ -77,11 +82,11 @@ final class WakeWordListener {
                     offset=0;
                     long now=SystemClock.elapsedRealtime();
                     if(diagnostics!=null&&now-lastReport>=15_000){
-                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" rate="+recorder.getSampleRate()+" channels="+recorder.getChannelCount()+" session="+recorder.getAudioSessionId()+" elapsed_ms="+(now-lastReport)+" device="+routed(recorder)+" active="+activeRecordings(context));
+                        diagnostics.accept("rms="+Math.round(Math.sqrt(energy/Math.max(1,frames*160L)))+" peak="+peak+" frames="+frames+" source="+recorder.getAudioSource()+" rate="+recorder.getSampleRate()+" channels="+recorder.getChannelCount()+" session="+recorder.getAudioSessionId()+" elapsed_ms="+(now-lastReport)+" device="+routed(recorder)+" active="+activeRecordings(context)+" decim="+decimator.factor()+" measured_rate="+Math.round(decimator.measuredRate())+" calibrated="+decimator.calibrated());
                         energy=0;frames=0;peak=0;lastReport=now;
                     }
                 }
-                if(n==0)SystemClock.sleep(5);
+                if(offset<frame.length)SystemClock.sleep(5);
             }
             return false;
         } finally {
