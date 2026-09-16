@@ -54,7 +54,7 @@ Hitboxy 56×72 są węższe od 72 z SPEC 0.8a, żeby zmieścić pięć w 344 jed
 - Po `group/update playback_state: stopped|idle` (albo po wysłaniu przez zegar `pause`) sesja Sendspin kończy się jak dotąd (strumień zamknięty, focus oddany), ale **sesja UI** nie znika od razu: serwis pyta MA `player_queues/get_active_queue` (`player_id` Lenovo). Odpowiedź `state == "paused"` → UI `PAUSED` („Pauza”, play aktywny, okładka i metadane bez zmian, pozycja zamrożona na ostatnim `progress`). Każdy inny stan (`idle`, `playing` innego źródła, brak kolejki, błąd, timeout 10 s) → UI `NONE`.
 - Do czasu odpowiedzi MA panel/pełny ekran/uchwyt pozostają w stanie `PAUSED` tymczasowo (nie `NONE`), żeby nie mrugać; jeśli odpowiedź to nie `paused`, znikają wtedy.
 - Play w stanie `PAUSED` bez sesji Sendspin: `players/cmd/play` przez API MA (nie `client/command`, bo strumień nie istnieje). MA wznawia kolejkę → `stream/start` + audio → nowa sesja Sendspin, UI `PLAYING`, widok bez zmiany (panel lub pełny ekran zostaje otwarty).
-- Zmiana kolejki na innym urządzeniu podczas pauzy (`player_updated` dla Lenovo ze stanem `playing` innego źródła, albo `idle`): UI `NONE`.
+- Stan odtwarzacza `idle` w `player_updated` nie kończy pauzy: dla odtwarzacza Sendspin to normalna reprezentacja zapauzowanej kolejki. Koniec pauzy ogłasza kolejka: `queue_updated` dla zapamiętanego `queue_id` ze stanem `idle`/`stopped` → UI `NONE`. Stan `playing` (z `queue_updated` albo `player_updated` własnego odtwarzacza) uzbraja 10 s: nowa sesja Sendspin w tym czasie = wznowienie (UI `PLAYING`), brak = urządzenie gra coś, czego zegar nie odtwarza (przejęcie przez inne źródło/grupę) → UI `NONE`.
 - `PAUSED` bez sesji ma limit: po 60 min bez wznowienia UI `NONE` (kolejka MA nie znika, ale nocny ekran nie ma trzymać karty bez końca). Limit resetowany każdą aktualizacją `player_updated` ze stanem `paused`.
 - Sam `player_updated` ze stanem `paused` bez wcześniejszej lokalnej sesji nie tworzy karty (bez zmian względem 0.8a 4.3).
 - Focus audio: `PAUSED` bez strumienia nie trzyma focusu; wznowienie prosi o focus jak nowa sesja.
@@ -73,6 +73,10 @@ Hitboxy 56×72 są węższe od 72 z SPEC 0.8a, żeby zmieścić pięć w 344 jed
 - Kompromis zapisany: STREAM_MUSIC jest wspólny z TTS Nabu, więc ściszenie w MA ścisza też odpowiedzi głosowe (dziś tak samo działają przyciski).
 - Przy starcie sesji Sendspin i po `server/hello` zegar wysyła `client/state` z bieżącym poziomem urządzenia, żeby MA nie startowało od 100 %.
 
+## 5b. Ciągłość strumienia
+
+Zgłoszenie użytkownika (16 września 2026): „stream przestaje grać na chwilę i wraca”. Dziennik: `music_stats dropped` rośnie o 50-150 porcji na minutę przy pojedynczych underrunach, czyli porcje są odrzucane jako spóźnione (próg 50 ms), a nie brakuje ich w sieci. Zegar jest pojedynczym odtwarzaczem, więc ciągłość ma pierwszeństwo przed synchronizacją: porcje spóźnione do 1,5 s są odtwarzane, spóźnienie powyżej 200 ms wymusza ponowną synchronizację zegara (najwyżej raz na 30 s), a `music_stats` raportuje największe spóźnienie i głębokość kolejki. Kryterium: 30 minut muzyki na zegarze bez słyszalnych przerw i `dropped` bliskie zeru.
+
 ## 6. Kryteria odbioru
 
 | Test | Wynik |
@@ -82,7 +86,7 @@ Hitboxy 56×72 są węższe od 72 z SPEC 0.8a, żeby zmieścić pięć w 344 jed
 | Pełny ekran: pauza z zegara, pauza z MA, play | Widok zostaje; ikona play/pauza; okładka i metadane bez zmian; pozycja zamrożona i wznowiona |
 | Stop z zegara i z MA | Pełny ekran, panel i uchwyt znikają |
 | Pauza → 60 min bez wznowienia | Karta znika; play z MA tworzy nową sesję z samym uchwytem |
-| Pauza → kolejka przejęta przez inne urządzenie | Karta znika przy pierwszym `player_updated` |
+| Pauza → kolejka przejęta przez inne urządzenie | Karta znika przy `queue_updated` ze stanem `idle`/`stopped` albo najpóźniej 10 s po `playing` bez nowego strumienia |
 | `get_active_queue` timeout / MA offline przy pauzie | Karta znika po timeoutcie (10 s), bez wyjątków |
 | Głośność: MA 30 % | `STREAM_MUSIC` 30 % (encja `number` w HA pokazuje 30), `client/state volume` = poziom po zaokrągleniu |
 | Przyciski sprzętowe | MA pokazuje nowy poziom w ciągu 1 s |
