@@ -1,4 +1,4 @@
-# Integracja Helios w Home Assistant (0.7)
+# Integracja Helios w Home Assistant (0.7 / 0.10)
 
 Zegar łączy się z HA jednym gniazdem WebSocket (tym samym, co dashboard) i rejestruje subskrypcję `helios/connect`. Po stronie HA integracja **Helios** z osobnego repozytorium HACS [SychPL/ha-helios](https://github.com/SychPL/ha-helios) tworzy urządzenie z encjami:
 
@@ -16,25 +16,27 @@ Kontrakt kanału i allowlista komend (`lamp.turn_on`, `lamp.turn_off`, `lamp.set
 
 ## Instalacja komponentu
 
-1. HACS → Integracje → ⋮ → Niestandardowe repozytoria → `https://github.com/SychPL/ha-helios`, kategoria Integracja → zainstaluj **Helios** (alternatywnie skopiuj `custom_components/helios` z tego repozytorium do `config/custom_components/helios`). Bez zależności pip.
-2. Zrestartuj HA.
-3. Ustawienia → Urządzenia i usługi → Dodaj integrację → **Helios**. HA pokaże 6-cyfrowy kod ważny 5 minut.
-4. Na zegarze przytrzymaj HELIOS → **Paruj z HA (kod)** → wpisz kod → OK. Zegar musi już być sparowany z HA (token) i połączony.
-5. Po sparowaniu przypisz urządzenie do obszaru (np. Sypialnia). Od następnej rozmowy `assist_pipeline/run` dostaje `device_id` tego urządzenia.
+1. HACS → Integracje → ⋮ → Niestandardowe repozytoria → `https://github.com/SychPL/ha-helios`, kategoria Integracja → zainstaluj **Helios** ≥ 0.8.0 (alternatywnie skopiuj `custom_components/helios` do `config/custom_components/helios`). Bez zależności pip poza tymi, które HA sam instaluje dla `assist_pipeline` i `music_assistant`.
+2. Zrestartuj HA. Zegar z Heliosem 0.8.x (parowany przez most z tokenem administratora) działa dalej - integracja 0.8 przyjmuje protokół 1 i 2.
+3. Zainstaluj Heliosa 0.9.0 na zegarze (ostatni raz przez most). Zegar bez konfiguracji pokazuje od razu okno **Wybierz Home Assistant**; zegar ze starym parowaniem pokazuje je z przyciskiem „Później” przy każdym starcie, dopóki nie sparujesz go ponownie.
+4. Na zegarze wybierz swój HA z listy (mDNS `_home-assistant._tcp`; przy dwóch serwerach w sieci wybór jest jawny) albo **Wpisz adres**. Zegar pokaże instrukcję i poczeka.
+5. W HA: Ustawienia → Urządzenia i usługi → Dodaj integrację → **Helios**. HA pokaże 6-cyfrowy kod ważny 5 minut; zostaw okno otwarte (to ono dokańcza parowanie).
+6. Na zegarze dotknij **Dalej** (zegar sprawdza `GET /api/helios/pair`), wpisz kod → OK. Zegar wysyła `POST /api/helios/pair` bez tokena; integracja tworzy mu użytkownika systemowego HA z tokenem na 10 lat, a jeśli w HA jest Music Assistant, także osobny token MA i adres Sendspin (zdarzenie `connection` po połączeniu).
+7. Przypisz urządzenie do obszaru (np. Sypialnia). Od następnej rozmowy `assist_pipeline/run` dostaje `device_id` tego urządzenia. Stary token administratora z `.local/ha.json` usuń ręcznie w profilu HA - integracja go nie zna.
 
-Ponowne parowanie tego samego zegara (np. nowe konto HA dla tokena) odświeża istniejący wpis zamiast tworzyć duplikat. Usunięcie integracji kończy subskrypcję: zegar czyści `device_id` i nie kontynuuje starych rozmów.
+Ponowne parowanie tego samego zegara (menu → **Paruj z HA**) odświeża istniejący wpis: nowy użytkownik i token, stare usunięte dopiero po sukcesie. Usunięcie integracji usuwa użytkownika zegara, jego token MA i katalog obrazów; zegar dostaje `auth_invalid`, przestaje się łączyć i prosi o ponowne parowanie. Szczegóły kontraktu (`GET/POST /api/helios/pair`, zdarzenie `connection`, ponowna subskrypcja po `removed`): [SPEC 0.10](SPEC-0.10-onboarding.md).
 
 ## Zachowanie
 
 - Encje są `unavailable`, dopóki zegar nie przyśle pierwszego snapshotu po połączeniu; rozłączenie WS lub zapis dashboardu (restart sesji) daje krótkie `unavailable`.
 - Polecenia czekają na `helios/result` do 10 s; brak odpowiedzi to błąd usługi, nie ponowienie. Druga komenda dla tego samego zasobu (lampka albo głośność) w trakcie pierwszej dostaje `busy`.
-- Token zegara ma prawa konta HA; użyj dedykowanego użytkownika bez uprawnień administratora.
+- Token zegara należy do jego własnego użytkownika systemowego HA (grupa użytkowników, bez administratora, tylko z sieci lokalnej); zegary parowane przed 0.10 nadal używają tokena konta, którym je sparowano.
 
 ## Lokalnie na zegarze
 
-Menu → **Urządzenie: głośność i lampka**: suwak głośności (zmiana po puszczeniu), przełącznik lampki, jasność 1-10. Menu → **Odśwież parowanie** pobiera ponownie dokument parowania z mostu (`tools/native_bridge.py`); zmiana danych HA wymaga potwierdzenia, sekcja `music_assistant` (0.6) jest dołączana z `.local/ma.json`, gdy plik istnieje.
+Menu → **Urządzenie: głośność i lampka**: suwak głośności (zmiana po puszczeniu), przełącznik lampki, jasność 1-10. Menu → **Paruj z HA** otwiera okno wyboru HA (0.10); most `tools/native_bridge.py` służy już tylko do dostarczania APK w pętli deweloperskiej i jako odbiornik diagnostyki (adres w opcjach integracji), nie do parowania.
 
-Kod, testy (`pytest tests`) i workflow hassfest/HACS żyją w `SychPL/ha-helios`; ten katalog `ha/` zawiera tylko YAML panelu. Integracja nie była jeszcze uruchomiona na HA 2026.8.3 - pierwszy odbiór wg SPEC 0.7 pkt 7.
+Kod, testy (`pip install -r requirements_test.txt && pytest tests`, Python 3.14, HA 2026.8.3) i workflow hassfest/HACS żyją w `SychPL/ha-helios`; ten katalog `ha/` zawiera tylko YAML panelu.
 
 ## Pakiet sypialni (SPEC 0.9)
 
