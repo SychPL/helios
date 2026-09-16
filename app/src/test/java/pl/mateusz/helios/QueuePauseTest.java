@@ -32,5 +32,6 @@ public class QueuePauseTest {
     @Test public void pauseExpiresAfterAnHour(){
         QueuePause q=new QueuePause();
         q.onSessionEnded(true,0);assertTrue(q.paused(QueuePause.LIMIT_MS-1));assertFalse(q.paused(QueuePause.LIMIT_MS));
+        q.onSessionEnded(true,0);q.onQueueState("paused",30*60_000L);assertTrue(q.paused(QueuePause.LIMIT_MS+1));assertFalse(q.paused(QueuePause.LIMIT_MS+30*60_000L)); // confirmed at 30 min: expires 90 min after the stop
     }
 }

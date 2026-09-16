@@ -78,6 +78,7 @@ final class SendspinClient {
     private volatile boolean audioSinceStart,streamDenied;
     private int gapRun;
     volatile long idleMicros=10_000_000; // tests shorten it
+    private boolean sinkWasPaused;
     private long lateMaxMicros;private int resyncs,gaps; // per-minute stats for music_stats
     private volatile String playbackState="stopped";
     private volatile long lastWriteMicros=-1;
@@ -323,7 +324,9 @@ final class SendspinClient {
     private void closeStreamIfEmpty(){closeStream();}
     /** Open, unpaused output with no successful write for IDLE_MICROS: the HAL, the clock sync or MA went quiet - end the session rather than hold focus in silence. */
     private void checkIdle(){
-        if(!streamOpen||sink.paused())return;
+        if(!streamOpen)return;
+        if(sink.paused()){sinkWasPaused=true;return;}
+        if(sinkWasPaused){sinkWasPaused=false;streamOpenedMicros=micros();} // resumed: the silence during the pause does not count
         long since=Math.max(lastWriteMicros,streamOpenedMicros);
         if(since>0&&micros()-since>idleMicros)audioIdle();
     }

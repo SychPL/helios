@@ -17,7 +17,7 @@ final class QueuePause {
     /** Queue state from get_active_queue or queue_updated; null = no active queue. */
     void onQueueState(String state,long now){
         if(!paused)return;
-        if("paused".equals(state))playingDeadline=-1;
+        if("paused".equals(state)){playingDeadline=-1;pausedAt=now;} // confirmed again: the hour counts from here
         else if("playing".equals(state))arm(now);
         else paused=false;
     }

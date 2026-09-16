@@ -34,7 +34,11 @@ final class DeviceVolume {
         audio.setStreamVolume(AudioManager.STREAM_MUSIC,toSteps(percent,max),0);
         check();return last;
     }
-    private void check(){int now=percent();if(now!=last){last=now;for(Consumer<Integer> l:listeners)l.accept(now);}}
+    private void check(){
+        int now=percent();if(now==last)return;last=now;
+        if(Looper.myLooper()==Looper.getMainLooper())notify(now);else handler.post(()->notify(now));
+    }
+    private void notify(int now){for(Consumer<Integer> l:listeners)l.accept(now);}
     static int toSteps(int percent,int max){return (int)Math.round(Math.max(0,Math.min(100,percent))*max/100.0);}
     static int toPercent(int steps,int max){return (int)Math.round(Math.max(0,Math.min(max,steps))*100.0/max);}
 }

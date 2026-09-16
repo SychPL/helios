@@ -56,6 +56,7 @@ public final class HeliosService extends Service {
     private final QueuePause queuePause=new QueuePause();
     private long queueCheckToken; // bumps on every new session and every definitive end: late get_active_queue answers are dropped
     private String queueId,sendspinClientId;
+    private boolean settingVolume; // main only: a volume command is being applied, the DeviceVolume listener must not report a second time
     private final Runnable queueExpiry=this::onQueueExpiry;
     private String musicTitle,musicArtist,musicAlbum,remoteInfo,musicIssue,lenovoPlayerId,playerName="Helios";
     private android.graphics.Bitmap musicArtwork;private int musicAccent;
@@ -96,7 +97,7 @@ public final class HeliosService extends Service {
             public void onChanged(){publish();}
             public void onDiagnostic(String event,String detail){if(diagnostics!=null)diagnostics.accept(event,detail);}
         });dock.start();
-        volume=new DeviceVolume(this,v->publish());volume.addListener(v->reportPlayerState());volume.start();
+        volume=new DeviceVolume(this,v->publish());volume.addListener(v->{if(!settingVolume)reportPlayerState();});volume.start();
         audioManager=(AudioManager)getSystemService(Context.AUDIO_SERVICE);
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
         if(saved!=null)try{connection=new JSONObject(saved);}catch(Exception ignored){}
@@ -220,8 +221,9 @@ public final class HeliosService extends Service {
         if(ui!=MusicSession.Ui.NONE)return ui;
         return queuePause.paused(SystemClock.elapsedRealtime())?MusicSession.Ui.PAUSED:MusicSession.Ui.NONE;
     }
+    private static final java.util.List<String> QUEUE_PAUSE_COMMANDS=java.util.Collections.unmodifiableList(java.util.Arrays.asList("play","next","previous","stop"));
     MusicSnapshot musicSnapshot(){
-        return new MusicSnapshot(musicUi(),musicTitle,musicArtist,musicAlbum,musicArtwork,musicAccent,musicVolume,musicMuted,musicCommands,maConnected,localConnected,remoteInfo,musicIssue,musicProgressMs,musicDurationMs,musicProgressAt);
+        return new MusicSnapshot(musicUi(),musicTitle,musicArtist,musicAlbum,musicArtwork,musicAccent,musicVolume,musicMuted,queuePaused()?QUEUE_PAUSE_COMMANDS:musicCommands,maConnected,localConnected,remoteInfo,musicIssue,musicProgressMs,musicDurationMs,musicProgressAt);
     }
     MusicAssistantClient ma(){return ma;}
     String lenovoPlayerId(){return lenovoPlayerId;}
@@ -298,7 +300,11 @@ public final class HeliosService extends Service {
         String sendspinUrl=music.optString("sendspin_url","");
         if(!sendspinUrl.isEmpty()){
             sendspin=new SendspinClient(sendspinUrl,clientId,playerName,BuildConfig.VERSION_NAME,sink,new SendspinClient.Listener(){
-                public void onProtocol(String detail){if(diagnostics!=null)diagnostics.accept("sendspin_msg",detail);}
+                public void onProtocol(String detail){
+                    if(diagnostics!=null)diagnostics.accept("sendspin_msg",detail);
+                    // stream/start granted focus but MA stopped before any audio: no session ever existed, so onState(NONE) never fires - release here (plan V1)
+                    if(detail.startsWith("group/update")&&detail.endsWith("no-session")&&(detail.contains(" stopped ")||detail.contains(" idle ")))abandonMusicFocus();
+                }
                 /** Sendspin thread, before the output opens: focus already held or granted now; otherwise the stream is refused and MA gets pause. */
                 public boolean onStreamStart(){
                     if(requestMusicFocus())return true;
@@ -307,7 +313,7 @@ public final class HeliosService extends Service {
                 public void onStreamFailed(String reason){abandonMusicFocus();main.post(()->{musicIssue=reason;publishMusic();});}
                 /** Ten silent seconds: the client already closed the output and ended the session; drop focus and stop MA feeding a dead player. */
                 public void onAudioIdle(){abandonMusicFocus();main.post(()->{if(ma!=null&&lenovoPlayerId!=null)ma.playerCommand(lenovoPlayerId,"pause",r->{},e->{if(diagnostics!=null)diagnostics.accept("music_queue","error="+e);});});}
-                public void onVolumeCommand(int percent){main.post(()->{volume.set(percent);reportPlayerState();publishMusic();});}
+                public void onVolumeCommand(int percent){main.post(()->{settingVolume=true;try{volume.set(percent);}finally{settingVolume=false;}reportPlayerState();publishMusic();});} // one report per command, not one per listener
                 public void onMuteCommand(boolean muted){main.post(()->{if(sink!=null)sink.setMuted(muted);musicMuted=muted;reportPlayerState();publishMusic();});}
                 public void onGap(int count,long lateMs){if(diagnostics!=null)diagnostics.accept("music_gap","drops="+count+" late_ms="+lateMs);}
                 public void onState(SendspinClient.State state){
@@ -317,7 +323,6 @@ public final class HeliosService extends Service {
                         if(session==null)return;
                         long now=SystemClock.elapsedRealtime();
                         MusicSession.Ui before=session.ui();session.onTransport(state);
-                        volume.setFast(state!=SendspinClient.State.NONE);
                         if(state!=SendspinClient.State.NONE){
                             if(before==MusicSession.Ui.NONE){queuePause.onNewSession();queueCheckToken++;main.removeCallbacks(queueExpiry);}
                             if(state==SendspinClient.State.PLAYING&&!musicStatsScheduled){musicStatsScheduled=true;main.postDelayed(musicStats,60_000);}
@@ -339,7 +344,7 @@ public final class HeliosService extends Service {
                     if(diagnostics!=null)diagnostics.accept("sendspin_"+(connected?"connected":"down"),detail==null?"":detail);
                     if(!connected){abandonMusicFocus();artworkLoader.clear();}
                     main.post(()->{
-                        localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;
+                        localConnected=connected;musicIssue=connected&&"connected".equals(detail)?null:detail;volume.setFast(connected);
                         if(connected){if(sink!=null)sink.setMuted(false);musicMuted=false;reportPlayerState();} // a fresh server/hello starts unmuted at the device level
                         else if(queuePaused()){queuePause.onNewSession();queueCheckToken++;}
                         publishMusic();
@@ -349,7 +354,12 @@ public final class HeliosService extends Service {
             sendspin.start();
         }
         ma=new MusicAssistantClient(MusicAssistantClient.wsUrl(music.optString("url","")),music.optString("token",""),new MusicAssistantClient.Listener(){
-            public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("ma_"+(connected?"connected":"down"),detail==null?"":detail);main.post(()->{maConnected=connected;if(connected)findLenovo();publishMusic();});}
+            public void onConnection(boolean connected,String detail){if(diagnostics!=null)diagnostics.accept("ma_"+(connected?"connected":"down"),detail==null?"":detail);main.post(()->{
+                maConnected=connected;
+                if(connected)findLenovo();
+                else if(queuePaused()){queueCheckToken++;endQueuePause("error=ma_down");} // nobody can confirm or end the pause any more
+                publishMusic();
+            });}
             public void onPlayerUpdated(JSONObject player){main.post(()->trackPlayer(player));}
             public void onQueueUpdated(JSONObject queue){main.post(()->{
                 String id=queue.optString("queue_id",""),state=queue.isNull("state")?null:queue.optString("state");
