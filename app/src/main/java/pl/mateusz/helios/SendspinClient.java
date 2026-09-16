@@ -193,6 +193,7 @@ final class SendspinClient {
                 JSONObject p=payload.optJSONObject("player");
                 if(p!=null){
                     String command=p.optString("command");
+                    listener.onProtocol("server/command "+p.toString());
                     if(command.equals("volume")&&p.has("volume")){volume=Math.max(0,Math.min(100,p.getInt("volume")));sink.setGain(volume/100f);}
                     else if(command.equals("mute")&&p.has("mute")){muted=p.getBoolean("mute");sink.setMuted(muted);}
                     else break;
