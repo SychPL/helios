@@ -106,6 +106,7 @@ public final class HeliosService extends Service {
         RecentPlays stored=RecentPlays.parse(getSharedPreferences("helios",MODE_PRIVATE).getString("music_recent",null));
         for(int i=stored.entries().size()-1;i>=0;i--)recent.add(stored.entries().get(i));
         if(connection!=null){startHa();startMusic();}
+        updater=new Updater(new Updater.AndroidHost(this,text->main.post(()->{if(onStatus!=null)onStatus.accept(text);})),BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE);
         network.execute(updater::restore); // a leftover update operation without a sealed session is dropped
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){return START_STICKY;}
@@ -548,7 +549,7 @@ public final class HeliosService extends Service {
             public void stopAll(){main.post(()->{stopHa();stopMusic();});} // transports only: the in-memory connection (with its auth_invalid flag) stays for authInvalid(); Store.clear() is what forgets it
             public void issue(String text){main.post(()->{musicIssue=text;publishMusic();});}});
     private java.util.function.Consumer<String> onStatus;
-    private final Updater updater=new Updater(new Updater.AndroidHost(this,text->main.post(()->{if(onStatus!=null)onStatus.accept(text);})),BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE);
+    private Updater updater; // built in onCreate: a Service has no Context before it is attached
     Updater updater(){return updater;}
     void setOnStatus(java.util.function.Consumer<String> c){onStatus=c;}
     /** Menu → "Aktualizacja Heliosa" (SPEC 0.10 pkt 7); one operation at a time, the updater says so itself. */

@@ -149,7 +149,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
     @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();closeOnboarding();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
-        if(config==null){connect();return;}
+        if(config==null||config.optBoolean("auth_invalid",false)){connect();return;}
         if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},1);return;}
         startVoice();
@@ -334,7 +334,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     private void stopWake(){if(wakeListener!=null){wakeListener.stop();wakeListener=null;}}
     private void startWake(){
-        if(!resumed||isDestroyed()||busy||config==null||wakeListener!=null)return;
+        if(!resumed||isDestroyed()||busy||config==null||config.optBoolean("auth_invalid",false)||wakeListener!=null)return; // SPEC 0.10 pkt 8.2: no socket to HA at all while the token is refused - the assist pipeline included
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
             dashboard.setMessage("Mikrofon wymaga zgody. Przytrzymaj HELIOS → Rozmowa.");
             if(!getSharedPreferences("helios",MODE_PRIVATE).getBoolean("microphone_requested",false)){
@@ -474,7 +474,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         Button cancel=Theme.button(this,"Anuluj",false,18*s,Theme.RADIUS*s);
         final Runnable[] lock=new Runnable[2];
         lock[0]=()->{for(Button b:keys)b.setEnabled(false);cancel.setEnabled(false);}; // from POST to answer: the HA-side transaction cannot be undone from the clock
-        lock[1]=()->{for(Button b:keys)b.setEnabled(true);cancel.setEnabled(true);};
+        lock[1]=()->{for(Button b:keys)b.setEnabled(true);cancel.setEnabled(true);code.setText("");}; // a refused code is cleared: the next six digits start fresh
         for(String[] rowKeys:layout){
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
             for(String key:rowKeys){
@@ -498,7 +498,11 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         dashboard.setMessage("Paruję z HA…");
         service.pair(url,code,error->{
             if(isDestroyed())return;
-            if(error!=null){dashboard.setMessage(error);config=service.connection();unlock.run();if(config==null&&onboardingDialog!=null){android.widget.FrameLayout root=(android.widget.FrameLayout)onboardingDialog.findViewById(android.R.id.content);if(root!=null&&root.getChildCount()>0)showList((android.widget.FrameLayout)root.getChildAt(0),units(),false);}return;} // terminal save failure: a fresh pairing from the list
+            if(error!=null){
+                dashboard.setMessage(error);config=service.connection();unlock.run();
+                if(error.startsWith("Nie udało się zapisać")&&onboardingDialog!=null){android.widget.FrameLayout root=(android.widget.FrameLayout)onboardingDialog.findViewById(android.R.id.content);if(root!=null&&root.getChildCount()>0)showList((android.widget.FrameLayout)root.getChildAt(0),units(),false);} // terminal save failure only: a fresh pairing from the list; a wrong code keeps the keypad
+                return;
+            }
             pairing=true;closeOnboarding();config=service.connection();onEvent("configured","Helios "+BuildConfig.VERSION_NAME);startWake();attachHa();
             main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("HA nie potwierdził połączenia");}},20000);
         });

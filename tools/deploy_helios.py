@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 ROOT=Path(__file__).resolve().parents[1]
 token=re.findall(r'TOKEN="([A-Za-z0-9]+)"',(ROOT.parent/'docs/SSH-HOWTO.md').read_text(encoding='utf-8'))[0]
-route=json.loads((ROOT/'.local/provision.json').read_text())['url'].rsplit('/',1)[0]
+route=json.loads((ROOT/'.local/bridge.json').read_text(encoding='utf-8-sig'))['route']
 apk=ROOT/'app/build/outputs/apk/debug/app-debug.apk'
 digest=hashlib.sha256(apk.read_bytes()).hexdigest()
 query=urllib.parse.urlencode(dict(token=token,url=route+'/install.dex',entry='pl.mateusz.plugin.HeliosInstall',arg=route+'/helios.apk|'+digest))
