@@ -258,8 +258,9 @@ public final class HeliosService extends Service {
         if(command.equals("play")&&!queuePaused&&session!=null&&!session.onUserPlay(this::requestMusicFocus)){report.accept("Głośnik jest zajęty przez inną aplikację");return;}
         if(!queuePaused&&sendspin!=null&&sendspin.command(command)){report.accept(null);return;}
         if(ma==null||lenovoPlayerId==null){report.accept("Brak połączenia z Music Assistant");return;}
+        final long token=queueCheckToken; // a late stop answer must not end a newer pause
         ma.playerCommand(lenovoPlayerId,command,r->main.post(()->{
-            if(command.equals("stop")&&queuePaused()){queuePause.onQueueState("stopped",SystemClock.elapsedRealtime());artworkLoader.clear();publishMusic();publish();}
+            if(command.equals("stop")&&token==queueCheckToken&&queuePaused()){queueCheckToken++;endQueuePause("stopped");}
             report.accept(null);
         }),e->main.post(()->report.accept(e)));
     }
@@ -398,7 +399,7 @@ public final class HeliosService extends Service {
     private void onQueueExpiry(){if(session!=null&&session.ui()==MusicSession.Ui.NONE&&!queuePause.paused(SystemClock.elapsedRealtime()))artworkLoader.clear();publishMusic();publish();}
     private void endQueuePause(String why){
         if(diagnostics!=null)diagnostics.accept("music_queue",why);
-        queuePause.onNewSession();main.removeCallbacks(queueExpiry);artworkLoader.clear();publishMusic();publish();
+        queueCheckToken++;queuePause.onNewSession();main.removeCallbacks(queueExpiry);artworkLoader.clear();publishMusic();publish();
     }
     private void scheduleQueueExpiry(){
         main.removeCallbacks(queueExpiry);

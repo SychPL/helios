@@ -303,7 +303,8 @@ final class SendspinClient {
                     }
                 }
                 if(head==null){
-                    if(endRequested&&streamOpen)synchronized(queueLock){if(queue.isEmpty())closeStreamIfEmpty();}
+                    boolean drained;synchronized(queueLock){drained=queue.isEmpty();} // never call the synchronized closeStream() while holding queueLock (lock order: client monitor, then queueLock)
+                    if(endRequested&&streamOpen&&drained)closeStream();
                     Thread.sleep(10);continue;
                 }
                 if(!clock.known()){Thread.sleep(20);continue;}
@@ -321,7 +322,6 @@ final class SendspinClient {
             catch(Exception e){dropped++;}
         }
     }
-    private void closeStreamIfEmpty(){closeStream();}
     /** Open, unpaused output with no successful write for IDLE_MICROS: the HAL, the clock sync or MA went quiet - end the session rather than hold focus in silence. */
     private void checkIdle(){
         if(!streamOpen)return;
