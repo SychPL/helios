@@ -87,6 +87,7 @@ public class SendspinClientTest {
             public void onConnection(boolean connected,String detail){connections.add((connected?"up:":"down:")+detail);}
             public boolean onStreamStart(){return focus;}
             public void onStreamFailed(String reason){commands.add("failed:"+reason);}
+            public void onStreamRefused(boolean pausedViaController){commands.add("refused:"+pausedViaController);}
             public void onStreamAudio(){commands.add("audio");}
             public void onAudioIdle(){commands.add("idle");}
             public void onVolumeCommand(int percent){commands.add("volume:"+percent);}
@@ -234,8 +235,12 @@ public class SendspinClientTest {
             focus=false;
             server.streamStart(48000);
             assertEquals("pause",server.commands.poll(3,TimeUnit.SECONDS).getJSONObject("controller").getString("command"));
+            assertEquals("refused:true",commands.poll(3,TimeUnit.SECONDS));
             server.audio(serverNow()+300_000,(byte)1);Thread.sleep(500);
             assertFalse(sink.open);assertTrue(sink.events.toString(),sink.events.isEmpty());assertNull(states.poll(200,TimeUnit.MILLISECONDS));
+            server.send("server/state",new JSONObject().put("controller",new JSONObject().put("supported_commands",new JSONArray().put("play"))));Thread.sleep(100);
+            server.streamStart(48000); // no controller pause: the service must pause through the API
+            assertEquals("refused:false",commands.poll(3,TimeUnit.SECONDS));assertNull(server.commands.poll(200,TimeUnit.MILLISECONDS));
             focus=true;server.send("group/update",new JSONObject().put("playback_state","playing"));
             server.streamStart(48000);Thread.sleep(200);assertTrue(sink.open); // the next stream/start asks again
             server.audio(serverNow()+300_000,(byte)2);

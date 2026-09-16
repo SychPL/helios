@@ -14,15 +14,23 @@ final class QueuePause {
     boolean onSessionEnded(boolean hasMa,long now){
         paused=hasMa;pausedAt=now;playingDeadline=-1;return paused;
     }
-    /** Queue state from get_active_queue or queue_updated; null = no active queue. */
+    /** get_active_queue answer for the tentative pause: only "paused" confirms it, anything else (playing elsewhere, idle, stopped, null) ends it now. */
+    void onQueueQuery(String state,long now){
+        if(!paused)return;
+        if("paused".equals(state)){playingDeadline=-1;pausedAt=now;}else paused=false;
+    }
+    /** queue_updated event; null = no active queue. */
     void onQueueState(String state,long now){
         if(!paused)return;
         if("paused".equals(state)){playingDeadline=-1;pausedAt=now;} // confirmed again: the hour counts from here
         else if("playing".equals(state))arm(now);
         else paused=false;
     }
-    /** Our own player's playback_state: "playing" arms the takeover deadline, "idle" is the normal look of a paused Sendspin queue. */
-    void onPlayerUpdate(String state,long now){if(paused&&"playing".equals(state))arm(now);}
+    /** Our own player's playback_state: "playing" arms the takeover deadline, "paused" restarts the hour, "idle" is the normal look of a paused Sendspin queue. */
+    void onPlayerUpdate(String state,long now){
+        if(!paused)return;
+        if("playing".equals(state))arm(now);else if("paused".equals(state)){playingDeadline=-1;pausedAt=now;}
+    }
     void onNewSession(){paused=false;playingDeadline=-1;}
     boolean paused(long now){
         if(paused&&(now-pausedAt>=LIMIT_MS||(playingDeadline>=0&&now>=playingDeadline)))paused=false;

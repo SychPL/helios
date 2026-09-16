@@ -43,6 +43,8 @@ final class SendspinClient {
         default void onProtocol(String detail){}
         /** Called on the WebSocket thread before the output is opened; false = no audio focus, the stream is refused and MA gets pause. */
         default boolean onStreamStart(){return true;}
+        /** The stream was refused; pausedViaController=false means the controller role has no pause and the service must pause through the MA API. */
+        default void onStreamRefused(boolean pausedViaController){}
         /** Opening the output failed after focus was granted; the session is already ended. */
         default void onStreamFailed(String reason){}
         /** First chunk actually written after a stream/start (audio thread). */
@@ -245,13 +247,15 @@ final class SendspinClient {
     private void binary(byte[] frame){
         long serverMicros=ByteBuffer.wrap(frame,1,8).getLong();
         if(frame[0]==FRAME_AUDIO){
-            if(streamDenied||(!streamOpen&&pendingFormat==null))return;
-            byte[] pcm=Arrays.copyOfRange(frame,9,frame.length);
-            synchronized(queueLock){
-                if(queuedBytes+pcm.length>BUFFER_CAPACITY){dropped++;return;}
-                queue.add(new Chunk(serverMicros,pcm));queuedBytes+=pcm.length;
+            synchronized(this){ // admission and session activation cannot interleave with audioIdle()/closeStream() on other threads
+                if(streamDenied||(!streamOpen&&pendingFormat==null))return;
+                byte[] pcm=Arrays.copyOfRange(frame,9,frame.length);
+                synchronized(queueLock){
+                    if(queuedBytes+pcm.length>BUFFER_CAPACITY){dropped++;return;}
+                    queue.add(new Chunk(serverMicros,pcm));queuedBytes+=pcm.length;
+                }
+                if(!sessionActive){sessionActive=true;refreshState();} // real local audio arrived: the session exists from here on
             }
-            if(!sessionActive){sessionActive=true;refreshState();} // real local audio arrived: the session exists from here on
         }else if(frame[0]==FRAME_ARTWORK_0){
             listener.onArtwork(frame.length>9?Arrays.copyOfRange(frame,9,frame.length):null);
         }
@@ -262,7 +266,9 @@ final class SendspinClient {
         if(streamOpen){pendingFormat=newFormat;endRequested=true;endRequestedAt=micros();return;}
         if(!listener.onStreamStart()){ // no audio focus: refuse the stream before any chunk can reach the output
             streamDenied=true;pendingFormat=null;
-            if(!command("pause"))listener.onProtocol("stream/start denied without controller pause");
+            boolean paused=command("pause");
+            if(!paused)listener.onProtocol("stream/start denied without controller pause");
+            listener.onStreamRefused(paused);
             return;
         }
         try{sink.open(newFormat[0],Integer.parseInt(newFormat[1]),Integer.parseInt(newFormat[2]),Integer.parseInt(newFormat[3]));format=newFormat;streamOpen=true;endRequested=false;streamOpenedMicros=micros();lastWriteMicros=-1;}
@@ -279,8 +285,9 @@ final class SendspinClient {
     /** Ten seconds without a successful write on an open, unpaused output: close it and end the session (the service drops focus and pauses MA). */
     private synchronized void audioIdle(){
         if(!streamOpen)return;
-        pendingFormat=null;closeStream();sessionActive=false;refreshState();
-        listener.onProtocol("audio idle: output closed");listener.onAudioIdle();
+        pendingFormat=null;closeStream();sessionActive=false;
+        listener.onProtocol("audio idle: output closed");listener.onAudioIdle(); // first: the service's API pause must be sent before the queue check that onState(NONE) starts
+        refreshState();
     }
     private void endSession(){
         closeStream();pendingFormat=null;playbackState="stopped";lastWriteMicros=-1;clock.reset();supportedCommands=Collections.emptyList();
@@ -309,11 +316,11 @@ final class SendspinClient {
                 }
                 if(!clock.known()){Thread.sleep(20);continue;}
                 if(endRequested&&micros()-endRequestedAt>DRAIN_LIMIT_MICROS){closeStream();continue;}
-                if(drop){dropped++;if(++gapRun==5){gaps++;listener.onGap(gapRun,lateness/1000);}continue;}
                 if(wait){Thread.sleep(Math.min(20,waitMicros/1000+1));continue;}
-                gapRun=0;
-                if(lateness>lateMaxMicros)lateMaxMicros=lateness;
+                if(lateness>lateMaxMicros)lateMaxMicros=lateness; // also for drops: a clock error shows up first as complete loss
                 if(lateness>RESYNC_LATE_MICROS){long now=micros();if(now-lastResyncMicros>=RESYNC_MIN_INTERVAL_MICROS){lastResyncMicros=now;resyncs++;syncBurst=5;}}
+                if(drop){dropped++;if(++gapRun==5){gaps++;listener.onGap(gapRun,lateness/1000);}continue;}
+                gapRun=0;
                 if(streamOpen&&sink.write(head.pcm,0,head.pcm.length,gen)){
                     lastWriteMicros=micros();
                     if(!audioSinceStart){audioSinceStart=true;listener.onStreamAudio();}

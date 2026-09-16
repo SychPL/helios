@@ -312,6 +312,7 @@ public final class HeliosService extends Service {
                     main.post(()->{musicIssue="Głośnik jest zajęty przez inną aplikację";publishMusic();});return false;
                 }
                 public void onStreamFailed(String reason){abandonMusicFocus();main.post(()->{musicIssue=reason;publishMusic();});}
+                public void onStreamRefused(boolean pausedViaController){if(!pausedViaController)main.post(()->{if(ma!=null&&lenovoPlayerId!=null)ma.playerCommand(lenovoPlayerId,"pause",r->{},e->{if(diagnostics!=null)diagnostics.accept("music_queue","error="+e);});});}
                 /** Ten silent seconds: the client already closed the output and ended the session; drop focus and stop MA feeding a dead player. */
                 public void onAudioIdle(){abandonMusicFocus();main.post(()->{if(ma!=null&&lenovoPlayerId!=null)ma.playerCommand(lenovoPlayerId,"pause",r->{},e->{if(diagnostics!=null)diagnostics.accept("music_queue","error="+e);});});}
                 public void onVolumeCommand(int percent){main.post(()->{settingVolume=true;try{volume.set(percent);}finally{settingVolume=false;}reportPlayerState();publishMusic();});} // one report per command, not one per listener
@@ -387,7 +388,7 @@ public final class HeliosService extends Service {
             if(token!=queueCheckToken||!queuePaused())return;
             String state=q.isNull("state")?null:q.optString("state");queueId=q.optString("queue_id",lenovoPlayerId);
             if(diagnostics!=null)diagnostics.accept("music_queue","state="+state);
-            queuePause.onQueueState(state,SystemClock.elapsedRealtime());scheduleQueueExpiry();
+            queuePause.onQueueQuery(state,SystemClock.elapsedRealtime());scheduleQueueExpiry();
             if(!queuePaused())artworkLoader.clear();
             publishMusic();publish();
         }),e->main.post(()->{

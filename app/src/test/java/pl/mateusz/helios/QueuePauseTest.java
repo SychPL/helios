@@ -10,6 +10,14 @@ public class QueuePauseTest {
         assertTrue(q.onSessionEnded(true,1000));assertTrue(q.paused(1000));
         assertEquals(QueuePause.LIMIT_MS,q.expiresInMs(1000));
     }
+    @Test public void queryConfirmsOnlyPausedAndEndsOnAnythingElse(){
+        QueuePause q=new QueuePause();
+        q.onSessionEnded(true,0);q.onQueueQuery("paused",100);assertTrue(q.paused(200));
+        q.onSessionEnded(true,0);q.onQueueQuery("playing",100);assertFalse("playing elsewhere: no grace for a query",q.paused(100));
+        q.onSessionEnded(true,0);q.onQueueQuery(null,100);assertFalse(q.paused(100));
+        q.onSessionEnded(true,0);q.onQueueQuery("idle",100);assertFalse(q.paused(100));
+        q.onSessionEnded(true,0);q.onPlayerUpdate("paused",30*60_000L);assertTrue(q.paused(QueuePause.LIMIT_MS+1)); // player paused restarts the hour
+    }
     @Test public void queueStateConfirmsOrEndsThePause(){
         QueuePause q=new QueuePause();
         q.onSessionEnded(true,0);q.onQueueState("paused",100);assertTrue(q.paused(200));
