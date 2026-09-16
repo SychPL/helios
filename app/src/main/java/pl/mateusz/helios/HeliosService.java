@@ -287,7 +287,7 @@ public final class HeliosService extends Service {
     private void startMusic(){
         JSONObject music=connection.optJSONObject("music_assistant");
         if(music==null)return;
-        playerName=getSharedPreferences("helios",MODE_PRIVATE).getString("device_name",music.optString("player_name","Helios"));
+        playerName=getSharedPreferences("helios",MODE_PRIVATE).getString("device_name","Helios"); // the HA device name; the bridge's player_name is gone (SPEC 0.10 pkt 5.4)
         String clientId=getSharedPreferences("helios",MODE_PRIVATE).getString("sendspin_client_id",null);
         if(clientId==null){clientId=UUID.randomUUID().toString();getSharedPreferences("helios",MODE_PRIVATE).edit().putString("sendspin_client_id",clientId).apply();}
         sendspinClientId=clientId;
@@ -474,15 +474,26 @@ public final class HeliosService extends Service {
     }
 
     private void startHa(){
+        if(connection==null||authInvalid())return; // SPEC 0.10 pkt 8.2: a refused token is never retried until a new pairing
+        final int gen=connections.generation(); // this session's identity; events and refusals of an older session are dropped by the controller
         String cached=getSharedPreferences("helios",MODE_PRIVATE).getString("dashboard_v2",null);
         JSONObject cachedRaw=null;
         if(cached!=null)try{cachedRaw=new JSONObject(cached);}catch(Exception ignored){}
         ha=new HaDashboardClient(connection,cachedRaw);ha.attach(cache);
+        ha.attach(new HaDashboardClient.Listener(){
+            public void onDashboard(JSONObject raw,DashboardSpec spec,Map<String,EntityStates.Entity> states,String issue){}
+            public void onStates(Map<String,EntityStates.Entity> states){}
+            public void onUnavailable(String reason){}
+            public void onAuthInvalid(){network.execute(()->{String r=connections.markAuthInvalid(gen);main.post(()->{if(diagnostics!=null)diagnostics.accept("auth_invalid",r);if(!ConnectionController.IGNORED.equals(r)&&onAuthInvalid!=null)onAuthInvalid.run();});});}
+        });
         device=new HeliosDeviceClient(ha,installationId,this::telemetry,this::execute,new HeliosDeviceClient.Listener(){
             public void onAppearance(JSONObject a){main.post(()->applyAppearance(a,true));}
+            public void onConnection(JSONObject e){applyConnection(e,gen);}
+            public void onChannelIssue(String t){if(diagnostics!=null)diagnostics.accept("channel",t);main.post(()->{if(gen!=connections.generation())return;channelIssue=t;if(onChannelIssue!=null)onChannelIssue.accept(t);});}
             public void onDevice(String id,String area,String name){main.post(()->{
             boolean lost=deviceId!=null&&id==null;deviceId=id;
             if(id!=null){
+                channelIssue=null;
                 String previous=getSharedPreferences("helios",MODE_PRIVATE).getString("appearance_device",null);
                 if(previous!=null&&!previous.equals(id))resetAppearance(); // a new pairing is a new HA device: the old private photo goes
                 getSharedPreferences("helios",MODE_PRIVATE).edit().putString("appearance_device",id).apply();
@@ -520,53 +531,44 @@ public final class HeliosService extends Service {
             default:return "unknown_command";
         }
     }
-    /**
-     * The only path that changes the connection: validates and authenticates the changed HA data on a temporary socket,
-     * and only then persists and restarts the transport. done receives null on success or an error text (main thread).
-     * ponytail: HA section only; the music_assistant section joins in 0.6 with the same per-section rule.
-     */
-    void reconfigure(JSONObject received,Consumer<String> done){
+    private final ConnectionController connections=new ConnectionController(
+        new ConnectionController.Store(){
+            public JSONObject current(){return connection;}
+            public boolean save(JSONObject value){ // commit(): the old identity is gone in HA, an apply() lost to a restart would strand the clock
+                boolean ok=getSharedPreferences("helios",MODE_PRIVATE).edit().putString("connection",value.toString()).commit();
+                if(ok){connection=value;main.post(HeliosService.this::notifyConnection);} // every persisted change reaches the activity (diagnostics_url alone included), restart or not
+                return ok;}
+            public boolean clear(){boolean ok=getSharedPreferences("helios",MODE_PRIVATE).edit().remove("connection").commit();if(ok){connection=null;main.post(HeliosService.this::notifyConnection);}return ok;}},
+        MusicAssistantClient::probe,
+        new ConnectionController.Transports(){
+            public void restartAll(){main.post(()->{resetAppearance();stopHa();stopMusic();startHa();startMusic();});} // pairing: everything from scratch
+            public void restartHa(){main.post(()->{stopHa();startHa();});} // pipeline/dashboard changed: the HA session only, music untouched
+            public void restartMusic(){main.post(()->{stopMusic();startMusic();});}
+            public void stopAll(){main.post(()->{stopHa();stopMusic();});} // transports only: the in-memory connection (with its auth_invalid flag) stays for authInvalid(); Store.clear() is what forgets it
+            public void issue(String text){main.post(()->{musicIssue=text;publishMusic();});}});
+    private Runnable onConnectionChanged,onAuthInvalid;
+    private Consumer<String> onChannelIssue;
+    private String channelIssue;
+    void setOnConnectionChanged(Runnable r){onConnectionChanged=r;}
+    void setOnAuthInvalid(Runnable r){onAuthInvalid=r;}
+    void setOnChannelIssue(Consumer<String> c){onChannelIssue=c;}
+    private void notifyConnection(){if(onConnectionChanged!=null)onConnectionChanged.run();} // MainActivity: config=service.connection(); detachHa(); attachHa()
+    boolean authInvalid(){return !connections.startAllowed();} // the controller owns both the persisted flag and the unsaved memory (tested there)
+    boolean legacyConnection(){return connection!=null&&connection.optInt("protocol",1)<2;}
+    /** The channel's last user-facing state ("Zegar usunięty z HA…", "Inne urządzenie…"), null while the channel is fine. */
+    String channelIssue(){return channelIssue;}
+    /** Pairing over HTTP (SPEC 0.10 pkt 4.2): the service persists a 200 even if the activity is gone meanwhile - HA has already committed the identity. */
+    void pair(String url,String code,Consumer<String> done){
         network.execute(()->{
-            java.util.List<String> messages=new java.util.ArrayList<>();
-            JSONObject merged=copy(connection);
-            boolean haChanged=false,maChanged=false;
-            // HA section: verified only when it changed; failure keeps the previous HA data.
+            String error;
             try{
-                if(received.optString("token").isEmpty()||received.optString("pipeline").isEmpty())throw new IllegalArgumentException("Niepełne parowanie HA");
-                haChanged=connection==null||!sameHa(connection,received);
-                String error=haChanged?HaDashboardClient.probe(received):null;
-                if(error!=null){messages.add("HA: "+error);haChanged=false;}
-                else{for(String key:new String[]{"url","token","pipeline","dashboard_path","diagnostics_url"})if(received.has(key))merged.put(key,received.get(key));else merged.remove(key);}
-            }catch(Exception e){messages.add("HA: "+(e.getMessage()==null?"błąd konfiguracji":e.getMessage()));haChanged=false;}
-            // MA section: absent means unchanged (never a removal); verified independently of HA.
-            JSONObject music=received.optJSONObject("music_assistant");
-            if(music!=null){
-                JSONObject current=connection==null?null:connection.optJSONObject("music_assistant");
-                maChanged=current==null||!current.toString().equals(music.toString());
-                if(maChanged){
-                    String error=null;
-                    String sendspinUrl=music.optString("sendspin_url","");
-                    if(!sendspinUrl.isEmpty()&&!sendspinUrl.startsWith("ws://")&&!sendspinUrl.startsWith("wss://"))error="Adres Sendspin musi zaczynać się od ws:// lub wss://";
-                    if(error==null)error=MusicAssistantClient.probe(music.optString("url",""),music.optString("token",""));
-                    if(error!=null){messages.add("MA: "+error);maChanged=false;}
-                    else try{merged.put("music_assistant",new JSONObject(music.toString()));}catch(Exception ignored){}
-                }
-            }
-            if(merged.has("url")&&(haChanged||maChanged||connection==null)){
-                getSharedPreferences("helios",MODE_PRIVATE).edit().putString("connection",merged.toString()).apply();
-                connection=merged;
-            }
-            final boolean restartHa=haChanged,restartMa=maChanged;
-            main.post(()->{
-                if(restartHa){resetAppearance();stopHa();startHa();}
-                if(restartMa){stopMusic();startMusic();}
-                done.accept(messages.isEmpty()?null:String.join("; ",messages));
-            });
+                JSONObject body=new JSONObject().put("installation_id",installationId).put("code",code).put("app_version",BuildConfig.VERSION_NAME).put("version_code",BuildConfig.VERSION_CODE);
+                PairingClient.Result r=PairingClient.pair(url,body);
+                error=r.status!=200||r.json==null?PairingClient.message(r.status):connections.pairedWith(r.json,url);
+            }catch(Exception e){error="Błąd przygotowania żądania";}
+            final String result=error;main.post(()->{if(result==null)channelIssue=null;done.accept(result);});
         });
     }
-    private static JSONObject copy(JSONObject source){try{return source==null?new JSONObject():new JSONObject(source.toString());}catch(Exception e){return new JSONObject();}}
-    static boolean sameHa(JSONObject a,JSONObject b){
-        for(String key:new String[]{"url","token","pipeline","dashboard_path"})if(!a.optString(key,"").equals(b.optString(key,"")))return false;
-        return true;
-    }
+    /** Called by the device client of the current HA session; gen was read when the session's client was created. */
+    void applyConnection(JSONObject event,int gen){network.execute(()->connections.applyConnection(event,gen));}
 }

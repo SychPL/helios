@@ -256,13 +256,4 @@ public class HaDashboardClientTest {
             assertEquals("no reconnect after auth_invalid",opens,server.opens.get());assertFalse(client.live());assertNull(auth.poll(200,TimeUnit.MILLISECONDS));
         }finally{client.stop();server.stop(2000);}
     }
-    @Test public void probeAcceptsGoodTokenAndRejectsBadOne() throws Exception {
-        server=new Server();server.start();assertTrue(server.ready.await(5,TimeUnit.SECONDS));
-        try{
-            assertNull(HaDashboardClient.probe(connection()));
-            server.rejectToken=true;
-            assertEquals("HA odrzucił token",HaDashboardClient.probe(connection()));
-            assertNotNull(HaDashboardClient.probe(new JSONObject().put("url","ftp://127.0.0.1:1").put("token","x")));
-        }finally{server.stop(2000);}
-    }
 }

@@ -218,30 +218,4 @@ final class HaDashboardClient {
         return false;
     }
 
-    /** Authenticates once with the given connection on a temporary socket; returns null on success or an error text. Never touches a running session. */
-    static String probe(JSONObject connection){
-        WebSocketClient client=null;
-        try{
-            URI base=new URI(connection.getString("url"));
-            String scheme=base.getScheme();
-            if(!"http".equals(scheme)&&!"https".equals(scheme))throw new IOException("Adres HA musi zaczynać się od http:// lub https://");
-            if(connection.getString("token").trim().isEmpty())throw new IOException("Pusty token HA");
-            BlockingQueue<String> messages=new LinkedBlockingQueue<>();
-            client=new WebSocketClient(new URI(scheme.equals("https")?"wss":"ws",null,base.getHost(),base.getPort(),"/api/websocket",null,null)){
-                @Override public void onOpen(ServerHandshake h){}
-                @Override public void onMessage(String message){messages.offer(message);}
-                @Override public void onClose(int code,String reason,boolean remote){messages.offer("{\"type\":\"closed\"}");}
-                @Override public void onError(Exception e){messages.offer("{\"type\":\"closed\"}");}
-            };
-            if(!client.connectBlocking(10,TimeUnit.SECONDS))throw new IOException("HA nie odpowiada");
-            String first=messages.poll(10,TimeUnit.SECONDS);
-            if(first==null||!new JSONObject(first).optString("type").equals("auth_required"))throw new IOException("HA nie odpowiada jak Home Assistant");
-            client.send(new JSONObject().put("type","auth").put("access_token",connection.getString("token")).toString());
-            String second=messages.poll(10,TimeUnit.SECONDS);
-            if(second==null)throw new IOException("HA nie odpowiada");
-            if(!new JSONObject(second).optString("type").equals("auth_ok"))throw new IOException("HA odrzucił token");
-            return null;
-        }catch(Exception e){return e.getMessage()==null?"Błąd połączenia z HA":e.getMessage();}
-        finally{if(client!=null)client.close();}
-    }
 }

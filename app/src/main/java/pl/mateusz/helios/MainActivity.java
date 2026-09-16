@@ -47,7 +47,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private WakeWordListener wakeListener;
     private DashboardView dashboard;
     private NavigationMenu navigation;
-    private JSONObject config,pendingProvision;
+    private JSONObject config;
     private HeliosService service;
     private HaDashboardClient attachedTo;
     private int attachGeneration;
@@ -66,7 +66,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             service.setDiagnostics(MainActivity.this::onEvent);
             service.setAppearanceListener((appearance,background)->{dashboard.setBackdrop(background,appearance.image?appearance.dim:0);dashboard.applyTheme();});
             service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage("Sparowano z HA");main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
-            if(pendingProvision!=null){JSONObject received=pendingProvision;pendingProvision=null;applyProvisioning(received);}
+            service.setOnConnectionChanged(()->{config=service.connection();detachHa();if(resumed)attachHa();}); // diagnostics_url and the HA client follow every persisted change
+            service.setOnAuthInvalid(()->dashboard.setMessage("HA odrzucił token - sparuj ponownie"));
+            service.setOnChannelIssue(text->dashboard.setMessage(text));
             service.setMusicListener(snapshot->{
                 dashboard.musicInfo(snapshot.remoteInfo);
                 if(library!=null&&library.isShowing())dashboard.musicOverlay().closePanel();
@@ -121,7 +123,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             public void cancel(){if(voice!=null)voice.cancel();}
             public void pair(){pairDialog();}
             public void device(){deviceDialog();}
-            public void refresh(){refreshPairing();}
+            public void refresh(){}
         });
         dashboard.onBrandHold(()->navigation.show());
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
@@ -166,28 +168,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             }
         }finally{c.disconnect();}
     }
-    private void connect(){
-        dashboard.setMessage("Łączenie z Twoim Home Assistantem…");
-        network.execute(()->{
-            try{
-                if(BuildConfig.PROVISION_URL.isEmpty())throw new IOException("No pairing configuration");
-                JSONObject received=get(BuildConfig.PROVISION_URL,null);
-                if(received.getString("token").isEmpty()||received.getString("pipeline").isEmpty())throw new IOException("Incomplete pairing");
-                new URI(received.getString("url"));
-                main.post(()->applyProvisioning(received));
-            }catch(Exception error){main.post(()->{dashboard.connected(false);dashboard.setMessage("Uruchom parowanie na komputerze,\na potem spróbuj ponownie.");});}
-        });
-    }
-
-    /** Hands a fetched pairing document to the service; nothing is persisted until HA accepts the token. */
-    private void applyProvisioning(JSONObject received){
-        if(service==null){pendingProvision=received;return;}
-        service.reconfigure(received,error->{
-            if(isDestroyed())return;
-            if(error!=null){dashboard.connected(false);dashboard.setMessage("Parowanie nieudane: "+error);return;}
-            config=service.connection();dashboard.setMessage("");onEvent("configured","Helios "+BuildConfig.VERSION_NAME);startWake();attachHa();
-        });
-    }
+    private void connect(){dashboard.connected(false);dashboard.setMessage("Sparuj zegar z HA: przytrzymaj HELIOS → Paruj z HA");} // B5 replaces this with the onboarding window
     private HaDashboardClient ha(){return service==null?null:service.ha();}
     private void attachHa(){
         HaDashboardClient client=ha();
@@ -449,22 +430,6 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);
         if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         dialog.show();
-    }
-    /** Re-fetches the pairing document; HA changes need explicit confirmation, unchanged sections are left alone. */
-    private void refreshPairing(){
-        dashboard.setMessage("Pobieram parowanie…");
-        network.execute(()->{
-            try{
-                if(BuildConfig.PROVISION_URL.isEmpty())throw new IOException("Brak adresu parowania");
-                JSONObject received=get(BuildConfig.PROVISION_URL,null);
-                main.post(()->{
-                    if(config!=null&&!HeliosService.sameHa(config,received)){
-                        closePanel();
-                        confirmDialog("Parowanie zmienia połączenie z HA ("+received.optString("url","")+"). Zastosować?","Zastosuj",()->applyProvisioning(received),()->dashboard.setMessage(""));
-                    }else applyProvisioning(received);
-                });
-            }catch(Exception error){main.post(()->dashboard.setMessage("Odświeżenie nieudane: "+error.getMessage()));}
-        });
     }
     @Override public void onState(String text){main.post(()->{if(!isDestroyed())dashboard.setMessage(text);});}
     @Override public void onEvent(String event,String detail){
