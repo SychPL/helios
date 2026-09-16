@@ -121,7 +121,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         navigation=new NavigationMenu(this,()->config,new NavigationMenu.Actions(){
             public void talk(){manualTalk();}
             public void cancel(){if(voice!=null)voice.cancel();}
-            public void pair(){pairDialog();}
+            public void pair(){onboarding(false);}
             public void device(){deviceDialog();}
             public void refresh(){}
         });
@@ -134,7 +134,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         dashboard.setSpec(spec,this::tap);renderDashboard();
         Intent intent=new Intent(this,HeliosService.class);
         startForegroundService(intent);bindService(intent,serviceConnection,Context.BIND_AUTO_CREATE);
-        if(config==null)connect();
+        if(config==null||config.optBoolean("auth_invalid",false))onboarding(false);
+        else if(config.optInt("protocol",1)<2)onboarding(true); // paired before 0.10 with a human account's token: works, but asks for the new pairing at every start
     }
     /** Back on the music full screen returns to the panel (SPEC 0.11 pkt 3.2); elsewhere the launcher behaviour stays. */
     @Override public void onBackPressed(){
@@ -145,7 +146,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
     @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
-    @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
+    @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();closeOnboarding();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
         if(config==null){connect();return;}
         if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
@@ -168,7 +169,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             }
         }finally{c.disconnect();}
     }
-    private void connect(){dashboard.connected(false);dashboard.setMessage("Sparuj zegar z HA: przytrzymaj HELIOS → Paruj z HA");} // B5 replaces this with the onboarding window
+    private void connect(){onboarding(false);}
     private HaDashboardClient ha(){return service==null?null:service.ha();}
     private void attachHa(){
         HaDashboardClient client=ha();
@@ -370,35 +371,136 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         }
     }
     // --- device screens: no IME dependency, every dialog has a visible cancel ---
-    private void pairDialog(){
-        if(service==null||ha()==null){Toast.makeText(this,"Najpierw sparuj zegar z HA",Toast.LENGTH_SHORT).show();return;}
+    private Dialog onboardingDialog;private HaDiscovery discovery;
+    private float units(){return Math.min(getResources().getDisplayMetrics().widthPixels/800f,getResources().getDisplayMetrics().heightPixels/480f);} // 800x480 screen units, not dp: a dp keypad overflowed the 480 px height on the clock
+    private static void place(android.widget.FrameLayout root,View v,OverlayGeometry.Box b,float s){
+        android.widget.FrameLayout.LayoutParams p=new android.widget.FrameLayout.LayoutParams(Math.round(b.w*s),Math.round(b.h*s));p.leftMargin=Math.round(b.x*s);p.topMargin=Math.round(b.y*s);root.addView(v,p);
+    }
+    /**
+     * SPEC 0.10 pkt 3: choose HA (mDNS list or a typed address) → instruction → probe → code → POST. Own dialog, never touched by
+     * closePanel()/onUnavailable(); closed only by the user (while unlocked) or by a successful pairing. allowLater = a legacy connection keeps working meanwhile.
+     */
+    private void onboarding(boolean allowLater){
+        if(onboardingDialog!=null&&onboardingDialog.isShowing())return;
         closePanel();
-        // Sized in 800x480 screen units, not dp: on the clock's density a dp keypad overflowed the 480 px height.
-        float s=Math.min(getResources().getDisplayMetrics().widthPixels/800f,getResources().getDisplayMetrics().heightPixels/480f);
-        int pad=Math.round(10*s),gap=Math.round(6*s);
-        Theme t=Theme.current();
-        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setPadding(pad,pad,pad,pad);column.setBackground(Theme.card(t.surface,Theme.RADIUS*s));column.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView title=new TextView(this);title.setText("Kod parowania z integracji Helios w HA");title.setTextColor(t.muted);title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,15*s);column.addView(title);
-        TextView code=new TextView(this);code.setText("");code.setTextColor(t.text);code.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,30*s);code.setGravity(Gravity.CENTER);code.setLetterSpacing(.3f);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
-        String[][] keys={{"1","2","3"},{"4","5","6"},{"7","8","9"},{"⌫","0","OK"}};
+        final float s=units();
+        android.widget.FrameLayout root=new android.widget.FrameLayout(this);root.setBackground(Theme.card(Theme.current().surface,Theme.RADIUS*s));
+        Dialog dialog=new Dialog(this);onboardingDialog=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(Math.round(800*s),Math.round(480*s)));
+        dialog.setCanceledOnTouchOutside(false);dialog.setCancelable(false);
+        dialog.setOnDismissListener(d->{if(discovery!=null){discovery.stop();discovery=null;}if(onboardingDialog==dialog)onboardingDialog=null;});
+        if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));dialog.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
+        showList(root,s,allowLater);
+        dialog.show();
+    }
+    private void closeOnboarding(){Dialog d=onboardingDialog;onboardingDialog=null;if(d!=null)d.dismiss();}
+    private TextView onboardingText(String text,float px,boolean muted){TextView v=new TextView(this);v.setText(text);v.setTextColor(muted?Theme.current().muted:Theme.current().text);v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px);return v;}
+    private void showList(android.widget.FrameLayout root,float s,boolean allowLater){
+        root.removeAllViews();if(discovery!=null){discovery.stop();discovery=null;}
+        place(root,onboardingText("Wybierz Home Assistant",26*s,false),OnboardingGeometry.TITLE,s);
+        LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);place(root,list,OnboardingGeometry.LIST,s);
+        TextView status=onboardingText("Szukam HA w sieci…",15*s,true);place(root,status,OnboardingGeometry.STATUS,s);
+        Button manual=Theme.button(this,"Wpisz adres",true,18*s,Theme.RADIUS*s);place(root,manual,OnboardingGeometry.MANUAL,s);manual.setOnClickListener(v->showManual(root,s,allowLater));
+        if(allowLater){Button later=Theme.button(this,"Później",false,18*s,Theme.RADIUS*s);place(root,later,OnboardingGeometry.LATER,s);later.setOnClickListener(v->closeOnboarding());}
+        else if(config!=null){Button cancel=Theme.button(this,"Anuluj",false,18*s,Theme.RADIUS*s);place(root,cancel,OnboardingGeometry.CANCEL,s);cancel.setOnClickListener(v->closeOnboarding());}
+        final boolean[] any={false};
+        discovery=new HaDiscovery(this,servers->{
+            if(onboardingDialog==null||list.getParent()==null)return;
+            list.removeAllViews();any[0]=!servers.isEmpty();
+            if(any[0])status.setText(servers.size()==1?"Znaleziono 1 serwer":"Znaleziono "+servers.size()+" serwery - wybierz świadomie");
+            for(HaDiscovery.Server server:servers){
+                Button row=Theme.button(this,server.name+"\n"+server.host+":"+server.port+(server.version.isEmpty()?"":" · "+server.version),false,16*s,Theme.RADIUS*s);
+                row.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);row.setPadding(Math.round(12*s),0,Math.round(12*s),0);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,Math.round((OnboardingGeometry.ROW_H-6)*s));p.bottomMargin=Math.round(6*s);list.addView(row,p);
+                row.setOnClickListener(v->chooseServer(root,s,allowLater,server.url()));
+            }
+        });
+        discovery.start();
+        main.postDelayed(()->{if(onboardingDialog!=null&&status.getParent()!=null&&!any[0])status.setText("Nie znaleziono HA w sieci - wpisz adres");},10000);
+    }
+    private void chooseServer(android.widget.FrameLayout root,float s,boolean allowLater,String url){
+        if(discovery!=null){discovery.stop();discovery=null;}
+        if(config!=null&&config.optInt("protocol",1)>=2&&!config.optBoolean("auth_invalid",false)){
+            confirmDialog("Zegar jest sparowany z "+config.optString("url","")+". Nowe parowanie zastąpi to połączenie; stary wpis usuń w HA.","Dalej",()->showInstruction(root,s,allowLater,url,null),()->showList(root,s,allowLater));
+            return;
+        }
+        showInstruction(root,s,allowLater,url,null);
+    }
+    private void showManual(android.widget.FrameLayout root,float s,boolean allowLater){
+        root.removeAllViews();if(discovery!=null){discovery.stop();discovery=null;}
+        place(root,onboardingText("Adres Home Assistant (np. 192.168.1.20 lub 192.168.1.20:8123)",18*s,true),OnboardingGeometry.TITLE,s);
+        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView typed=onboardingText("",28*s,false);typed.setGravity(Gravity.CENTER);column.addView(typed,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
+        String[][] keys={{"1","2","3","."},{"4","5","6",":"},{"7","8","9","⌫"},{"0","OK"}};
         for(String[] rowKeys:keys){
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
             for(String key:rowKeys){
                 Button b=Theme.button(this,key,key.equals("OK"),22*s,Theme.RADIUS*s);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round((key.equals("OK")?174:84)*s),Math.round(58*s));p.rightMargin=Math.round(6*s);p.bottomMargin=Math.round(6*s);row.addView(b,p);
+                b.setOnClickListener(v->{
+                    String current=typed.getText().toString();
+                    if(key.equals("⌫")){if(!current.isEmpty())typed.setText(current.substring(0,current.length()-1));}
+                    else if(key.equals("OK")){String url=AddressInput.parse(current);if(url==null)dashboard.setMessage("Nieprawidłowy adres");else showInstruction(root,s,allowLater,url,null);}
+                    else if(current.length()<64)typed.setText(current+key);
+                });
+            }
+        }
+        place(root,column,new OverlayGeometry.Box(20,64,440,400),s);
+        Button back=Theme.button(this,"Wróć",false,18*s,Theme.RADIUS*s);place(root,back,OnboardingGeometry.CANCEL,s);back.setOnClickListener(v->showList(root,s,allowLater));
+    }
+    private void showInstruction(android.widget.FrameLayout root,float s,boolean allowLater,String url,String error){
+        root.removeAllViews();
+        place(root,onboardingText(url,18*s,true),OnboardingGeometry.TITLE,s);
+        TextView text=onboardingText(error!=null?error:"W HA: Ustawienia → Integracje → Dodaj → Helios. Gdy zobaczysz kod, dotknij Dalej.",22*s,false);place(root,text,new OverlayGeometry.Box(20,64,440,360),s);
+        Button next=Theme.button(this,error!=null?"Ponów":"Dalej",true,18*s,Theme.RADIUS*s);place(root,next,OnboardingGeometry.MANUAL,s);
+        Button back=Theme.button(this,"Wróć",false,18*s,Theme.RADIUS*s);place(root,back,OnboardingGeometry.CANCEL,s);back.setOnClickListener(v->showList(root,s,allowLater));
+        next.setOnClickListener(v->{
+            next.setEnabled(false);text.setText("Sprawdzam "+url+"…");
+            network.execute(()->{int status=PairingClient.probe(url);main.post(()->{
+                if(onboardingDialog==null||root.getParent()==null)return;
+                if(status==200)showCode(root,s,allowLater,url);
+                else showInstruction(root,s,allowLater,url,status==404?"HA pod tym adresem nie ma integracji Helios ≥ 0.8 albo kreator nie jest otwarty. Zainstaluj ją z HACS, otwórz Dodaj → Helios i dotknij Ponów.":"HA nie odpowiada pod tym adresem.");
+            });});
+        });
+    }
+    private void showCode(android.widget.FrameLayout root,float s,boolean allowLater,String url){
+        root.removeAllViews();
+        place(root,onboardingText("Kod z HA: Ustawienia → Integracje → Dodaj → Helios",18*s,true),OnboardingGeometry.TITLE,s);
+        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView code=onboardingText("",30*s,false);code.setGravity(Gravity.CENTER);code.setLetterSpacing(.3f);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
+        final java.util.List<Button> keys=new java.util.ArrayList<>();
+        String[][] layout={{"1","2","3"},{"4","5","6"},{"7","8","9"},{"⌫","0","OK"}};
+        Button cancel=Theme.button(this,"Anuluj",false,18*s,Theme.RADIUS*s);
+        final Runnable[] lock=new Runnable[2];
+        lock[0]=()->{for(Button b:keys)b.setEnabled(false);cancel.setEnabled(false);}; // from POST to answer: the HA-side transaction cannot be undone from the clock
+        lock[1]=()->{for(Button b:keys)b.setEnabled(true);cancel.setEnabled(true);};
+        for(String[] rowKeys:layout){
+            LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
+            for(String key:rowKeys){
+                Button b=Theme.button(this,key,key.equals("OK"),22*s,Theme.RADIUS*s);keys.add(b);
                 b.setContentDescription(key.equals("⌫")?"Usuń ostatnią cyfrę":key.equals("OK")?"Zatwierdź kod":"Cyfra "+key);
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(84*s),Math.round(58*s));p.rightMargin=gap;p.bottomMargin=gap;row.addView(b,p);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(84*s),Math.round(58*s));p.rightMargin=Math.round(6*s);p.bottomMargin=Math.round(6*s);row.addView(b,p);
                 b.setOnClickListener(v->{
                     String current=code.getText().toString();
                     if(key.equals("⌫")){if(!current.isEmpty())code.setText(current.substring(0,current.length()-1));}
-                    else if(key.equals("OK")){if(current.length()==6){pairing=true;closePanel();dashboard.setMessage("Paruję z HA…");main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("Kod odrzucony lub HA nie odpowiada");}},15000);}}
+                    else if(key.equals("OK")){if(current.length()==6){lock[0].run();startPairing(url,current,lock[1]);}}
                     else if(current.length()<6)code.setText(current+key);
                 });
             }
         }
-        Button cancel=Theme.button(this,"Anuluj",false,16*s,Theme.RADIUS*s);cancel.setOnClickListener(v->closePanel());column.addView(cancel,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
-        Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);
-        if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));dialog.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
-        dialog.show();
+        place(root,column,new OverlayGeometry.Box(20,64,440,400),s);
+        place(root,cancel,OnboardingGeometry.CANCEL,s);cancel.setOnClickListener(v->showList(root,s,allowLater));
+    }
+    /** unlock runs on every error path; a success closes the window. The service persists a 200 even if this activity is gone meanwhile. */
+    private void startPairing(String url,String code,Runnable unlock){
+        if(service==null){dashboard.setMessage("Serwis Heliosa jeszcze startuje - spróbuj za chwilę");unlock.run();return;}
+        dashboard.setMessage("Paruję z HA…");
+        service.pair(url,code,error->{
+            if(isDestroyed())return;
+            if(error!=null){dashboard.setMessage(error);config=service.connection();unlock.run();if(config==null&&onboardingDialog!=null){android.widget.FrameLayout root=(android.widget.FrameLayout)onboardingDialog.findViewById(android.R.id.content);if(root!=null&&root.getChildCount()>0)showList((android.widget.FrameLayout)root.getChildAt(0),units(),false);}return;} // terminal save failure: a fresh pairing from the list
+            pairing=true;closeOnboarding();config=service.connection();onEvent("configured","Helios "+BuildConfig.VERSION_NAME);startWake();attachHa();
+            main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("HA nie potwierdził połączenia");}},20000);
+        });
     }
     private void deviceDialog(){
         if(service==null)return;

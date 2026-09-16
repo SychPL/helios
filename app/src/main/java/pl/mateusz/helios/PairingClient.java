@@ -23,7 +23,7 @@ final class PairingClient {
         try{
             byte[] bytes=body.toString().getBytes("UTF-8");
             c=(HttpURLConnection)new URL(baseUrl.replaceAll("/$","")+"/api/helios/pair").openConnection();c.setConnectTimeout(8000);c.setReadTimeout(60000);c.setInstanceFollowRedirects(false);
-            c.setRequestMethod("POST");c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");c.setFixedLengthStreamingMode(bytes.length);
+            c.setRequestMethod("POST");c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json"); // no streaming mode: with it HttpURLConnection hides the body of a 401 (HttpRetryException) and the clock could not read the error
             try(OutputStream out=c.getOutputStream()){out.write(bytes);}
             int status=c.getResponseCode();
             InputStream in=status>=400?c.getErrorStream():c.getInputStream();
