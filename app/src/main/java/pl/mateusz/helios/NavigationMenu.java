@@ -24,11 +24,12 @@ import java.util.List;
 final class NavigationMenu {
     private final Activity activity;
     private final java.util.function.Supplier<org.json.JSONObject> connection;
+    private final java.util.function.BooleanSupplier updateBusy;
     private Dialog dialog;
     private String status="";
-    interface Actions {void talk();void cancel();void pair();void device();void refresh();}
+    interface Actions {void talk();void cancel();void pair();void device();void update();}
     private final Actions actions;
-    NavigationMenu(Activity activity,java.util.function.Supplier<org.json.JSONObject> connection,Actions actions){this.activity=activity;this.connection=connection;this.actions=actions;}
+    NavigationMenu(Activity activity,java.util.function.Supplier<org.json.JSONObject> connection,java.util.function.BooleanSupplier updateBusy,Actions actions){this.activity=activity;this.connection=connection;this.updateBusy=updateBusy;this.actions=actions;}
     private int dp(int n){return Math.round(n*activity.getResources().getDisplayMetrics().density);}
     void show(){
         if(dialog!=null&&dialog.isShowing())return;
@@ -46,15 +47,15 @@ final class NavigationMenu {
         button(rows,"Rozmowa z Nabu",()->{close();actions.talk();});
         button(rows,"Anuluj rozmowę",()->{close();actions.cancel();});
         button(rows,"Urządzenie: głośność i lampka",()->{close();actions.device();});
-        button(rows,"Paruj z HA (kod)",()->{close();actions.pair();});
-        button(rows,"Odśwież parowanie",()->{close();actions.refresh();});
+        button(rows,"Paruj z HA",()->{close();actions.pair();});
         button(rows,"Konfiguracja ekranu w HA",()->openHa(true));
         button(rows,"Strona główna HA",()->openHa(false));
         button(rows,"Ustawienia zegara",()->open(new Intent(Settings.ACTION_SETTINGS)));
         button(rows,"Dostępność",()->open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         button(rows,"Ekran główny",()->open(new Intent(Settings.ACTION_HOME_SETTINGS)));
         button(rows,"Aplikacje",this::apps);
-        button(rows,"Aktualizacja Heliosa",this::update);
+        Button update=button(rows,"Aktualizacja Heliosa",()->{close();actions.update();});
+        update.setEnabled(!updateBusy.getAsBoolean()); // the menu is rebuilt on every open and busy() is computed on demand, so this is always current
         dialog.setContentView(panel);
         Window window=dialog.getWindow();
         if(window!=null){
@@ -68,11 +69,12 @@ final class NavigationMenu {
     }
     /** Connection diagnostics shown inside the menu; safe to call at any time. */
     void status(String text){status=text==null?"":text;}
-    private void button(LinearLayout parent,String label,Runnable action){
+    private Button button(LinearLayout parent,String label,Runnable action){
         Button b=Theme.button(activity,label,false,dp(16),dp(Theme.RADIUS));
         b.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);b.setPadding(dp(16),0,dp(12),0);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(54));params.bottomMargin=dp(4);parent.addView(b,params);
         b.setOnClickListener(v->action.run());
+        return b;
     }
     private void open(Intent intent){
         try{activity.startActivity(intent);if(dialog!=null)dialog.dismiss();}
@@ -83,11 +85,6 @@ final class NavigationMenu {
         String base=config.optString("url","").replaceAll("/$","");
         String path=dashboard?"/"+config.optString("dashboard_path","helios-clock"):"/";
         open(new Intent(Intent.ACTION_VIEW,Uri.parse(base+path)));
-    }
-    private void update(){
-        Uri provision=Uri.parse(BuildConfig.PROVISION_URL);
-        if(provision.getScheme()==null||provision.getEncodedAuthority()==null){unavailable();return;}
-        open(new Intent(Intent.ACTION_VIEW,new Uri.Builder().scheme(provision.getScheme()).encodedAuthority(provision.getEncodedAuthority()).path("/helios.apk").build()));
     }
     private void apps(){
         Intent query=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);

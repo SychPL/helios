@@ -69,6 +69,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             service.setOnConnectionChanged(()->{config=service.connection();detachHa();if(resumed)attachHa();}); // diagnostics_url and the HA client follow every persisted change
             service.setOnAuthInvalid(()->dashboard.setMessage("HA odrzucił token - sparuj ponownie"));
             service.setOnChannelIssue(text->dashboard.setMessage(text));
+            service.setOnStatus(text->dashboard.setMessage(text));
             service.setMusicListener(snapshot->{
                 dashboard.musicInfo(snapshot.remoteInfo);
                 if(library!=null&&library.isShowing())dashboard.musicOverlay().closePanel();
@@ -118,12 +119,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         dashboard=new DashboardView(this);setContentView(dashboard);
-        navigation=new NavigationMenu(this,()->config,new NavigationMenu.Actions(){
+        navigation=new NavigationMenu(this,()->config,()->service!=null&&service.updater().busy(),new NavigationMenu.Actions(){
             public void talk(){manualTalk();}
             public void cancel(){if(voice!=null)voice.cancel();}
             public void pair(){onboarding(false);}
             public void device(){deviceDialog();}
-            public void refresh(){}
+            public void update(){if(service!=null)service.update();}
         });
         dashboard.onBrandHold(()->navigation.show());
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
