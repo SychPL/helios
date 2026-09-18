@@ -90,14 +90,37 @@ def save_journal(journal):
     Path(journal['journal_path']).write_text(json.dumps(journal, indent=2, ensure_ascii=False), encoding='utf-8')
 
 
+ALLOWED_TYPES = {'clock', 'weather', 'entity', 'light', 'cover', 'garage', 'music', 'cover_group'}
+OWN_TYPES = {'clock', 'weather', 'entity'}  # this rollout writes read-only tiles; foreign tiles are only carried over
+
+
+def cells(item):
+    return {(c, r) for c in range(item['column'], item['column'] + item['width'])
+            for r in range(item['row'], item['row'] + item['height'])}
+
+
+def merge(before, items):
+    """Our tiles replace whatever sits in their cells; tiles published by the bedroom rollout stay (schema 5)."""
+    taken = set()
+    for tile in items:
+        taken |= cells(tile)
+    kept = [i for i in (before.get('helios') or {}).get('items', [])
+            if not (cells(i) & taken) and i['id'] not in {t['id'] for t in items}]
+    merged = kept + deepcopy(items)
+    merged.sort(key=lambda i: (i['row'], i['column']))
+    return merged
+
+
 def validate_tiles(items):
     if not 1 <= len(items) <= 12:
         raise ValueError('Invalid tile count')
     occupied = set()
     identifiers = set()
     for item in items:
-        if item['type'] not in {'clock', 'weather', 'entity'}:
-            raise ValueError('This rollout permits read-only tiles only')
+        if item['type'] not in ALLOWED_TYPES:
+            raise ValueError('Unknown tile type: ' + item['type'])
+        if 'off_entity' in item and (item['type'] != 'entity' or not item['off_entity'].startswith('light.')):
+            raise ValueError('off_entity belongs on an entity tile and names a light: ' + item['id'])
         if item['id'] in identifiers:
             raise ValueError('Duplicate tile')
         identifiers.add(item['id'])
@@ -115,12 +138,24 @@ def main():
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     manifest = yaml.safe_load((ROOT / 'ha/helios-attention.yaml').read_text(encoding='utf-8'))
-    validate_tiles(manifest['tiles'])
+    if any(tile['type'] not in OWN_TYPES for tile in manifest['tiles']):
+        raise ValueError('This rollout permits read-only tiles only')
+    validate_tiles([dict(tile, off_entity='light.placeholder') if tile.pop('lights_off', False) else tile
+                    for tile in deepcopy(manifest['tiles'])])
     client = HomeAssistant()
     try:
         before = client.call('lovelace/config', url_path='helios-clock')
-        if before.get('helios', {}).get('version') != 2:
+        if before.get('helios', {}).get('version') not in (2, 4, 5):
             raise RuntimeError('Live dashboard has changed schema; review before deployment')
+        registry = client.call('config/entity_registry/list')
+        versions = [e for e in registry if e.get('platform') == 'helios' and str(e.get('unique_id', '')).endswith('_app_version')]
+        if not versions:
+            raise RuntimeError('No Helios app version entity in the registry: pair the clock first')
+        app_version = {i['entity_id']: i for i in client.call('get_states')}.get(versions[0]['entity_id'], {}).get('state')
+        if app_version in (None, 'unknown', 'unavailable'):
+            raise RuntimeError('Clock app version unavailable: ' + versions[0]['entity_id'])
+        if tuple(int(p) for p in str(app_version).split('-')[0].split('.')) < (0, 9, 1):
+            raise RuntimeError('Clock runs ' + app_version + ', schema 5 needs 0.9.1')
         states = {item['entity_id']: item for item in client.call('get_states')}
         missing = [entity for entity in manifest['group']['entities'] if entity not in states]
         if missing:
@@ -161,6 +196,8 @@ def main():
                 if item.get('helper') == key:
                     del item['helper']
                     item.update(entity=entity, visible_when={'entity': visible, 'state': 'on'})
+                if item.pop('lights_off', False):
+                    item['off_entity'] = group  # tap turns the watched group off, always behind the app's question
         required = set(journal['entities'].values())
         for attempt in range(30):
             states = {item['entity_id']: item for item in client.call('get_states')}
@@ -169,9 +206,10 @@ def main():
             time.sleep(.5)
         else:
             raise RuntimeError('Helpers are not ready; original dashboard retained')
+        items = merge(before, items)
         validate_tiles(items)
         desired = deepcopy(before)
-        desired['helios'] = {'version': 2, 'grid': {'columns': 4, 'rows': 3}, 'items': items}
+        desired['helios'] = {'version': 5, 'grid': {'columns': 4, 'rows': 3}, 'items': items}
         if client.call('lovelace/config', url_path='helios-clock') != before:
             raise RuntimeError('Concurrent dashboard edit; refusing overwrite')
         client.call('lovelace/config/save', url_path='helios-clock', config=desired)

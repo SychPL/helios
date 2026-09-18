@@ -13,7 +13,7 @@ helpers:
   light_show: binary_sensor.helios_sypialnia_swiatlo_pokaz
   forecast_mode: binary_sensor.helios_pogoda_jutro_tryb
   forecast: sensor.helios_pogoda_jutro
-min_app_version: 0.8.8
+min_app_version: 0.9.1
 # Tiles that replace / join the live layout: the weather tile keeps its cell and gains the forecast fields;
 # whatever occupies cells (3,2) and (4,2) is removed; the clock and the four bottom notifications are untouched.
 tiles:

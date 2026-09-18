@@ -54,6 +54,8 @@ def validate_tiles(items):
                 raise ValueError('cover_group needs exactly two distinct cover entries with titles')
         if item['type'] == 'weather' and (('forecast_entity' in item) != ('forecast_when' in item)):
             raise ValueError('weather: forecast_entity and forecast_when go together')
+        if 'off_entity' in item and (item['type'] != 'entity' or not item['off_entity'].startswith('light.')):
+            raise ValueError('off_entity belongs on an entity tile and names a light: ' + item['id'])
 
 
 def cells(item):
@@ -61,7 +63,7 @@ def cells(item):
 
 
 def transform(before, manifest):
-    """Schema 4 document: manifest tiles replace whatever sits in their cells; everything else (clock, notifications, views) stays."""
+    """Schema 5 document: manifest tiles replace whatever sits in their cells; everything else (clock, notifications, views) stays."""
     desired = deepcopy(before)
     helios = desired.get('helios') or {}
     items = [deepcopy(i) for i in helios.get('items', [])]
@@ -72,7 +74,7 @@ def transform(before, manifest):
     new_items = kept + deepcopy(manifest['tiles'])
     new_items.sort(key=lambda i: (i['row'], i['column']))
     validate_tiles(new_items)
-    desired['helios'] = {'version': 4, 'grid': {'columns': 4, 'rows': 3}, 'items': new_items}
+    desired['helios'] = {'version': 5, 'grid': {'columns': 4, 'rows': 3}, 'items': new_items}
     return desired
 
 
@@ -123,7 +125,7 @@ def preflight(client, manifest):
     if app_version in (None, 'unknown', 'unavailable'):
         raise RuntimeError('Clock app version unavailable: ' + versions[0]['entity_id'])
     if version_tuple(app_version) < version_tuple(manifest['min_app_version']):
-        raise RuntimeError('Clock runs ' + app_version + ', schema 4 needs ' + manifest['min_app_version'])
+        raise RuntimeError('Clock runs ' + app_version + ', schema 5 needs ' + manifest['min_app_version'])
     weather_features = states[sources['weather']]['attributes'].get('supported_features', 0)
     if weather_features & 1 == 0:
         raise RuntimeError('Weather entity has no daily forecast support')

@@ -118,6 +118,46 @@ public class DashboardSpecTest {
         assertEquals(new HashSet<>(Arrays.asList("current_position","supported_features")),DashboardSpec.parse(example()).attributes().get("cover.roleta_salon"));
         DashboardSpec plain=DashboardSpec.parse(exampleV4().put("version",4));assertNull(plain.item("bedroom-light").forecastEntity);assertTrue(plain.item("bedroom-light").covers.isEmpty());
     }
+    /** SPEC 0.12: the "Światła" tile stays a read-only sensor tile but may turn a light group off, always after a question. */
+    private static JSONObject exampleV5() throws Exception {
+        JSONObject c=exampleV4().put("version",5);JSONArray items=c.getJSONArray("items");
+        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("lights-watched"))items.getJSONObject(i).put("off_entity","light.helios_swiatla_do_sprawdzenia");
+        return c;
+    }
+    @Test public void schemaFiveMakesTheLightsTileTurnItsGroupOffAfterAConfirmation() throws Exception {
+        DashboardSpec spec=DashboardSpec.parse(exampleV5());
+        assertEquals(5,spec.version);
+        DashboardSpec.Item lights=spec.item("lights-watched");
+        assertEquals("light.helios_swiatla_do_sprawdzenia",lights.offEntity);
+        assertEquals("sensor.helios_zapalone_swiatla",lights.entity);
+        assertEquals("lights_off",lights.action);
+        assertTrue("a tile that turns lights off must be tappable",lights.interactive());
+        assertTrue("the question is never optional by default",lights.confirm);
+        assertNull(lights.confirmText);
+        // the other read-only tiles stay untouchable
+        assertFalse(spec.item("garage-attention").interactive());
+        assertNull(spec.item("garage-attention").offEntity);
+        // an own question text is allowed, switching the question off is allowed too (the user owns the dashboard)
+        JSONObject own=exampleV5();JSONArray items=own.getJSONArray("items");
+        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("lights-watched"))
+            items.getJSONObject(i).put("confirmation",new JSONObject().put("enabled",true).put("text","Zgasić wszystkie światła?")).put("tap_action",new JSONObject().put("action","lights_off"));
+        assertEquals("Zgasić wszystkie światła?",DashboardSpec.parse(own).item("lights-watched").confirmText);
+    }
+    @Test public void schemaFiveRejectsMalformedOffEntities() throws Exception {
+        rejects(exampleV5().put("version",4),"off_entity at version 4");
+        JSONObject wrongDomain=exampleV5();JSONArray items=wrongDomain.getJSONArray("items");
+        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("lights-watched"))items.getJSONObject(i).put("off_entity","switch.cokolwiek");
+        rejects(wrongDomain,"off_entity outside the light domain");
+        JSONObject onClock=exampleV5();onClock.getJSONArray("items").getJSONObject(0).put("off_entity","light.helios_swiatla_do_sprawdzenia");
+        rejects(onClock,"off_entity on a clock tile");
+        JSONObject wrongTap=exampleV5();items=wrongTap.getJSONArray("items");
+        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("lights-watched"))items.getJSONObject(i).put("tap_action",new JSONObject().put("action","toggle"));
+        rejects(wrongTap,"tap_action other than lights_off");
+        JSONObject plainEntityTap=exampleV4().put("version",5);items=plainEntityTap.getJSONArray("items");
+        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("courier"))items.getJSONObject(i).put("confirmation",new JSONObject().put("enabled",true));
+        rejects(plainEntityTap,"confirmation on an entity tile without off_entity");
+        rejects(exampleV5().put("version",6),"version 6");
+    }
     @Test public void schemaFourRejectsMalformedCoverGroupsAndForecastFields() throws Exception {
         rejects(exampleV4().put("version",3),"cover_group and forecast fields at version 3");
         JSONObject v3=exampleV4().put("version",3);JSONArray items=v3.getJSONArray("items");for(int i=items.length()-1;i>=0;i--)if(items.getJSONObject(i).getString("id").equals("bedroom-covers"))items.remove(i);rejects(v3,"forecast fields at version 3");
@@ -141,7 +181,7 @@ public class DashboardSpecTest {
         JSONObject overlap=exampleV4();overlap.getJSONArray("items").put(item("other","light",3,2,1,1).put("entity","light.x"));rejects(overlap,"cell (3,2) used twice");
     }
     @Test public void rejectsWrongVersionAndGrid() throws Exception {
-        rejects(example().put("version",1),"version 1");rejects(example().put("version",5),"version 5");
+        rejects(example().put("version",1),"version 1");rejects(example().put("version",6),"version 6");
         rejects(example().put("version","2"),"version as text");
         rejects(example().put("grid",new JSONObject().put("columns",3).put("rows",3)),"3 columns");
         rejects(example().put("extra",1),"unknown root field");

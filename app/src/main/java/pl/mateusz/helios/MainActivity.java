@@ -203,6 +203,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             case "garage":if(known)confirm(item,"Zamknąć bramę?",()->call(item,"cover","close_cover"));break;
             case "cover":if(known)coverPanel(item);break;
             case "cover_group":coverGroupPanel(item);break;
+            case "entity":if(item.offEntity!=null&&known)confirm(item,"Zgasić światła?",()->callEntity(item,item.offEntity,"light","turn_off",null));break;
             default:break;
         }
     }

@@ -68,6 +68,7 @@ tiles:
   - id: lights-watched
     type: entity
     helper: lights
+    lights_off: true
     column: 1
     row: 3
     width: 1

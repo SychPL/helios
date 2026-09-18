@@ -7,7 +7,7 @@ import java.util.*;
 /** Helios 0.5 grid dashboard contract (helios.version 2). Pure data, validated atomically; no device entity IDs. */
 final class DashboardSpec {
     static final int COLUMNS=4,ROWS=3,MAX_ITEMS=12,MAX_BYTES=65536;
-    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2, 3 lub 4";
+    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2, 3, 4 lub 5";
     static final List<String> ICONS=Arrays.asList("information","weather-rainy","lightbulb","window-shutter","garage-open","music");
     static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit");
     static final List<String> COVER_ATTRIBUTES=Arrays.asList("current_position","supported_features");
@@ -21,16 +21,16 @@ final class DashboardSpec {
     /** One roller shutter inside a cover_group: entity for the services, title for the panel row. */
     static final class Cover {final String entity,title;Cover(String entity,String title){this.entity=entity;this.title=title;}}
     static final class Item {
-        final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText,forecastEntity,forecastWhenEntity,forecastWhenState;
+        final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity;
         final int column,row,width,height;
         final boolean confirm;
         final List<Cover> covers;
         Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText){
-            this(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,Collections.emptyList(),null,null,null);
+            this(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,Collections.emptyList(),null,null,null,null);
         }
-        Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText,List<Cover> covers,String forecastEntity,String forecastWhenEntity,String forecastWhenState){
+        Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText,List<Cover> covers,String forecastEntity,String forecastWhenEntity,String forecastWhenState,String offEntity){
             this.id=id;this.type=type;this.column=column;this.row=row;this.width=width;this.height=height;this.title=title;this.icon=icon;this.entity=entity;this.temperatureEntity=temperatureEntity;this.attribute=attribute;this.action=action;this.visibleEntity=visibleEntity;this.visibleState=visibleState;this.confirm=confirm;this.confirmText=confirmText;
-            this.covers=Collections.unmodifiableList(covers);this.forecastEntity=forecastEntity;this.forecastWhenEntity=forecastWhenEntity;this.forecastWhenState=forecastWhenState;
+            this.covers=Collections.unmodifiableList(covers);this.forecastEntity=forecastEntity;this.forecastWhenEntity=forecastWhenEntity;this.forecastWhenState=forecastWhenState;this.offEntity=offEntity;
         }
         /** Tomorrow's forecast is shown when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
         boolean forecast(){return forecastEntity!=null;}
@@ -50,7 +50,7 @@ final class DashboardSpec {
     }
 
     static DashboardSpec parse(JSONObject root) throws Exception {
-        if(!(root.opt("version") instanceof Integer)||root.getInt("version")<2||root.getInt("version")>4)throw new IllegalArgumentException(VERSION_ERROR);
+        if(!(root.opt("version") instanceof Integer)||root.getInt("version")<2||root.getInt("version")>5)throw new IllegalArgumentException(VERSION_ERROR);
         int version=root.getInt("version");
         if(root.toString().length()>MAX_BYTES)throw new IllegalArgumentException("Sekcja helios przekracza 64 KiB");
         keys(root,Arrays.asList("version","grid","items"),"konfiguracji");
@@ -82,7 +82,12 @@ final class DashboardSpec {
         switch(type){
             case "clock":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));action=null;break;
             case "weather":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));allowed.addAll(Arrays.asList("entity","temperature_entity"));if(version>=4)allowed.addAll(Arrays.asList("forecast_entity","forecast_when"));action=null;break;
-            case "entity":allowed.removeAll(Arrays.asList("tap_action","confirmation"));allowed.addAll(Arrays.asList("entity","attribute"));action=null;break;
+            case "entity":
+                allowed.addAll(Arrays.asList("entity","attribute"));
+                if(version>=5&&o.has("off_entity"))action="lights_off";  // SPEC 0.12: a read-only tile that can turn its lights off
+                else{allowed.removeAll(Arrays.asList("tap_action","confirmation"));action=null;}
+                if(version>=5)allowed.add("off_entity");
+                break;
             case "light":allowed.add("entity");action="toggle";break;
             case "cover":allowed.add("entity");action="controls";break;
             case "garage":allowed.add("entity");action="close";break;
@@ -102,7 +107,11 @@ final class DashboardSpec {
         if(!id.matches("[a-z0-9_-]{1,40}"))throw new IllegalArgumentException("Nieprawidłowy id: "+id);
         int column=integer(o,"column",1,COLUMNS),row=integer(o,"row",1,ROWS),width=integer(o,"width",1,COLUMNS),height=integer(o,"height",1,ROWS);
         if(column+width-1>COLUMNS||row+height-1>ROWS)throw new IllegalArgumentException("Element "+id+" wychodzi poza siatkę");
-        String entity=null,temperatureEntity=null,attribute=null;
+        String entity=null,temperatureEntity=null,attribute=null,offEntity=null;
+        if(o.has("off_entity")){
+            offEntity=string(o,"off_entity",true,128);
+            if(!offEntity.matches("light\\.[a-z0-9_]+"))throw new IllegalArgumentException("off_entity wymaga encji z domeny light");
+        }
         if(allowed.contains("entity")){
             entity=string(o,"entity",true,128);
             String domain=type.equals("garage")?"cover":type;
@@ -141,7 +150,7 @@ final class DashboardSpec {
             keys(tap,Collections.singletonList("action"),"tap_action");
             if(!string(tap,"action",true,16).equals(action))throw new IllegalArgumentException("Typ "+type+" dopuszcza wyłącznie tap_action.action: "+action);
         }
-        boolean confirm=type.equals("garage");String confirmText=null;
+        boolean confirm=type.equals("garage")||offEntity!=null;String confirmText=null;
         if(o.has("confirmation")){
             JSONObject c=o.optJSONObject("confirmation");if(c==null)throw new IllegalArgumentException("confirmation musi być obiektem");
             keys(c,Arrays.asList("enabled","text"),"confirmation");
@@ -149,7 +158,7 @@ final class DashboardSpec {
             confirm=c.getBoolean("enabled");
             if(c.has("text"))confirmText=string(c,"text",true,80);
         }
-        return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState);
+        return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity);
     }
     /** {entity, state} condition shared by visible_when and forecast_when: a live state only, never unknown/unavailable. */
     private static String[] when(JSONObject o,String key) throws Exception {
