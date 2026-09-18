@@ -30,6 +30,7 @@ Ponowne parowanie tego samego zegara (menu → **Paruj z HA**) odświeża istnie
 
 - Encje są `unavailable`, dopóki zegar nie przyśle pierwszego snapshotu po połączeniu; rozłączenie WS lub zapis dashboardu (restart sesji) daje krótkie `unavailable`.
 - Polecenia czekają na `helios/result` do 10 s; brak odpowiedzi to błąd usługi, nie ponowienie. Druga komenda dla tego samego zasobu (lampka albo głośność) w trakcie pierwszej dostaje `busy`.
+- Music Assistant zainstalowane jako add-on nie pozwala integracji wystawić tokena dla zegara (HA jest tam użytkownikiem systemowym). W **Ustawienia → Urządzenia i usługi → Helios → Konfiguruj** wklej wtedy raz token MA (Music Assistant → Ustawienia → Tokeny) w pole **Token Music Assistant dla zegara**; integracja go nie weryfikuje i nigdy nie unieważnia, a zmiana pola odświeża muzykę przy najbliższym połączeniu zegara.
 - Token zegara należy do jego własnego użytkownika systemowego HA (grupa użytkowników, bez administratora, tylko z sieci lokalnej); zegary parowane przed 0.10 nadal używają tokena konta, którym je sparowano.
 
 ## Lokalnie na zegarze
