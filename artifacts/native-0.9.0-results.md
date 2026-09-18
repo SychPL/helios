@@ -10,3 +10,19 @@
 
 Kolejność u użytkownika (SPEC 0.10 pkt 11): HACS → Helios 0.8.0 → restart HA (zegar 0.8.18 nadal działa) → APK 0.9.0 z mostu (`/helios.apk` → `helios-0.9.0.apk`) → na zegarze okno parowania z „Później” → HA: Dodaj integrację → Helios → kod na zegarze → sprawdzić kryteria 1, 3, 6, 7, 10 → usunąć stary token administratora w profilu HA. Diagnostyka: w opcjach integracji `diagnostics_url` = adres z banera mostu.
 SHA256 (app-debug.apk 0.9.0): 9a32a4ff2e0e6bbdc66b786d053e1644119e8fd4eb77e8b421966d2b8e32e1a3
+
+## Sprzęt, 18 września 2026 (zegar 192.168.1.113, HA 192.168.1.212)
+
+Zegar z Heliosem 0.9.0 sparowany kodem, protokół 2, bez tokena administratora. Encje i urządzenie `zegar_sypialnia` żyją, `sw_version` 0.9.0.
+
+Muzyka wymagała czterech poprawek integracji, wszystkie widoczne dopiero na sprzęcie:
+
+| wydanie | objaw | przyczyna | poprawka |
+| --- | --- | --- | --- |
+| 0.8.1 | brak sekcji `music_assistant` u zegara | wpis core MA trzyma adres wewnętrzny supervisora (`http://<slug>:8094`), zegar go nie rozwiąże | adres z `get_server_info` (`base_url`), `source_url` w sekcji, opcja `music_url` |
+| 0.8.2 | `AuthenticationFailed: Home Assistant system user not allowed on regular webserver` | token wystawiony dla użytkownika systemowego HA | `create_token(..., user_id=<konto osoby>)` i weryfikacja tokena z adresu zegara |
+| 0.8.3 | nic się nie zmieniło po 0.8.2 | stara sekcja miała zgodny `source_url`, więc nie była odświeżana | znacznik `MUSIC_SECTION_REVISION` w sekcji i w teście świeżości |
+| 0.8.4 | `InsufficientPermissions` przy wystawianiu tokena | dodatek MA nie pozwala użytkownikowi systemowemu HA wystawić tokena dla konta osoby - integracja nie ma jak wystawić działającego tokena | opcja `music_token`: token wklejony raz, sekcja oznaczona `manual`, nigdy nieweryfikowana ani nieunieważniana; zmiana pola odświeża sekcję przy najbliższym `connect` |
+
+Stan po 0.8.4 i wklejeniu tokena: zdarzenie `connection` niesie `{"url": "http://192.168.1.212:8095", "token": <ukryty>, "sendspin_url": "ws://192.168.1.212:8927/sendspin"}`, token przechodzi `auth.get_current_user` (konto `mateusz`, rola admin) i `players/all` (10 graczy), zegar trzyma tę sekcję w prefs i widnieje w MA jako gracz `Helios` (Lenovo Smart Clock 2, dostępny). Testy integracji: 59 zielonych.
+
