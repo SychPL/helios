@@ -51,7 +51,7 @@ Użytkownik wcześniej zgłosił rozmowy wielu osób przy zegarze. Nie oznaczano
 
 ## Home Assistant
 
-POTWIERDZONE: `http://192.168.1.212`, HTTP głównej strony 200, API 401 bez tokenu, WebSocket `auth_required`, wersja serwera 2026.8.3. Dowód: `../ha-preflight-20260915.json`.
+POTWIERDZONE: `http://<home-assistant>`, HTTP głównej strony 200, API 401 bez tokenu, WebSocket `auth_required`, wersja serwera 2026.8.3. Dowód: `../ha-preflight-20260915.json`.
 
 NIESPRAWDZONE: konfiguracja pipeline, STT/TTS, transkrypcja, akcja, odpowiedź z głośnika. Przygotowano `tools/ha_preflight.py`, który po dodaniu tokenu wykona wyłącznie odczyt listy pipeline. Lokalna konfiguracja `.local/ha.json` zawiera adres i pusty token; `.local/` jest ignorowane przez Git.
 

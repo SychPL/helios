@@ -1,4 +1,6 @@
-# Manifest publikacji SPEC 0.9 (tools/deploy_bedroom_dashboard.py). Identyfikatory encji tylko tutaj i w ha/packages/helios_bedroom.yaml.
+# Example manifest for tools/deploy_bedroom_dashboard.py (SPEC 0.9). Entity ids live here and in
+# ha/packages/helios_bedroom.yaml only. Replace them with your own, or keep a private copy in
+# .local/ha/helios-bedroom.yaml, which the publisher prefers when it exists.
 sources:
   covers:
     - cover.bedroom_main_cover_a
@@ -7,7 +9,7 @@ sources:
   light_members:
     - light.bedroom_a_light_swiatlo
     - light.bedroom_a_light_swiatlo_2
-  weather: weather.forecast_dom
+  weather: weather.home
   sun: sun.sun
 helpers:
   light_show: binary_sensor.helios_sypialnia_swiatlo_pokaz
@@ -19,7 +21,7 @@ min_app_version: 0.9.1
 tiles:
   - id: weather
     type: weather
-    entity: weather.forecast_dom
+    entity: weather.home
     title: Pogoda
     column: 3
     row: 1

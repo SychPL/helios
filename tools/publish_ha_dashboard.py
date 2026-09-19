@@ -13,9 +13,16 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
+def manifest_path(name):
+    """Your own manifest in .local/ha/ wins over the example shipped in ha/ (the example names entities of one particular home)."""
+    private = ROOT / '.local' / 'ha' / name
+    return private if private.is_file() else ROOT / 'ha' / name
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file', type=Path, default=ROOT / 'ha/helios-clock.yaml')
+    parser.add_argument('--file', type=Path, default=manifest_path('helios-clock.yaml'))
     parser.add_argument('--replace', action='store_true')
     args = parser.parse_args()
     desired = yaml.safe_load(args.file.read_text(encoding='utf-8'))

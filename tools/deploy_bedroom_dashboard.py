@@ -17,9 +17,9 @@ import sys
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from deploy_attention_dashboard import HomeAssistant, ROOT  # noqa: E402
+from deploy_attention_dashboard import HomeAssistant, ROOT, manifest_path  # noqa: E402
 
-MANIFEST = ROOT / 'ha/helios-bedroom.yaml'
+MANIFEST = manifest_path('helios-bedroom.yaml')
 LIVE = ROOT / '.local/bedroom-dashboard-live.json'
 DASHBOARD = 'helios-clock'
 ALLOWED_TYPES = {'clock', 'weather', 'entity', 'light', 'cover', 'garage', 'music', 'cover_group'}

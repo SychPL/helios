@@ -1,86 +1,114 @@
-# Helios — prototyp głosu na Lenovo Smart Clock 2
+# Helios - a Home Assistant face for the Lenovo Smart Clock 2
 
-Natywna aplikacja Android jest w `app/`: stały pasek statusu, dashboard 4×3 konfigurowany w Home Assistant (zegar, pogoda, encje, światła, rolety, brama) i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.8.0. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
+Helios turns a Lenovo Smart Clock 2 into a Home Assistant wall panel: a 4x3
+dashboard configured entirely from Home Assistant, local "Okay Nabu" wake word
+into the HA Assist pipeline, and the clock as a Music Assistant player.
 
-## Dashboard 0.5.0
+It is a sideloaded Android launcher for one specific piece of hardware. It does
+not need Google's services, does not replace your default launcher unless you
+ask it to, and talks to nothing but your own Home Assistant.
 
-Górny pasek (HELIOS, ikona HA, jeden tekst statusu) i menu pod przytrzymaniem HELIOS są stałe i lokalne. Cała treść poniżej paska to siatka 4×3 z sekcji `helios` (`version: 2`) panelu HA `/helios-clock`: elementy `clock`, `weather`, `entity`, `light`, `cover`, `garage` z pozycją, rozmiarem, podpisem, ikoną, warunkiem widoczności liczonym w HA i opcjonalnym potwierdzeniem. Zapis YAML odświeża układ bez aktualizacji APK; błędny zapis nie rusza ostatniego poprawnego układu. Po utracie połączenia układ i widoczność zostają zamrożone, dane są przyciemnione, a sterowanie nieaktywne; nic nie jest kolejkowane. Bez żadnej poprawnej konfiguracji zegar pokazuje układ awaryjny z samym zegarem. Specyfikacja: [SPEC 0.5](docs/SPEC-0.5-ha-configurable-dashboard.md), konfiguracja: [ha-dashboard.md](docs/ha-dashboard.md), wymagania: [dashboard-product-requirements.md](docs/dashboard-product-requirements.md).
+![The dashboard on the clock](docs/images/dashboard.png)
 
-Zegar wywołuje wyłącznie `light.toggle` oraz `cover.open_cover`/`stop_cover`/`close_cover` dla encji z YAML, po jednym wywołaniu na dotknięcie, z blokadą do odpowiedzi HA (10 s). Panel rolety ma przyciski ▲ ■ ▼ i procent otwarcia; blokuje przyciski osobno, więc ■ działa zawsze przy żywym połączeniu. Zakładka `menu-zegara` z 0.4 nie jest już czytana.
+## What it does
 
-Wcześniejsze testy na fizycznym zegarze z OTA 627 potwierdziły także lokalne sterowanie lampką docka oraz zdarzeniową detekcję ładowania telefonu przez fabryczny binder OEM. Nie są to elementy dashboardu ani integracja HA; szczegóły opisuje [nota techniczna lampki docka](docs/lamp-control.md). Wersja 0.4 (wskaźniki, menu z kart HA) pozostaje opisana historycznie w [SPEC 0.4](docs/SPEC-0.4-hidden-menu.md).
+- **Dashboard from Home Assistant.** A 4x3 grid of tiles - clock, weather,
+  entity readouts, lights, covers, a garage door, a music tile - described in
+  the `helios` section of a Lovelace dashboard. Saving the YAML re-renders the
+  clock; no new APK. Tiles can be conditional on any HA entity state. Tapping a
+  light toggles it, a cover opens a panel, a lights tile can turn a whole group
+  off after a confirmation. The clock only ever calls `light.toggle`,
+  `light.turn_off` and the three `cover.*` services, never a service name that
+  came out of the YAML. See [docs/ha-dashboard.md](docs/ha-dashboard.md).
+- **Voice.** Always-on local wake word detection ("Okay Nabu", microWakeWord
+  ARMv7 engine with a pinned model). Nothing is recorded or sent before the
+  wake word fires; then the microphone streams to the HA Assist pipeline over
+  the same WebSocket. The clock's hardware microphone switch is the mute
+  control. Follow-up turns stay in the same conversation for a few seconds.
+- **Music Assistant.** The clock registers as a local Sendspin player (48 kHz
+  PCM) and can also drive your other players: a library browser with search and
+  recent items, a slide-out now-playing panel, and a full-screen player.
+  Assist ducks or pauses the music while you talk.
+- **A device in Home Assistant.** The companion integration
+  [SychPL/ha-helios](https://github.com/SychPL/ha-helios) creates a device with
+  sensors (app version, voice state, dock), a light for the dock lamp, a volume
+  number and a media player. Assigning the device to an area gives your voice
+  commands room context.
+- **Pairing without tokens.** The clock finds Home Assistant over mDNS (or you
+  type the address), Home Assistant shows a six-digit code, and the integration
+  mints the clock its own non-admin, local-only user. No long-lived admin token
+  ever touches the device. See [docs/SPEC-0.10-onboarding.md](docs/SPEC-0.10-onboarding.md).
 
-## Integracja HA 0.7.0
+## Hardware and firmware
 
-Aplikacja ma teraz foreground service (`HeliosService`), który trzyma jedno gniazdo WS do HA niezależnie od widoczności ekranu. Na tym gnieździe działa kanał urządzenia `helios/connect`: telemetria (wersja, stan głosu, dock, ładowanie, lampka, głośność) oraz allowlista komend z HA (lampka docka przez binder OEM, głośność `STREAM_MUSIC`). Integracja HA (osobne repozytorium HACS [SychPL/ha-helios](https://github.com/SychPL/ha-helios)) tworzy urządzenie z encjami `sensor`, `binary_sensor`, `light`, `number` i parowanie kodem. `AssistClient` przekazuje `device_id` urządzenia do pipeline, więc obszar zegara w HA daje kontekst pokoju dla poleceń głosowych. Instalacja i zachowanie: [ha-integration.md](docs/ha-integration.md), spec: [SPEC 0.7](docs/SPEC-0.7-home-assistant-integration.md). Odbiór na fizycznym zegarze i HA 2026.8.3 jeszcze nie wykonany.
+Built and verified on a **Lenovo Smart Clock 2** (MT8167, Android 10), retail
+firmware `LenovoCD-24502F_ROW_1.2.2.627_220105`. The dock lamp and phone
+charging detection use the OEM binder service of the Lenovo charging dock, so
+those two features need the dock; everything else works without it.
 
-## Music Assistant 0.8.0
+The clock ships with no launcher, no browser and no ADB. Getting an APK onto it
+for the first time is the hard part, and it is covered in
+**[docs/INSTALL.md](docs/INSTALL.md)** - either with ADB over Wi-Fi via
+[smartclock2tool](https://github.com/SychPL/smartclock2tool), or with the
+TalkBack trick that needs no cable and no root.
 
-Lenovo jest lokalnym odtwarzaczem Music Assistant przez własny klient Sendspin legacy (`SendspinClient`, PCM 48 kHz przez `AudioTrack`, synchronizacja zegara, `stream/end` jako drain) i pilotem pozostałych graczy przez API MA (`MusicAssistantClient`). Podczas lokalnego grania przy prawej krawędzi pojawia się uchwyt `♪`; dotknięcie wysuwa panel na prawej połowie (okładka, tytuł, ◀◀ ▶/❚❚ ▶▶ ■, głośność, wycisz, Schowaj), a kafle pod nim nie reagują na dotyk i nie są przebudowywane. Kafelek `music` (schemat `version: 3`, opcjonalny) otwiera bibliotekę: wybór gracza, wyszukiwanie, ostatnie 10 pozycji, wyniki i sterowanie wybranym graczem. Audio focus: rozmowa z Nabu ścisza lub pauzuje muzykę, trwałe przejęcie głośnika (np. Cast) pauzuje bez samoczynnego wznowienia. Dane MA przychodzą przez "Odśwież parowanie" z `.local/ma.json` i są weryfikowane niezależnie od HA. Spec: [SPEC 0.6](docs/SPEC-0.6-music-assistant.md), kontrakt API: [ma-api-2.10.3.md](docs/ma-api-2.10.3.md). Bramki audio na fizycznym zegarze (60 s PCM, underruny, wake word przy muzyce, IME) jeszcze nie wykonane.
+## Install
 
-Historia projektu etapu muzycznego (prototyp, decyzje): [SPEC 0.6](docs/SPEC-0.6-music-assistant.md) i [raport prototypu](artifacts/music-assistant-prototype.md).
+1. Get an APK onto the clock - [docs/INSTALL.md](docs/INSTALL.md).
+2. Install the Home Assistant integration from HACS as a custom repository:
+   `https://github.com/SychPL/ha-helios`, then restart Home Assistant.
+3. Pair: on the clock pick your Home Assistant, in Home Assistant add the
+   **Helios** integration, type the six-digit code on the clock.
+4. Optional: publish a dashboard. The `ha/` directory holds example manifests
+   and `tools/` holds the publishers. Read
+   [docs/ha-dashboard.md](docs/ha-dashboard.md) first - the manifests describe
+   one particular home and are meant to be edited, not deployed as they are.
 
-Integrację urządzenia z HA (wersja, lampka docka, ładowanie telefonu i kontekst pokoju dla Assist) opisuje [SPEC 0.7](docs/SPEC-0.7-home-assistant-integration.md). To projekt, nie funkcja zainstalowanego APK. Rozpoznawanie osoby pozostaje osobnym badaniem.
+Full walkthrough with screenshots: [docs/ha-integration.md](docs/ha-integration.md)
+(Polish; an English summary is in [docs/INSTALL.md](docs/INSTALL.md)).
 
-Odbiór 2026-09-15: na fizycznym zegarze potwierdzono 0.5.0, przeniesiono panel HA do schematu 2 z kopią poprzedniej konfiguracji i sprawdzono nowy ekran. [Raport odbioru](artifacts/native-0.5-acceptance-20260915.md). [Prototyp Music Assistant](artifacts/music-assistant-prototype.md) potwierdza kompilację, ale ujawnia różnicę między biblioteką a nowym protokołem; rzeczywiste odtwarzanie wymaga sprawdzenia zgodności z lokalnym MA 2.10.3. Serwer odpowiada na porcie 8095, pierwszy odczyt wykazał niezakończone tworzenie konta.
+## Build
 
-Nasłuch „Okay Nabu” jest zawsze włączony po udzieleniu uprawnienia mikrofonu, gdy Helios jest widoczny i nie prowadzi rozmowy. Nie ma ekranowego przełącznika; do wyciszania służy fizyczny przełącznik mikrofonu zegara. Starsza zapisana preferencja wyłączenia nasłuchu jest ignorowana. Audio przed wykryciem hasła jest analizowane lokalnie, bez zapisu i wysyłania. Po wykryciu mikrofon jest zwalniany, a następnie uruchamia się ta sama rozmowa Assist co z przycisku. Jeden executor szereguje nasłuch i rozmowę. Po każdej odpowiedzi zegar słucha dalej bez hasła przez 6 s (15 s, gdy HA zgłosi `continue_conversation`) w tej samej rozmowie; cisza kończy sesję. Początek każdego nasłuchu sygnalizuje krótki pik. Nasłuch hasła wraca sekundę po zakończeniu sesji; wyjście z aplikacji zatrzymuje go. Wersja zawiera silnik ARMv7 oraz przypięty model (licencje i provenance w assets/wakeword).
-
-Wersja 0.1.1 zgłasza Heliosa na liście aplikacji ekranu głównego (HOME). Po instalacji użytkownik może wybrać go w ustawieniach launchera. Aplikacja sama nie zmienia domyślnego ekranu głównego.
-
-- Godzina i data korzystają z czasu/strefy urządzenia.
-- Encję pogody określa YAML w HA (`weather`); pogoda jest odczytywana co 2 minuty, a przy błędzie zachowany odczyt jest oznaczony jako ostatni. Zmiana encji wywołuje nowy odczyt. `weather: null` ukrywa pogodę.
-- Pierwsze uruchomienie prosi o uprawnienie mikrofonu. Rozmowę uruchamia „Okay Nabu”; mów po komunikacie „Mów teraz”. Opcjonalne pozycje ukrytego menu `Rozmowa` i `Anuluj rozmowę` pozwalają uruchomić, zakończyć wypowiedź lub anulować sesję ręcznie. Można je zmienić/usunąć w HA.
-- Mikrofon 16 kHz/mono/PCM16 ze źródła VOICE_COMMUNICATION jest przesyłany bezpośrednio do Assist WebSocket w HA. Wybrany pipeline używa HA Cloud. TTS odtwarza się po zwolnieniu mikrofonu.
-- Wyjście z aplikacji anuluje rozmowę i zatrzymuje nasłuch hasła.
-- Nie zmienia domyślnego launchera, Google ani ustawień startu po restarcie. Utrzymuje ekran włączony, kiedy jest widoczna. Tryb nocny nie jest jeszcze zaimplementowany.
-
-Budowanie (własny Gradle wrapper; zależności Java pobierane z Maven Central):
-
-```powershell
-$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
-./gradlew.bat assembleDebug lintDebug testDebugUnitTest
+```bash
+export JAVA_HOME="/path/to/jbr"        # the JDK that ships with Android Studio
+./gradlew testDebugUnitTest assembleDebug lintDebug
 ```
 
-Lokalny `local.properties` wskazuje Android SDK. Potrzebne platform 35 i build-tools 36.0.0. Wynik: `app/build/outputs/apk/debug/app-debug.apk`.
+`local.properties` points at your Android SDK; platform 35 and build-tools
+36.0.0 are needed. The result is `app/build/outputs/apk/debug/app-debug.apk`.
+Java 8 language level, minSdk and targetSdk 29, no AndroidX - the clock runs
+Android 10 and the app is deliberately small and old-fashioned.
 
-Bez `.local/provision.json` APK buduje się bez adresu parowania. Aby skonfigurować nowe urządzenie, przygotuj `.local/ha.json` i raport `python tools/ha_preflight.py --output artifacts/ha-preflight-auth-20260915.json`, następnie wykonaj `python tools/native_bridge.py --prepare` przed budowaniem APK. Modele, biblioteka ARMv7 i fonty wraz z licencjami są w repozytorium. Skrypty eksperymentalne w `probes/` i część narzędzi agenta nadal korzystają z zasobów sąsiedniego projektu `lenovo_clock`; nie są wymagane do budowania aplikacji.
+The wake-word model, the ARMv7 engine and the fonts are vendored with their
+licenses and SHA-256 provenance under `app/src/main/assets/` and
+`app/src/main/jniLibs/`.
 
-Stan 2026-09-15: użytkownik potwierdził działanie rozmowy i nowego menu na zegarze. Profil HA zapisany w Heliosie (`Home Assistant Cloud`) używa teraz `conversation.google_ai_conversation`, z wyłączonym `prefer_local_intents`; STT i TTS pozostają w HA Cloud. Test tekstowy agenta przeszedł. Lista dalszych prac: wybór profilu HA w aplikacji, pokazanie faktycznie używanego agenta, pamięć konwersacji, testy skuteczności hasła oraz tryb nocny. Surowe logi urządzenia, sekrety i lokalne parowanie nie są wersjonowane.
+## Status and scope
 
-`native_bridge.py --prepare` tworzy losową trasę parowania w `.local/provision.json`. Przed pierwszym uruchomieniem APK uruchom `python tools/native_bridge.py`. Serwer dostarcza konfigurację przez 30 minut wyłącznie zegarowi i lokalnemu środowisku testowemu; token nie trafia do APK. Po parowaniu aplikacja zapisuje konfigurację w prywatnym SharedPreferences, z wyłączonym backupem. Serwer służy też do dostarczenia APK i odbierania logów kontrolowanego testu. Zegar komunikuje się z HA niezależnie od tego serwera.
+This is a personal project that happens to be useful. It is verified on exactly
+one clock, one Home Assistant (2026.8.3) and one Music Assistant (2.10.3). The
+protocol between the app and the integration is versioned and both sides refuse
+mismatched versions, but there is no compatibility promise across releases yet.
 
-[Raport budowania, emulatora i instalacji](artifacts/native-0.1/results.md).
+Documentation is mostly in Polish: the specifications under `docs/` (`SPEC-*`)
+are the authoritative description of every feature, and `docs/INSTALL.md` plus
+this README are the English entry points. Issues and pull requests in English
+are welcome.
 
-## Wyniki urządzenia
+## Licensing
 
-- [Mikrofon w tle](artifacts/mic-background-20260915/results.md)
-- [microWakeWord: kompilacja ARMv7, uruchomienie i pomiar 60 sekund](artifacts/wakeword-20260915/results.md)
+Apache License 2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE). The app
+vendors code and a model from the Home Assistant Android companion app under
+the same license; attribution and provenance are in `NOTICE` and in the
+`provenance.json` files next to the vendored assets.
 
-## Odtworzenie eksperymentu
+## Related repositories
 
-Wymagane lokalnie: Python, JDK, Android SDK platform 34/build-tools 34.0.0, NDK 27.1.12297006, CMake 3.31.6. Skrypty PowerShell przyjmują ścieżki SDK/JDK. Kod natywny jest pobierany z przypiętego commita Home Assistant; zależności CMake mają przypięte hashe. Pobrane źródła i binarki pozostają w `.local/`.
+- [SychPL/ha-helios](https://github.com/SychPL/ha-helios) - the Home Assistant
+  integration (HACS).
+- [SychPL/smartclock2tool](https://github.com/SychPL/smartclock2tool) - root,
+  ADB over Wi-Fi and SSH on the Smart Clock 2, and the install trick that needs
+  neither.
 
-```powershell
-python tools/prepare_microwakeword.py
-./tools/build_microwakeword_native.ps1
-./tools/build_wakeword_probe.ps1
-python tools/run_wakeword_probe.py
-python tools/run_wakeword_probe.py --live --seconds 60
-```
-
-Pierwsze uruchomienie sprawdza model na cyfrowej ciszy bez mikrofonu. `--live` uruchamia ograniczony czasowo pomiar mikrofonu. Zapisuje statystyki i detekcje, nie audio. Nie uruchamia komend ani głośnika. Biblioteka i model są sprawdzane SHA256 na urządzeniu przed użyciem. Tymczasowy serwer LAN udostępnia wyłącznie katalog payload i jest zamykany po próbie. Każda próba ma osobny katalog wyników UTC.
-
-Agent: domyślnie `http://192.168.1.113:8555/agent`. Można ustawić `CLOCK_AGENT_BASE` i `CLOCK_AGENT_TOKEN`; przy braku tokenu runner odczytuje istniejącą lokalną konfigurację repozytorium nadrzędnego. Nie umieszczaj sekretu w parametrach polecenia.
-
-## Połączenie z HA
-
-Konfiguracja lokalna: `.local/ha.json`, pola `url` i `token`. Adres tej instalacji to `http://192.168.1.212`. Token można utworzyć w profilu użytkownika HA, sekcja długoterminowych tokenów dostępu: [dokumentacja HA](https://developers.home-assistant.io/docs/auth_api/#long-lived-access-token). Wpisz go bezpośrednio do lokalnego pliku; nie dodawaj go do raportów ani Gita.
-
-Odczyt połączenia i dostępnych pipeline (wymaga pakietu Python `websocket-client`):
-
-```powershell
-python tools/ha_preflight.py
-```
-
-Bez tokenu sprawdzane są HTTP i powitanie WebSocket. Z tokenem odczytywana jest lista pipeline. Skrypt nie wysyła dźwięku i nie wywołuje akcji. Planowany transport głosu: [Assist przez WebSocket](https://developers.home-assistant.io/docs/voice/pipelines/).
+The Polish README that documented the 0.5 to 0.8 development is kept as
+[README.pl.md](README.pl.md).

@@ -1,7 +1,7 @@
 param(
     [ValidateSet('All', 'Upstream', 'JVM', 'Android')][string]$Mode = 'All',
-    [string]$Jdk = 'C:/Users/Mateusz/.gradle/jdks/eclipse_adoptium-17-amd64-windows.2',
-    [string]$Sdk = 'C:/Users/Mateusz/AppData/Local/Android/Sdk'
+    [string]$Jdk = '<user-home>/.gradle/jdks/eclipse_adoptium-17-amd64-windows.2',
+    [string]$Sdk = '<user-home>/AppData/Local/Android/Sdk'
 )
 $ErrorActionPreference = 'Stop'
 $probeRoot = $PSScriptRoot

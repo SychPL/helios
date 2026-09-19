@@ -15,3 +15,13 @@ local.properties
 artifacts/**
 !artifacts/**/
 !artifacts/**/*.md
+
+# credentials and device artefacts, wherever they land
+ha.json
+ma.json
+provision.json
+bridge.json
+*.pem
+*.key
+*.p12
+*.dex

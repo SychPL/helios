@@ -13,6 +13,23 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+
+def _clock_ip():
+    """the clock's address (set CLOCK_IP, or put {"clock_ip": "..."} in .local/bridge.json)"""
+    import os as _os, json as _json
+    from pathlib import Path as _Path
+    value = _os.environ.get('CLOCK_IP')
+    if not value:
+        config = _Path(__file__).resolve().parents[1] / '.local' / 'bridge.json'
+        if config.is_file():
+            value = _json.loads(config.read_text(encoding='utf-8')).get('clock_ip')
+    if not value:
+        raise SystemExit('Set CLOCK_IP to %s' % "the clock's address, e.g. CLOCK_IP=10.0.0.5")
+    return value
+
+
+CLOCK_IP = _clock_ip()
+
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--check-only', action='store_true')
@@ -24,7 +41,7 @@ config['pipeline'] = inventory['preferred_pipeline']
 token = os.environ.get('CLOCK_AGENT_TOKEN')
 if not token:
     token = re.findall(r'TOKEN="([A-Za-z0-9]+)"', (ROOT.parent / 'docs/SSH-HOWTO.md').read_text(encoding='utf-8'))[0]
-base = os.environ.get('CLOCK_AGENT_BASE', 'http://192.168.1.113:8555/agent').rstrip('/')
+base = os.environ.get('CLOCK_AGENT_BASE', 'http://'+CLOCK_IP+':8555/agent').rstrip('/')
 device = urllib.parse.urlparse(base).hostname
 route = '/' + secrets.token_urlsafe(32)
 dex = (ROOT / '.local/assist/dex/classes.dex').read_bytes()

@@ -1,0 +1,30 @@
+Helios - a Home Assistant face for the Lenovo Smart Clock 2
+Copyright 2026 Mateusz Sych
+
+This product includes software developed as part of the Home Assistant Android
+companion app (https://github.com/home-assistant/android), licensed under the
+Apache License, Version 2.0:
+
+  - app/src/main/java/io/homeassistant/companion/android/microwakeword/MicroWakeWord.java
+  - app/src/main/jniLibs/armeabi-v7a/libmicrowakeword.so (built from the
+    microwakeword native sources of that project)
+  - app/src/main/assets/wakeword/okay_nabu.tflite and okay_nabu.json
+
+The exact upstream commit and the SHA-256 of every file taken from it are
+recorded in app/src/main/assets/wakeword/provenance.json, and the upstream
+license text is kept next to them as app/src/main/assets/wakeword/MODELS-LICENSE.
+
+The wake-word model okay_nabu.tflite / okay_nabu.json is redistributed
+unmodified. It was trained by Kevin Ahrendt (https://www.kevinahrendt.com/) with
+the microWakeWord framework (https://github.com/kahrendt/microWakeWord,
+Apache-2.0) and is published in https://github.com/esphome/micro-wake-word-models
+(Apache-2.0); this copy was taken from the Home Assistant Android companion app.
+Neither of those repositories states a separate license for the trained weights,
+so the repository-wide Apache-2.0 license is what applies here.
+
+Fonts: Geist and Geist Mono (https://github.com/vercel/geist-font), SIL Open
+Font License 1.1 - see app/src/main/assets/font-provenance.json and the license
+file shipped next to the fonts.
+
+Icons derived from Material Design Icons (https://pictogrammers.com/library/mdi/),
+Apache License 2.0 - see app/src/main/assets/ha-icon-provenance.json.

@@ -105,7 +105,7 @@ def test_expired_codes_are_still_refused():
 
 
 def test_sendspin_url_is_derived_from_the_ma_host():
-    assert const.sendspin_url_for("http://192.168.1.50:8095") == "ws://192.168.1.50:8927/sendspin"
+    assert const.sendspin_url_for("http://<home-assistant>:8095") == "ws://<home-assistant>:8927/sendspin"
     assert const.sendspin_url_for("https://ma.local/") == "ws://ma.local:8927/sendspin"
     assert const.sendspin_url_for("http://[fd00::5]:8095") == "ws://[fd00::5]:8927/sendspin"
     assert const.sendspin_url_for("") == ""
@@ -2258,8 +2258,8 @@ W `startHa()`: `if(authInvalid())return;` i `final int gen=connections.generatio
 ```java
 public class AddressInputTest {
     @Test public void hostsPortsAndUrls(){
-        assertEquals("http://192.168.1.10:8123",AddressInput.parse("192.168.1.10"));
-        assertEquals("http://192.168.1.10:8443",AddressInput.parse("192.168.1.10:8443"));
+        assertEquals("http://<host>:8123",AddressInput.parse("<host>"));
+        assertEquals("http://<host>:8443",AddressInput.parse("<host>:8443"));
         assertEquals("http://ha:8123",AddressInput.parse("http://ha:8123/"));
         assertNull("manual addresses are http only (SPEC 0.10 pkt 3)",AddressInput.parse("https://ha.local"));
         assertEquals("http://[fd00::5]:8123",AddressInput.parse("[fd00::5]"));

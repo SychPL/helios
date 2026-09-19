@@ -7,16 +7,33 @@ from pathlib import Path
 import secrets
 import socket
 
+
+def _clock_ip():
+    """the clock's address (set CLOCK_IP, or put {"clock_ip": "..."} in .local/bridge.json)"""
+    import os as _os, json as _json
+    from pathlib import Path as _Path
+    value = _os.environ.get('CLOCK_IP')
+    if not value:
+        config = _Path(__file__).resolve().parents[1] / '.local' / 'bridge.json'
+        if config.is_file():
+            value = _json.loads(config.read_text(encoding='utf-8')).get('clock_ip')
+    if not value:
+        raise SystemExit('Set CLOCK_IP to %s' % "the clock's address, e.g. CLOCK_IP=10.0.0.5")
+    return value
+
+
+CLOCK_IP = _clock_ip()
+
 ROOT=Path(__file__).resolve().parents[1]
 with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sock:
-    sock.connect(('192.168.1.113',8555));host=sock.getsockname()[0]
+    sock.connect((CLOCK_IP,8555));host=sock.getsockname()[0]
 bridge=ROOT/'.local/bridge.json'
 if not bridge.exists():bridge.write_text(json.dumps({'route':'/'+secrets.token_urlsafe(32)},indent=2),encoding='utf-8')
 route=json.loads(bridge.read_text(encoding='utf-8-sig'))['route']
 artifact=ROOT/'artifacts/native-0.1';artifact.mkdir(exist_ok=True)
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self,*args):pass
-    def allowed(self):return self.client_address[0] in ('192.168.1.113',host,'127.0.0.1')
+    def allowed(self):return self.client_address[0] in (CLOCK_IP,host,'127.0.0.1')
     def send(self,payload,content_type='application/octet-stream',filename=None):
         self.send_response(200);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(payload)));self.send_header('Cache-Control','no-store')
         if filename:self.send_header('Content-Disposition','attachment; filename="'+filename+'"')  # versioned name: the clock's Downloads never confuse an old APK with the new one

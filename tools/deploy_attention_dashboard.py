@@ -14,6 +14,19 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def manifest_path(name):
+    """Your own manifest in .local/ha/ wins over the example shipped in ha/ (the example names entities of one particular home)."""
+    private = ROOT / '.local' / 'ha' / name
+    return private if private.is_file() else ROOT / 'ha' / name
+
+
+
+def manifest_path(name):
+    """Your own manifest in .local/ha/ wins over the example shipped in ha/ (the example names entities of one particular home)."""
+    private = ROOT / '.local' / 'ha' / name
+    return private if private.is_file() else ROOT / 'ha' / name
+
+
 class HomeAssistant:
     def __init__(self):
         config = json.loads((ROOT / '.local/ha.json').read_text(encoding='utf-8-sig'))
@@ -137,7 +150,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
-    manifest = yaml.safe_load((ROOT / 'ha/helios-attention.yaml').read_text(encoding='utf-8'))
+    manifest = yaml.safe_load(manifest_path('helios-attention.yaml').read_text(encoding='utf-8'))
     if any(tile['type'] not in OWN_TYPES for tile in manifest['tiles']):
         raise ValueError('This rollout permits read-only tiles only')
     validate_tiles([dict(tile, off_entity='light.placeholder') if tile.pop('lights_off', False) else tile

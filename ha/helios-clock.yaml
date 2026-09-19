@@ -1,3 +1,6 @@
+# Example dashboard document for tools/publish_ha_dashboard.py.
+# The entity ids are placeholders - use your own, or keep a private copy in
+# .local/ha/helios-clock.yaml, which the publisher prefers when it exists.
 title: Helios
 helios:
   version: 2
@@ -15,7 +18,7 @@ helios:
 
     - id: weather
       type: weather
-      entity: weather.forecast_dom
+      entity: weather.home
       column: 3
       row: 1
       width: 2
@@ -24,7 +27,7 @@ helios:
 
     - id: garage-state
       type: entity
-      entity: sensor.camera_garage_garage_gate_classification
+      entity: binary_sensor.garage_door
       column: 3
       row: 2
       width: 2

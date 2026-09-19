@@ -4,7 +4,7 @@ Cały dashboard poniżej stałego górnego paska pochodzi z sekcji `helios` pane
 
 ## Gdzie zmieniać ustawienia
 
-Otwórz [Helios w HA](http://192.168.1.212/helios-clock), wybierz edycję pulpitu, a następnie z menu ⋮ edytor konfiguracji tekstowej. Zmieniaj główną sekcję `helios`, pozostawiając `views` z kartą instrukcji. Panel wymaga zalogowania kontem administratora; zegar łączy się własnym tokenem. Zapis odświeża zegar bez restartu: stary układ pozostaje zamrożony, aż przyjdzie snapshot encji nowego układu.
+Otwórz [Helios w HA](http://<home-assistant>/helios-clock), wybierz edycję pulpitu, a następnie z menu ⋮ edytor konfiguracji tekstowej. Zmieniaj główną sekcję `helios`, pozostawiając `views` z kartą instrukcji. Panel wymaga zalogowania kontem administratora; zegar łączy się własnym tokenem. Zapis odświeża zegar bez restartu: stary układ pozostaje zamrożony, aż przyjdzie snapshot encji nowego układu.
 
 Przykład całego dokumentu: [ha/helios-clock.yaml](../ha/helios-clock.yaml). Skrót:
 
