@@ -39,6 +39,18 @@ ask it to, and talks to nothing but your own Home Assistant.
   mints the clock its own non-admin, local-only user. No long-lived admin token
   ever touches the device. See [docs/SPEC-0.10-onboarding.md](docs/SPEC-0.10-onboarding.md).
 
+## Clock tools
+
+The clock ships with no ADB and no way to grant an app anything, which is why some of the useful things a wall
+panel wants (its own microphone permission, system brightness, coming back after a power cut, updating itself
+without a dialog) are out of reach. The menu entry **Narzędzia zegara** talks to
+[smartclock2tool](https://github.com/SychPL/smartclock2tool) for exactly those, through a bridge with a closed list
+of operations.
+
+Helios never receives root or a shell through this. It asks, the tool shows you what is being asked and by whom,
+and after you agree the result is a permission Helios then uses on its own. Without the tool installed the entry
+offers to fetch it and nothing else changes. The contract is [SPEC 0.12](docs/SPEC-0.12-tools-bridge.md).
+
 ## Hardware and firmware
 
 Built and verified on a **Lenovo Smart Clock 2** (MT8167, Android 10), retail
