@@ -152,7 +152,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
     @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
-    @Override public void onDestroy(){if(navigation!=null)navigation.close();closePanel();closeOnboarding();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
+    @Override public void onDestroy(){main.removeCallbacks(toolsPoll);if(navigation!=null)navigation.close();closePanel();closeOnboarding();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
         if(config==null||config.optBoolean("auth_invalid",false)){connect();return;}
         if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
@@ -524,6 +524,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean toolsMenuPending;
 
     /** The menu of what the tools can do here; every entry has its own condition, so nothing is offered in vain. */
+    /** A recreated activity is as unusable as a finishing one, and both outlive a callback that captured them. */
+    private boolean gone(){return isFinishing()||isDestroyed();}
+
     /**
      * Asks about whatever operation is pending when it fires, not about the one that was pending when scheduled.
      *
@@ -532,7 +535,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
      */
     private final Runnable toolsPoll=new Runnable(){public void run(){
         String waiting=ToolsBridge.pendingOpId(MainActivity.this);
-        if(waiting==null||isFinishing())return;
+        if(waiting==null||gone())return;
         long age=ToolsCall.stageAgeMs(toolsSnapshot,null);
         if(age>=0&&age>ToolsCall.limitFor(ToolsBridge.pendingOp(MainActivity.this),
                 ToolsCall.stageOf(toolsSnapshot,waiting))){
@@ -615,7 +618,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         toast("Szukam nowej wersji…");
         service.fetchForBridge(file->main.post(()->{
             if(file==null)return;                                  // the updater already said why
-            if(isFinishing()){file.delete();return;}               // nobody left to hand the result to
+            if(gone()){file.delete();return;}                      // nobody left to hand the result to
             // the world may have moved while we were downloading: another operation started, or trust withdrawn
             if(!ToolsTrust.mayCall(ToolsBridge.status(this))
                     ||!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),
