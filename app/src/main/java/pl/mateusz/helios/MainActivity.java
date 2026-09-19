@@ -17,6 +17,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import org.json.JSONObject;
@@ -565,12 +566,17 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(pending!=null)column.addView(Theme.label(this,"Trwa: "+ToolsBridge.pendingOp(this),13,true));
         String explain=ToolsTrust.explain(state.trust);
         if(!explain.isEmpty())column.addView(Theme.label(this,explain,13,true));
+        ScrollView scroll=new ScrollView(this);
+        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);scroll.addView(rows);
         for(String item:items){
             Button button=Theme.button(this,item,false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
             button.setOnClickListener(v->{closePanel();toolsAction(item);});
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,Theme.dp(this,52));p.topMargin=Theme.dp(this,8);
-            column.addView(button,p);
+            rows.addView(button,p);
         }
+        // seven entries plus a header do not fit on an 800x480 screen, and the ones that fall off are the repairs
+        // wrap_content with a weight: the list takes the room it needs, and gives it back when the screen is short
+        column.addView(scroll,new LinearLayout.LayoutParams(-1,-2,1));
         Button close=Theme.button(this,"Zamknij",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
         close.setOnClickListener(v->closePanel());
         LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Theme.dp(this,52));c.topMargin=Theme.dp(this,12);
@@ -603,7 +609,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         else if(ToolsMenu.PERMISSION_MIC.equals(item)){op="grant_permission";args=ToolsBridge.grantArgs("android.permission.RECORD_AUDIO");}
         if(op==null)return;
         if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){toast("Poprzednia operacja jeszcze trwa");return;}
-        if(ToolsBridge.start(this,op,args,null)==null)toast(ToolsTrust.explain(ToolsBridge.status(this)));
+        if(ToolsBridge.start(this,op,args,null)==null){
+            String why=ToolsTrust.explain(ToolsBridge.status(this));
+            toast(why.isEmpty()?"Nie udało się uruchomić narzędzi":why);
+        }
     }
 
     /** Installing the tool is not the same as trusting it, so the user says so here, once. */
