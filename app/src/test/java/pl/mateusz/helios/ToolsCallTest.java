@@ -66,6 +66,15 @@ public class ToolsCallTest {
     }
 
     @Test
+    public void aStageOfAnotherOperationIsNotOurs() {
+        String snapshot = "{\"about\":{\"op_id\":\"op-other\",\"stage\":\"finished\"}}";
+        assertEquals("finished", ToolsCall.stageOf(snapshot, "op-other"));
+        assertEquals("somebody else finishing says nothing about us", "", ToolsCall.stageOf(snapshot, "op-mine"));
+        assertFalse("and it must not let another operation start", ToolsCall.mayStartAnother("op-mine",
+                ToolsCall.stageOf(snapshot, "op-mine")));
+    }
+
+    @Test
     public void anotherOperationWaitsForATerminalStage() {
         assertFalse(ToolsCall.mayStartAnother("op-mine", "running"));
         assertFalse(ToolsCall.mayStartAnother("op-mine", "awaiting_consent"));

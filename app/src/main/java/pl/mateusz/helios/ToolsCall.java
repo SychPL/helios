@@ -75,9 +75,19 @@ final class ToolsCall {
     }
 
     static String stageOf(String snapshotJson) {
+        return stageOf(snapshotJson, null);
+    }
+
+    /**
+     * The stage the snapshot reports, but only when it is about the request we asked about. A snapshot describing
+     * somebody else's operation says nothing about ours, and treating it as ours would close a record too early.
+     */
+    static String stageOf(String snapshotJson, String aboutOpId) {
         try {
             JSONObject about = new JSONObject(snapshotJson).optJSONObject("about");
-            return about == null ? "" : about.optString("stage");
+            if (about == null) return "";
+            if (aboutOpId != null && !aboutOpId.equals(about.optString("op_id"))) return "";
+            return about.optString("stage");
         } catch (Exception e) {
             return "";
         }

@@ -140,7 +140,8 @@ final class Updater {
             Boolean sealed=session>=0?host.sealed(session):null;
             if("abandon".equals(restoreDecision(true,sealed))){if(sealed!=null)host.abandon(session);cleanup(record);}
         }
-        File[] stale=host.cacheDir().listFiles((d,n)->n.startsWith("helios-update-")&&n.endsWith(".apk"));
+        // both kinds of download: the installer path and the one handed to the clock tools
+        File[] stale=host.cacheDir().listFiles((d,n)->(n.startsWith("helios-update-")||n.startsWith("silent-"))&&n.endsWith(".apk"));
         String keep=record==null?null:record.optString("file");
         if(stale!=null)for(File f:stale)if(!f.getPath().equals(keep))host.deleteFile(f.getPath());
     }

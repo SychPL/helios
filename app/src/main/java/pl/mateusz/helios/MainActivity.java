@@ -597,6 +597,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         service.fetchForBridge(file->main.post(()->{
             if(file==null)return;                                  // the updater already said why
             if(isFinishing()){file.delete();return;}               // nobody left to hand the result to
+            // the world may have moved while we were downloading: another operation started, or trust withdrawn
+            if(!ToolsTrust.mayCall(ToolsBridge.status(this))
+                    ||!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),
+                            ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){
+                file.delete();toast("Poprzednia operacja jeszcze trwa");return;
+            }
             // a file per hand-off: the tools may still be copying the previous one
             String opId=ToolsCall.newOpId();
             java.io.File shared=ApkProvider.shared(this,opId);
@@ -629,6 +635,13 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
 
     /** Every answer is reconciled against the tool's own record, never trusted on its own. */
+    /**
+     * Every answer from the tools, reconciled rather than believed (SPEC 0.12 pkt 4.2).
+     *
+     * <p>Two kinds of answer arrive here: the operation we started, and the state queries that ask what became of
+     * it. They have different identifiers on purpose, so what settles the pending record is either a verdict on
+     * that operation or a terminal stage reported about that same operation, never a stage belonging to another.
+     */
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
         if(requestCode!=ToolsBridge.REQUEST_CODE)return;
@@ -636,29 +649,29 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         String answeredFor=ToolsBridge.opIdOf(data);
         String waitingFor=ToolsBridge.pendingOpId(this);
         String snapshot=ToolsBridge.snapshotOf(data);
-        // a state query answers about somebody else's request, so an answer that carries a stage is always ours to read
         if(!cancelled&&snapshot.length()>2)toolsSnapshot=snapshot;
         String result=ToolsBridge.statusOf(data);
         String detail=ToolsBridge.detailOf(data);
         if(!cancelled&&result!=null&&!detail.isEmpty())toast(detail);
 
-        String stage=ToolsCall.stageOf(toolsSnapshot);
-        if(ToolsCall.acceptResult(answeredFor,waitingFor)&&!cancelled&&result!=null&&!"in_progress".equals(result)
-                &&!"unknown".equals(result)){
-            ToolsBridge.forget(this,waitingFor);              // the operation itself came back with a verdict
-            waitingFor=null;
-        }else{
-            ToolsBridge.observe(this,waitingFor,stage);        // otherwise only a terminal stage may close it
-            if(ToolsCall.terminal(stage))waitingFor=null;
+        boolean settled=false;
+        if(ToolsCall.acceptResult(answeredFor,waitingFor)&&!cancelled&&result!=null
+                &&ToolsCall.next(result,false)==ToolsCall.Next.DONE){
+            ToolsBridge.forget(this,waitingFor);                 // the operation itself came back with a verdict
+            settled=true;
+        }else if(waitingFor!=null){
+            String stage=ToolsCall.stageOf(toolsSnapshot,waitingFor);   // only a stage about our own request counts
+            ToolsBridge.observe(this,waitingFor,stage);
+            settled=ToolsCall.terminal(stage);
         }
 
-        if(toolsMenuPending){toolsMenuPending=false;main.post(()->toolsDialog(false));return;}
-        if(waitingFor!=null&&ToolsBridge.pendingOpId(this)!=null){
-            final String asking=waitingFor;
-            main.postDelayed(()->{if(!isFinishing())ToolsBridge.ask(this,asking);},5000);
-        }else if(ToolsCall.acceptResult(answeredFor,ToolsBridge.pendingOpId(this))){
-            ToolsBridge.ask(this,null);                        // one reconciliation after a change
+        String stillWaiting=ToolsBridge.pendingOpId(this);
+        if(stillWaiting!=null){
+            main.postDelayed(()->{if(!isFinishing())ToolsBridge.ask(this,stillWaiting);},5000);
+        }else if(settled){
+            ToolsBridge.ask(this,null);                          // one reconciliation once the operation is over
         }
+        if(toolsMenuPending){toolsMenuPending=false;main.post(()->toolsDialog(false));}
     }
 
     private void deviceDialog(){
