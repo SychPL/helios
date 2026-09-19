@@ -182,6 +182,21 @@ Blokada w pamięci znika razem z procesem, a uprzywilejowany wykonawca nie. To j
 - Konsumuje: `ExecutorLock.Files`, `ExecutorLock.Processes` (`Liveness alive(int pid, long startTicks)` zwracające `ALIVE`, `DEAD` albo `UNKNOWN`; `long startTicks(int pid)`), `ExecutorLock.Clock` (`String bootId()`).
 - Produkuje: `boolean reserve(String opId, String kind)`, `void promote(String opId)`, `void attach(String opId, int pid, long startTicks)`, `void handOff(String opId, String worker)`, `void handOffFailed(String opId)`, `void done(String opId)`, `String chain()`, `boolean mayStartNew()`.
 
+**Identyfikator wykonania.** `op_id` jest unikalny wyłącznie w obrębie krotki wywołującego, więc dwie aplikacje mogą przysłać ten sam. Blokada, ślad i pliki posługują się więc `exec_id`, czyli skrótem pełnego klucza: pakiet, odcisk, `op_id`. Pliki instalacji leżą w `filesDir/bridge/<exec_id>.apk`, a nie pod nazwą pochodzącą od `op_id`.
+
+```java
+@Test public void twoCallersMayUseTheSameOpIdWithoutCollidingOnFilesOrLocks() {
+    String a = Executions.execId("pl.mateusz.helios", "AA", "op1");
+    String b = Executions.execId("pl.evil", "CC", "op1");
+    assertNotEquals(a, b);
+    assertTrue(Executions.begin(a, "running", "privileged").granted);
+    assertFalse("the lock is global, so the second one waits", Executions.begin(b, "running", "privileged").granted);
+    Executions.end(a);
+    assertTrue(Executions.begin(b, "running", "privileged").granted);
+    assertNotEquals(BridgeFiles.apkFor(a), BridgeFiles.apkFor(b));
+}
+```
+
 **Protokół rezerwacji.** Między uruchomieniem procesu a poznaniem jego identyfikatora jest szczelina, w której awaria zostawiłaby ślad bez wykonawcy albo wykonawcę bez śladu. Dlatego kolejność jest: `reserve(opId)` zapisuje ślad **przed** uruchomieniem czegokolwiek, `attach` uzupełnia go o identyfikator procesu i czas jego startu, a zastany ślad bez identyfikatora liczy się jako `unknown`, nie `idle`.
 
 **Tożsamość procesu.** Sam identyfikator procesu nie wystarcza, bo system nadaje go ponownie w tym samym uruchomieniu. Ślad trzyma więc parę: identyfikator i czas startu procesu (22. pole `/proc/<pid>/stat`). Zgodność obu znaczy "ten sam proces", rozbieżność znaczy "tamten już nie żyje", a brak dostępu do `/proc` znaczy `UNKNOWN`.
@@ -757,6 +772,33 @@ Manifest, po `InstallActivity`:
 Implementacja: właściwość, restart demona, sprawdzenie portu, a gdy port nadal odpowiada, `stop adbd` i ponowne sprawdzenie. Który wariant wystarcza na tym firmware, rozstrzyga zadanie 15.
 
 - [ ] **Krok 3: `BridgeActivity`** - ekrany zaufania, zgody i postępu; każdy przycisk `setFilterTouchesWhenObscured(true)`; `onNewIntent` zawsze `denied`; wynik przez `setResult` z `status`, `detail` (po filtrze), `state`, `op_id`; rejestr i magazyny brane z `BridgeFiles`.
+
+Zamknięcie ekranu znaczy co innego na każdym z nich i to rozróżnienie trzeba zaimplementować wprost:
+
+| zamknięty ekran | wpis w rejestrze | wynik dla wywołującego | blokada i wykonawca |
+| --- | --- | --- | --- |
+| zaufanie albo zgoda | `finished` ze statusem `denied` | `RESULT_CANCELED` | zwolniona, nic nie ruszyło |
+| postęp | bez zmian, etap trwa dalej | `RESULT_CANCELED` | **trzymana**, wykonawca pracuje |
+
+```java
+@Test public void closingTheConsentScreenIsARefusal() {
+    Bridge b = started("root_adb_on");
+    b.closeConsent();
+    assertEquals("finished", b.registryStage());
+    assertEquals("denied", b.registryStatus());
+    assertEquals(RESULT_CANCELED, b.resultCode());
+    assertFalse("nothing was started, so nothing may be held", b.lockHeld());
+}
+
+@Test public void closingTheProgressScreenDoesNotStopTheWork() {
+    Bridge b = running("root_adb_on");
+    b.closeProgress();
+    assertEquals(RESULT_CANCELED, b.resultCode());
+    assertEquals("the chain does not care about the window", "running", b.registryStage());
+    assertTrue(b.lockHeld());
+    assertTrue("and the caller can still ask about it", b.aboutSays("in_progress"));
+}
+```
 - [ ] **Krok 4: `BridgeExecutor`** - `state`, `root_adb_on`, `adb_on`, `adb_off`; etapy meldowane do rejestru; blokada i ślad wykonawcy zakładane przed startem łańcucha i zdejmowane po potwierdzeniu.
 - [ ] **Krok 5: wyzwalacze bez interfejsu** - `adbwifion` i `adbwifioff` w `AgentRuntime.trigger`, na tej samej ścieżce co mostek.
 - [ ] **Krok 6: build i testy** - `./gradlew :app:testDebugUnitTest assembleDebug`
@@ -1061,9 +1103,9 @@ Zapytanie o stan jest osobnym żądaniem z własnym identyfikatorem, więc Helio
 @Test public void filesOfAnInterruptedInstallAreNotDeletedOnStartup() {
     registryWith("op1", "interrupted");
     new BridgeFiles(files).cleanupOnStart(registry, executorLockThatIsUnknown());
-    assertTrue("deleting an APK from under a live installer would break the update", files.exists("bridge/op1.apk"));
+    assertTrue("deleting an APK from under a live installer would break the update", files.exists("bridge/" + execId("op1") + ".apk"));
     new BridgeFiles(files).cleanupOnStart(registry, executorLockThatConfirmsDeath());
-    assertFalse(files.exists("bridge/op1.apk"));
+    assertFalse(files.exists("bridge/" + execId("op1") + ".apk"));
 }
 ```
 
@@ -1166,7 +1208,7 @@ Skrót zadeklarowany przez wywołującego należy do argumentów, więc bierze u
 | ślad | znaczenie | blokada i pliki |
 | --- | --- | --- |
 | brak przekazania, wykonawca martwy | instalator nie wystartował, bo przekazanie zapisuje się przed jego uruchomieniem | zwolnić, sprzątnąć, wynik `failed` |
-| przekazanie, potwierdzone niewystartowanie (`handOffFailed`, bo uruchomienie zwróciło błąd) | instalator nigdy nie ruszył | zwolnić po zakończeniu wykonawcy, sprzątnąć, wynik `failed` |
+| przekazanie, potwierdzone niewystartowanie (`handOffFailed`, bo uruchomienie zwróciło błąd) | instalator nigdy nie ruszył | zwolnić po zakończeniu wykonawcy, sprzątnąć `<exec_id>.apk`, wynik `failed` |
 | przekazanie, instalacja potwierdzona zakończeniem (zmieniony `versionCode` albo wynik z sesji) | skończone | zwolnić, sprzątnąć |
 | przekazanie bez żadnego z powyższych, proces sc2t żyje | instalacja trwa normalnie | trzymać blokadę i pliki, etap `installing`, status `in_progress`, także po przekroczeniu limitu |
 | przekazanie bez żadnego z powyższych, wpis zastany po śmierci sc2t | mogła się skończyć albo nie | trzymać blokadę i pliki, etap `interrupted`, status `unknown` |
@@ -1177,7 +1219,7 @@ Skrót zadeklarowany przez wywołującego należy do argumentów, więc bierze u
 @Test public void aDeadExecutorDoesNotProveTheInstallerFinished() {
     Outcome o = recover(traceWith(handOff("installer"), deadExecutor()), installedVersionCode(29));
     assertEquals("unknown", o.status);
-    assertTrue("the APK must survive a possibly running installer", o.filesKept);
+    assertTrue("the APK of this exec_id must survive a possibly running installer", o.filesKept);
     assertTrue(o.lockHeld);
 
     Outcome done = recover(traceWith(handOff("installer"), deadExecutor()), installedVersionCode(30));
