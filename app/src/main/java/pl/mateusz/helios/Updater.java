@@ -102,6 +102,26 @@ final class Updater {
             // committed: from here the installer owns the session; the durable record + sealed session keep busy() true
         }finally{active=false;}
     }
+    /**
+     * Downloads and verifies a release without installing it (SPEC 0.12 pkt 5.8). The caller hands the file to the
+     * bridge instead of the system installer, which is the whole point of a silent update.
+     */
+    File fetch(ReleaseInfo.Source source,String installedVersion){
+        if(busy()){host.status("Aktualizacja w toku…");return null;}
+        JSONObject release;
+        try{release=host.release(source);}catch(IOException e){host.status("Brak połączenia z GitHub");return null;}
+        ReleaseInfo info=ReleaseInfo.parse(release,source);
+        if(info==null){host.status("Brak wydań");return null;}
+        String decision=decision(info.version,installedVersion);
+        if(!"newer".equals(decision)&&!"absent".equals(decision)){host.status("Masz najnowszą wersję ("+installedVersion+")");return null;}
+        File file=new File(host.cacheDir(),"silent-"+info.version+".apk");
+        host.status("Pobieram "+source.label+" "+info.version+"…");
+        try{host.download(info.url,file,info.size);}catch(IOException e){host.status("Brak połączenia z GitHub");return null;}
+        String problem=host.check(file,info.version,source.expectedPackage);
+        if(problem!=null&&!problem.equals("ok")){host.status(problem);host.deleteFile(file.getPath());return null;}
+        return file;
+    }
+
     private void fail(JSONObject record,int session,String text){
         host.status(text);
         if(session>=0)host.abandon(session);

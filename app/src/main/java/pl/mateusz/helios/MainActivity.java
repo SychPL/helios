@@ -555,6 +555,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             return;
         }
         if(ToolsMenu.ACCEPT.equals(item)){acceptTools();return;}
+        if(ToolsMenu.SILENT_UPDATE.equals(item)){silentUpdate();return;}
         String op=null,args="";
         if(ToolsMenu.ROOT_AND_ADB.equals(item))op="root_adb_on";
         else if(ToolsMenu.ADB_ON.equals(item))op="adb_on";
@@ -570,6 +571,34 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
 
     /** Installing the tool is not the same as trusting it, so the user says so here, once. */
+
+    /** Downloads our own update and lets the tools install it, so no installer dialog appears on the clock. */
+    private void silentUpdate(){
+        if(service==null){toast("Usługa Heliosa jeszcze nie działa");return;}
+        if(!ToolsTrust.mayCall(ToolsBridge.status(this))){toast(ToolsTrust.explain(ToolsBridge.status(this)));return;}
+        toast("Szukam nowej wersji…");
+        service.fetchForBridge(file->main.post(()->{
+            if(file==null)return;                                  // the updater already said why
+            java.io.File shared=ApkProvider.shared(this);
+            if(!moveInto(file,shared)){toast("Nie udało się przygotować pliku");return;}
+            android.net.Uri uri=ApkProvider.uriFor(this);
+            if(uri==null){toast("Nie udało się przygotować pliku");return;}
+            if(ToolsBridge.start(this,"install_apk","",uri)==null)toast(ToolsTrust.explain(ToolsBridge.status(this)));
+        }));
+    }
+
+    private boolean moveInto(java.io.File from,java.io.File to){
+        try(java.io.InputStream in=new java.io.FileInputStream(from);java.io.OutputStream out=new java.io.FileOutputStream(to)){
+            byte[] chunk=new byte[64*1024];int n;
+            while((n=in.read(chunk))!=-1)out.write(chunk,0,n);
+        }catch(java.io.IOException e){return false;}
+        finally{
+            //noinspection ResultOfMethodCallIgnored
+            from.delete();
+        }
+        return true;
+    }
+
     private void acceptTools(){
         ToolsTrust.Installed tool=ToolsBridge.installed(this);
         if(tool==null){toast("Narzędzia nie są zainstalowane");return;}

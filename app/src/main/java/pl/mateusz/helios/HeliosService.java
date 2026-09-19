@@ -556,6 +556,10 @@ public final class HeliosService extends Service {
     void update(){network.execute(updater::run);}
     /** Fetches and installs another package from its own GitHub releases (SPEC 0.12 pkt 6.2). */
     void install(ReleaseInfo.Source source,String installedVersion){network.execute(()->updater.run(source,installedVersion));}
+    /** Downloads our own update and hands the file to the caller, which passes it to the bridge. */
+    void fetchForBridge(java.util.function.Consumer<java.io.File> done){
+        network.execute(()->{java.io.File file=updater.fetch(ReleaseInfo.HELIOS,BuildConfig.VERSION_NAME);done.accept(file);});
+    }
     private Runnable onConnectionChanged,onAuthInvalid;
     private Consumer<String> onChannelIssue;
     private String channelIssue;

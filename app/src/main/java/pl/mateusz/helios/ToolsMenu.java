@@ -22,6 +22,7 @@ final class ToolsMenu {
     static final String PERMISSION_MIC = "Uprawnienie mikrofonu";
     static final String ALLOW_BRIGHTNESS = "Pozwól na jasność";
     static final String SET_HOME = "Ustaw jako ekran główny";
+    static final String SILENT_UPDATE = "Cicha aktualizacja Heliosa";
 
     private ToolsMenu() {}
 
@@ -52,6 +53,7 @@ final class ToolsMenu {
         if (state.rooted() && !state.recordAudio) items.add(PERMISSION_MIC);
         if (state.rooted() && !state.canWriteSettings) items.add(ALLOW_BRIGHTNESS);
         if (state.rooted() && state.declaresHome && !state.isHome) items.add(SET_HOME);
+        if (state.rooted()) items.add(SILENT_UPDATE);   // installs our own update with no installer dialog
         return items;
     }
 }
