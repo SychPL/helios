@@ -45,7 +45,9 @@ extras:
   args : String  - argumenty operacji jako JSON, dopuszczalne puste
 ```
 
-Intencja jest jawna, więc nie podszyje się pod nią inna aplikacja. `BridgeActivity` jest jedynym eksportowanym wejściem mostka, bez filtra intencji poza własną akcją, `launchMode="singleTask"`, `excludeFromRecents="true"`.
+Intencja jest jawna, więc nie podszyje się pod nią inna aplikacja. `BridgeActivity` jest jedynym eksportowanym wejściem mostka i nie ma filtra intencji poza własną akcją.
+
+Tryb uruchomienia to `standard` albo `singleTop`, nigdy `singleTask` ani `singleInstance`, a Helios nie dodaje `FLAG_ACTIVITY_NEW_TASK`: aktywność w osobnym zadaniu dostaje od systemu natychmiastowe `RESULT_CANCELED` i `getCallingPackage()` przestaje działać, czyli kontrola z pkt 4.3 traci podstawę. `excludeFromRecents="true"` jest dozwolone, bo nie zmienia przynależności do zadania.
 
 ### 4.2 Odpowiedź
 
@@ -60,6 +62,8 @@ state  : String - JSON stanu z pkt 5.1, zawsze aktualny na moment odpowiedzi
 `denied` oznacza decyzję człowieka albo brak zaufania do wywołującego, `unsupported` nieznaną operację, `unsupported_api` niezgodną wersję kontraktu, `busy` inną operację w toku, `failed` nieudane wykonanie, `wrong_firmware` niezgodny identyfikator kompilacji (pkt 7.1).
 
 Helios traktuje brak wyniku w 5 minutach jak `failed`; to jedyny limit czasu po jego stronie.
+
+**Przerwanie w trakcie.** Zabicie którejkolwiek z aplikacji, odcięcie zasilania albo wyjście użytkownika z okna postępu kończy się dla Heliosa brakiem wyniku albo `RESULT_CANCELED`. Żadna z tych sytuacji nie mówi, czy operacja się wykonała, więc Helios nigdy nie wnioskuje o skutku z samego wyniku: po każdej operacji innej niż `state` odpytuje `state` i porównuje go z oczekiwanym stanem, a interfejs buduje wyłącznie z odpowiedzi `state`. Po stronie sc2t operacja jest niepodzielna albo bezczynna przy powtórzeniu, więc ponowienie jest zawsze bezpieczne.
 
 ### 4.3 Zaufanie wywołującego
 
@@ -136,6 +140,8 @@ Nadaje uprawnienie **wyłącznie pakietowi wywołującemu**, wyłącznie z listy
 
 Nadaje pakietowi wywołującemu operację `WRITE_SETTINGS`. Po niej Helios zmienia jasność systemową i czas wygaszania sam, bez roota i bez sc2t; jest to jedyny cel tej operacji. Cofnięcie: przez ekran zaufania sc2t.
 
+Warunek konieczny po stronie Heliosa: `android.permission.WRITE_SETTINGS` musi być zadeklarowane w jego manifeście, inaczej nadana operacja nic nie zmienia. sc2t sprawdza tę deklarację przed wykonaniem i bez niej zwraca `unsupported`.
+
 ### 5.6 `set_home`
 
 Ustawia pakiet wywołujący jako domyślny ekran główny. Sprawdza wcześniej, że wywołujący faktycznie deklaruje kategorię `HOME`; inaczej `unsupported`. `detail` przypomina, jak wrócić do poprzedniego ekranu głównego.
@@ -146,13 +152,17 @@ Ustawia pakiet wywołujący jako domyślny ekran główny. Sprawdza wcześniej, 
 
 Uzasadnienie w `detail`: te powłoki trzymają mikrofon w 48 kHz stereo, a sterownik nie przelicza formatu osobno dla klienta, więc każda inna aplikacja dostaje sześciokrotnie za dużo próbek. Potwierdzone na sprzęcie 19 września 2026: po `mic_release` sesja Heliosa raportuje `1ch 16000Hz`.
 
-Skutek uboczny dla człowieka: na zegarze przestaje działać "Hey Google". Ekran zgody musi to powiedzieć.
+Skutki uboczne, oba na ekranie zgody: na zegarze przestaje działać "Hey Google", a restart powłoki na chwilę zabiera ekran główny, jeśli to ona nim jest. Operacja jest więc dozwolona tylko wtedy, gdy wywołujący jest widoczny na wierzchu; inaczej `failed`.
 
 ### 5.8 `install_apk`
 
-`args`: `{"uri": "content://...", "package": "pl.mateusz.helios"}`.
+`args`: `{"uri": "content://..."}`.
 
-Cicha instalacja wskazanego pliku. Operacja wysokiego ryzyka: zgoda przy każdym wywołaniu, na ekranie widnieje nazwa pakietu i wersja odczytane z pliku, nie z argumentów. sc2t odmawia (`unsupported`), gdy pakiet w pliku różni się od pakietu wywołującego: mostek służy do aktualizowania siebie, nie do instalowania czegokolwiek. Plik przekazywany jest przez `content://` z `FLAG_GRANT_READ_URI_PERMISSION`.
+Cicha instalacja wskazanego pliku. Operacja wysokiego ryzyka: zgoda przy każdym wywołaniu.
+
+Przebieg jest jednokierunkowy i cały po stronie sc2t: plik przychodzi jako `content://` z `FLAG_GRANT_READ_URI_PERMISSION` (Helios udostępnia go własnym `FileProvider`), sc2t kopiuje strumień do swojego katalogu prywatnego, odczytuje z **kopii** nazwę pakietu, wersję i odcisk podpisu, i dopiero wtedy pokazuje je na ekranie zgody. Instalacja idzie z tej kopii, nie z adresu od wywołującego: `pm install` z prawami roota nie czyta `content://`, a plik pod ścieżką wywołującego mógłby zostać podmieniony między sprawdzeniem a instalacją.
+
+sc2t odmawia (`unsupported`), gdy pakiet w pliku różni się od pakietu wywołującego albo gdy odcisk podpisu różni się od zainstalowanej wersji tego pakietu: mostek służy do aktualizowania siebie, nie do instalowania czegokolwiek i nie do podmiany aplikacji na wersję obcego autora. Kopia jest kasowana po wyniku.
 
 ## 6. Strona Heliosa
 
@@ -250,3 +260,4 @@ Mostek nie przekazuje niczego z Home Assistanta ani z konfiguracji Heliosa. `det
 | ADB zostaje włączone i zapomniane | zegar otwarty dla sieci lokalnej | widoczny stan w menu Heliosa, `adb_off` zawsze dostępne |
 | rozjazd wersji dwóch aplikacji | operacja nie istnieje albo znaczy co innego | `api` w każdym wywołaniu, próg `versionCode`, `unsupported` jako normalna odpowiedź |
 | root znika po odcięciu zasilania | funkcje przestają działać w środku nocy | uprawnienia nadane raz zostają na stałe; roota wymaga tylko ich nadanie, nie używanie |
+| Helios jako ekran główny przestaje się uruchamiać | zegar bez żadnego interfejsu | ekran zgody `set_home` zaleca zostawienie zapasowego launchera; przywrócenie poprzedniego opisuje `detail` |
