@@ -522,6 +522,13 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean toolsMenuPending;
 
     /** The menu of what the tools can do here; every entry has its own condition, so nothing is offered in vain. */
+    /** Asks about whatever operation is pending when it fires, not about the one that was pending when scheduled. */
+    private final Runnable toolsPoll=new Runnable(){public void run(){
+        String waiting=ToolsBridge.pendingOpId(MainActivity.this);
+        if(waiting==null||isFinishing())return;
+        ToolsBridge.ask(MainActivity.this,waiting);
+    }};
+
     private void toolsDialog(){toolsDialog(true);}
 
     /**
@@ -580,7 +587,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         else if(ToolsMenu.SET_HOME.equals(item))op="set_home";
         else if(ToolsMenu.PERMISSION_MIC.equals(item)){op="grant_permission";args=ToolsBridge.grantArgs("android.permission.RECORD_AUDIO");}
         if(op==null)return;
-        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot))){toast("Poprzednia operacja jeszcze trwa");return;}
+        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){toast("Poprzednia operacja jeszcze trwa");return;}
         if(ToolsBridge.start(this,op,args,null)==null)toast(ToolsTrust.explain(ToolsBridge.status(this)));
     }
 
@@ -590,7 +597,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void silentUpdate(){
         if(service==null){toast("Usługa Heliosa jeszcze nie działa");return;}
         if(!ToolsTrust.mayCall(ToolsBridge.status(this))){toast(ToolsTrust.explain(ToolsBridge.status(this)));return;}
-        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot))){
+        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){
             toast("Poprzednia operacja jeszcze trwa");return;
         }
         toast("Szukam nowej wersji…");
@@ -665,9 +672,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             settled=ToolsCall.terminal(stage);
         }
 
-        String stillWaiting=ToolsBridge.pendingOpId(this);
-        if(stillWaiting!=null){
-            main.postDelayed(()->{if(!isFinishing())ToolsBridge.ask(this,stillWaiting);},5000);
+        if(ToolsBridge.pendingOpId(this)!=null){
+            main.removeCallbacks(toolsPoll);                     // one poll at a time, whatever answered last
+            main.postDelayed(toolsPoll,5000);
         }else if(settled){
             ToolsBridge.ask(this,null);                          // one reconciliation once the operation is over
         }
