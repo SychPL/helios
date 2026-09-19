@@ -536,8 +536,9 @@ Atrapy `FakeStore` i `FakeClock` w tym samym pliku, w stylu `ExecUtilTest`.
 
 @Test public void aFileGrantIsAllowedOnlyForAnOperationThatTakesAFile() {
     assertNull(parse(ok().op("install_apk").flags(FLAG_GRANT_READ_URI_PERMISSION).withUri()).error);
-    assertEquals("unsupported", parse(ok().op("state").flags(FLAG_GRANT_READ_URI_PERMISSION).withUri()).error);
-    assertEquals("install_apk without a file is nothing", "unsupported", parse(ok().op("install_apk")).error);
+    assertEquals("a flag that this operation may not carry is a refusal, not a malformed request",
+                 "denied", parse(ok().op("state").flags(FLAG_GRANT_READ_URI_PERMISSION).withUri()).error);
+    assertEquals("install_apk without a file is a malformed request", "unsupported", parse(ok().op("install_apk")).error);
 }
 ```
 
