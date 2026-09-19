@@ -84,7 +84,7 @@ final class DashboardSpec {
             case "weather":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));allowed.addAll(Arrays.asList("entity","temperature_entity"));if(version>=4)allowed.addAll(Arrays.asList("forecast_entity","forecast_when"));action=null;break;
             case "entity":
                 allowed.addAll(Arrays.asList("entity","attribute"));
-                if(version>=5&&o.has("off_entity"))action="lights_off";  // SPEC 0.12: a read-only tile that can turn its lights off
+                if(version>=5&&o.has("off_entity"))action="lights_off";  // schema 5 (docs/ha-dashboard.md): a read-only tile that can turn its lights off
                 else{allowed.removeAll(Arrays.asList("tap_action","confirmation"));action=null;}
                 if(version>=5)allowed.add("off_entity");
                 break;
