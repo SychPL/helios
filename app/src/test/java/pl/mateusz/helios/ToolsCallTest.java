@@ -89,6 +89,17 @@ public class ToolsCallTest {
     }
 
     @Test
+    public void waitingForAHumanHasNoLimitButMachineStagesDo() {
+        assertEquals(Long.MAX_VALUE, ToolsCall.limitFor("install_apk", "awaiting_consent"));
+        assertEquals(Long.MAX_VALUE, ToolsCall.limitFor("root_adb_on", ""));
+        assertEquals(60_000, ToolsCall.limitFor("install_apk", "copying"));
+        assertEquals(120_000, ToolsCall.limitFor("install_apk", "installing"));
+        assertEquals(240_000, ToolsCall.limitFor("root_adb_on", "running"));
+        assertEquals(45_000, ToolsCall.limitFor("adb_off", "running"));
+        assertEquals(20_000, ToolsCall.limitFor("set_home", "running"));
+    }
+
+    @Test
     public void anEmptyStageNeverCountsAsFinished() {
         assertFalse(ToolsCall.terminal(""));
         assertFalse(ToolsCall.terminal(null));

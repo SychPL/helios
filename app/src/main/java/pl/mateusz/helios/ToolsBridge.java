@@ -97,8 +97,12 @@ final class ToolsBridge {
     static String start(Activity activity, String op, String argsJson, Uri file) {
         if (!ToolsTrust.mayCall(status(activity))) return null;
         String opId = ToolsCall.newOpId();
-        remember(activity, opId, op);
-        activity.startActivityForResult(intentFor(op, argsJson, opId, file), REQUEST_CODE);
+        // the record is what lets us find the operation again after a restart, so it is written first, or not at all
+        if (!remember(activity, opId, op)) return null;
+        if (!launch(activity, intentFor(op, argsJson, opId, file))) {
+            forget(activity, opId);
+            return null;
+        }
         return opId;
     }
 
@@ -110,12 +114,25 @@ final class ToolsBridge {
         if (!ToolsTrust.mayCall(status(activity))) return null;
         String opId = ToolsCall.newOpId();
         String args = aboutOpId == null ? "" : ToolsCall.aboutArgs(aboutOpId);
-        activity.startActivityForResult(intentFor("state", args, opId, null), REQUEST_CODE);
-        return opId;
+        return launch(activity, intentFor("state", args, opId, null)) ? opId : null;
     }
 
-    static void remember(Context context, String opId, String op) {
-        prefs(context).edit().putString(KEY_PENDING_ID, opId).putString(KEY_PENDING_OP, op).commit();
+    /**
+     * Starts the bridge, or answers that it could not be started. The tools can be disabled or removed between the
+     * check and the call, and that is a thing to report, not to crash on.
+     */
+    private static boolean launch(Activity activity, Intent intent) {
+        try {
+            activity.startActivityForResult(intent, REQUEST_CODE);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Written before the call goes out; false means it was not written, and then no call goes out either. */
+    static boolean remember(Context context, String opId, String op) {
+        return prefs(context).edit().putString(KEY_PENDING_ID, opId).putString(KEY_PENDING_OP, op).commit();
     }
 
     static String pendingOpId(Context context) {

@@ -101,6 +101,21 @@ final class ToolsCall {
         return "finished".equals(aboutStage) || "interrupted".equals(aboutStage) || "absent".equals(aboutStage);
     }
 
+    /**
+     * How long a machine stage of this operation may take (SPEC 0.12 pkt 4.2). Waiting for a human is not a machine
+     * stage and has no limit, which is why the consent stage answers with something no age will ever exceed.
+     */
+    static long limitFor(String op, String stage) {
+        if ("awaiting_consent".equals(stage) || "accepted".equals(stage) || stage == null || stage.isEmpty()) {
+            return Long.MAX_VALUE;
+        }
+        if ("copying".equals(stage)) return 60_000;
+        if ("installing".equals(stage)) return 120_000;
+        if ("root_adb_on".equals(op)) return 240_000;
+        if ("adb_on".equals(op) || "adb_off".equals(op)) return 45_000;
+        return 20_000;
+    }
+
     /** A second operation waits until the first one has reached a stage that cannot change by itself. */
     static boolean mayStartAnother(String pendingOpId, String aboutStage) {
         return pendingOpId == null || terminal(aboutStage);

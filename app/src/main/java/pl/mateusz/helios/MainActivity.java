@@ -524,10 +524,20 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean toolsMenuPending;
 
     /** The menu of what the tools can do here; every entry has its own condition, so nothing is offered in vain. */
-    /** Asks about whatever operation is pending when it fires, not about the one that was pending when scheduled. */
+    /**
+     * Asks about whatever operation is pending when it fires, not about the one that was pending when scheduled.
+     *
+     * <p>It stops once the machine stage has been running longer than its limit (SPEC 0.12 pkt 4.2). The record
+     * stays, so opening the menu asks once more; what stops is the five second loop, not the reconciliation.
+     */
     private final Runnable toolsPoll=new Runnable(){public void run(){
         String waiting=ToolsBridge.pendingOpId(MainActivity.this);
         if(waiting==null||isFinishing())return;
+        long age=ToolsCall.stageAgeMs(toolsSnapshot,null);
+        if(age>=0&&age>ToolsCall.limitFor(ToolsBridge.pendingOp(MainActivity.this),
+                ToolsCall.stageOf(toolsSnapshot,waiting))){
+            return;
+        }
         ToolsBridge.ask(MainActivity.this,waiting);
     }};
 
