@@ -19,5 +19,12 @@
         </activity>
         <service android:name=".HeliosService" android:exported="false" />
         <receiver android:name=".UpdateReceiver" android:exported="false" />
+
+        <!-- SPEC 0.12 pkt 5.8: hands the update file to the clock tools, read only, grant only. -->
+        <provider
+            android:name=".ApkProvider"
+            android:authorities="pl.mateusz.helios.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
