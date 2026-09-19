@@ -1107,7 +1107,9 @@ Skrót pliku powstaje dopiero po skopiowaniu strumienia, więc tożsamość żą
 4. skrót przysłany przez wywołującego w `args` służy wyłącznie do odrzucenia niezgodnej kopii (`failed`) i nigdy nie zastępuje skrótu policzonego z kopii,
 5. prywatna kopia pierwszego żądania nie jest ruszana przez żadne powtórzenie.
 
-**Powtórzenie bez zadeklarowanego skrótu.** Zawartość strumienia pod tym samym adresem może się zmienić, a policzenie jej wymagałoby drugiego kopiowania, czyli dokładnie tego, czego duplikat ma uniknąć. Dlatego po `bindDigest` mostek **nie otwiera ponownie strumienia**: żądanie o tym samym kluczu i tej samej operacji jest pytaniem o los tamtego żądania i dostaje jego etap albo zapisany wynik. Plikiem tożsamości jest kopia, która już istnieje, bo to ona się instaluje; to, co w międzyczasie stało się ze źródłem, nie ma znaczenia.
+**Powtórzenie bez zadeklarowanego skrótu.** Zawartość strumienia pod tym samym adresem może się zmienić, a policzenie jej wymagałoby drugiego kopiowania, czyli dokładnie tego, czego duplikat ma uniknąć. Dlatego po `bindDigest` mostek **nie otwiera ponownie strumienia**: żądanie o tym samym kluczu, tej samej operacji **i tych samych pierwotnych argumentach** jest pytaniem o los tamtego żądania i dostaje jego etap albo zapisany wynik. Plikiem tożsamości jest kopia, która już istnieje, bo to ona się instaluje; to, co w międzyczasie stało się ze źródłem, nie ma znaczenia.
+
+Porównanie pierwotnych argumentów obowiązuje na **każdym** etapie, także po zakończeniu: dorzucenie, usunięcie albo zmiana `expect` to inne żądanie, więc `unsupported`, nigdy odtworzenie cudzego wyniku.
 
 Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i różni się od skrótu kopii, powtórzenie dostaje `unsupported`, bo wywołujący sam mówi, że chodzi mu o inny plik.
 
@@ -1117,6 +1119,15 @@ Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i r�
     Decision d = decide(installRequest("op1", null), helios(), consented(), reg, running(), facts());
     assertEquals("in_progress", d.status);
     assertEquals("no second stream is ever opened for a repeat", 0, streamOpens());
+}
+
+@Test public void droppingAnArgumentIsNotADuplicateEither() {
+    OpRegistry reg = registryWithBoundInstall("op1", "sha-of-copy", "{\"expect\":\"sha-1\"}");
+    reg.finish(key("pl.mateusz.helios", "AA", "op1"), "ok");
+    assertEquals("removing expect changes the request", "unsupported",
+                 decide(installRequestWithArgs("op1", ""), helios(), consented(), reg, idle(), facts()).status);
+    assertEquals("in_progress or the stored result only for the identical request", "ok",
+                 decide(installRequestWithArgs("op1", "{\"expect\":\"sha-1\"}"), helios(), consented(), reg, idle(), facts()).status);
 }
 
 @Test public void changedArgumentsAreNotADuplicateEvenWhileCopying() {
@@ -1143,7 +1154,8 @@ Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i r�
 | brak przekazania, wykonawca martwy | instalator nie wystartował, bo przekazanie zapisuje się przed jego uruchomieniem | zwolnić, sprzątnąć, wynik `failed` |
 | przekazanie, potwierdzone niewystartowanie (`handOffFailed`, bo uruchomienie zwróciło błąd) | instalator nigdy nie ruszył | zwolnić po zakończeniu wykonawcy, sprzątnąć, wynik `failed` |
 | przekazanie, instalacja potwierdzona zakończeniem (zmieniony `versionCode` albo wynik z sesji) | skończone | zwolnić, sprzątnąć |
-| przekazanie bez żadnego z powyższych | może nadal trwać | trzymać blokadę i pliki, etap `interrupted`, status `unknown` |
+| przekazanie bez żadnego z powyższych, proces sc2t żyje | instalacja trwa normalnie | trzymać blokadę i pliki, etap `installing`, status `in_progress`, także po przekroczeniu limitu |
+| przekazanie bez żadnego z powyższych, wpis zastany po śmierci sc2t | mogła się skończyć albo nie | trzymać blokadę i pliki, etap `interrupted`, status `unknown` |
 
 `handOffFailed(opId)` zapisuje się wtedy i tylko wtedy, gdy samo uruchomienie instalatora zwróciło błąd, czyli gdy wiadomo na pewno, że nic nie ruszyło. Bez tego zapisu każde nieudane uruchomienie trzymałoby blokadę do restartu zegara.
 
@@ -1171,6 +1183,13 @@ Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i r�
     Outcome o = recover(traceWith(handOff("installer"), deadExecutor()), installedVersionCode(29));
     assertEquals("we cannot tell whether it started, so we assume it did", "unknown", o.status);
     assertTrue(o.filesKept);
+    assertTrue(o.lockHeld);
+}
+
+@Test public void anInstallThatSimplyTakesLongStaysInProgress() {
+    Outcome o = observe(traceWith(handOff("installer"), liveProcess()), afterMs(200_000));
+    assertEquals("installing", o.stage);
+    assertEquals("a slow installer is not a crashed one", "in_progress", o.status);
     assertTrue(o.lockHeld);
 }
 
