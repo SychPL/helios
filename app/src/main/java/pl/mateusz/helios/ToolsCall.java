@@ -83,9 +83,16 @@ final class ToolsCall {
         }
     }
 
+    /**
+     * Whether a stage can still change by itself. An empty stage is not one of those: it means we did not learn
+     * anything, which is a reason to ask again rather than to declare the operation over.
+     */
+    static boolean terminal(String aboutStage) {
+        return "finished".equals(aboutStage) || "interrupted".equals(aboutStage) || "absent".equals(aboutStage);
+    }
+
     /** A second operation waits until the first one has reached a stage that cannot change by itself. */
-    static boolean mayStartAnother(String aboutStage) {
-        return aboutStage == null || aboutStage.isEmpty()
-                || "finished".equals(aboutStage) || "interrupted".equals(aboutStage) || "absent".equals(aboutStage);
+    static boolean mayStartAnother(String pendingOpId, String aboutStage) {
+        return pendingOpId == null || terminal(aboutStage);
     }
 }

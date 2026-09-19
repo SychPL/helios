@@ -119,6 +119,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         dashboard=new DashboardView(this);setContentView(dashboard);
+        // a killed process can leave an update file behind; the one still being handed over stays
+        ApkProvider.sweep(this,ToolsBridge.pendingOpId(this));
         navigation=new NavigationMenu(this,()->config,()->service!=null&&service.updater().busy(),new NavigationMenu.Actions(){
             public void talk(){manualTalk();}
             public void cancel(){if(voice!=null)voice.cancel();}
@@ -520,12 +522,17 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean toolsMenuPending;
 
     /** The menu of what the tools can do here; every entry has its own condition, so nothing is offered in vain. */
-    private void toolsDialog(){
+    private void toolsDialog(){toolsDialog(true);}
+
+    /**
+     * The tools menu. Every entry comes from a snapshot, so the snapshot is read again each time the menu opens:
+     * root may have been switched on from the tool itself, and a stale answer would hide half the entries.
+     */
+    private void toolsDialog(boolean refresh){
         closePanel();
-        // the menu is built from a snapshot; without a fresh one we would only ever offer the chain
-        if(toolsSnapshot.length()<10&&ToolsTrust.mayCall(ToolsBridge.status(this))){
+        if(refresh&&ToolsTrust.mayCall(ToolsBridge.status(this))){
             toolsMenuPending=true;
-            if(ToolsBridge.ask(this,null)!=null)return;
+            if(ToolsBridge.ask(this,ToolsBridge.pendingOpId(this))!=null)return;
             toolsMenuPending=false;
         }
         ToolsState state=ToolsBridge.stateFrom(this,toolsSnapshot);
@@ -573,7 +580,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         else if(ToolsMenu.SET_HOME.equals(item))op="set_home";
         else if(ToolsMenu.PERMISSION_MIC.equals(item)){op="grant_permission";args=ToolsBridge.grantArgs("android.permission.RECORD_AUDIO");}
         if(op==null)return;
-        if(!ToolsCall.mayStartAnother(ToolsCall.stageOf(toolsSnapshot))){toast("Poprzednia operacja jeszcze trwa");return;}
+        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot))){toast("Poprzednia operacja jeszcze trwa");return;}
         if(ToolsBridge.start(this,op,args,null)==null)toast(ToolsTrust.explain(ToolsBridge.status(this)));
     }
 
@@ -583,14 +590,21 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void silentUpdate(){
         if(service==null){toast("Usługa Heliosa jeszcze nie działa");return;}
         if(!ToolsTrust.mayCall(ToolsBridge.status(this))){toast(ToolsTrust.explain(ToolsBridge.status(this)));return;}
+        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot))){
+            toast("Poprzednia operacja jeszcze trwa");return;
+        }
         toast("Szukam nowej wersji…");
         service.fetchForBridge(file->main.post(()->{
             if(file==null)return;                                  // the updater already said why
-            java.io.File shared=ApkProvider.shared(this);
+            if(isFinishing()){file.delete();return;}               // nobody left to hand the result to
+            // a file per hand-off: the tools may still be copying the previous one
+            String opId=ToolsCall.newOpId();
+            java.io.File shared=ApkProvider.shared(this,opId);
             if(!moveInto(file,shared)){toast("Nie udało się przygotować pliku");return;}
-            android.net.Uri uri=ApkProvider.uriFor(this);
+            android.net.Uri uri=ApkProvider.uriFor(this,opId);
             if(uri==null){toast("Nie udało się przygotować pliku");return;}
-            if(ToolsBridge.start(this,"install_apk","",uri)==null)toast(ToolsTrust.explain(ToolsBridge.status(this)));
+            ToolsBridge.remember(this,opId,"install_apk");
+            startActivityForResult(ToolsBridge.intentFor("install_apk","",opId,uri),ToolsBridge.REQUEST_CODE);
         }));
     }
 
@@ -618,22 +632,32 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
         if(requestCode!=ToolsBridge.REQUEST_CODE)return;
-        String mine=ToolsBridge.pendingOpId(this);
-        String answeredFor=ToolsBridge.opIdOf(data);
-        toolsSnapshot=ToolsBridge.snapshotOf(data);
-        String result=ToolsBridge.statusOf(data);
         boolean cancelled=resultCode!=RESULT_OK;
-        if(answeredFor!=null&&mine!=null&&!ToolsCall.acceptResult(answeredFor,mine)){
-            return;                                                          // a late answer to somebody else
-        }
+        String answeredFor=ToolsBridge.opIdOf(data);
+        String waitingFor=ToolsBridge.pendingOpId(this);
+        String snapshot=ToolsBridge.snapshotOf(data);
+        // a state query answers about somebody else's request, so an answer that carries a stage is always ours to read
+        if(!cancelled&&snapshot.length()>2)toolsSnapshot=snapshot;
+        String result=ToolsBridge.statusOf(data);
         String detail=ToolsBridge.detailOf(data);
         if(!cancelled&&result!=null&&!detail.isEmpty())toast(detail);
-        ToolsBridge.observe(this,mine,ToolsCall.stageOf(toolsSnapshot));
-        if(toolsMenuPending){toolsMenuPending=false;main.post(this::toolsDialog);return;}
-        if(ToolsCall.next(result,cancelled)==ToolsCall.Next.POLL&&mine!=null){
-            main.postDelayed(()->ToolsBridge.ask(this,mine),5000);
-        }else if(mine!=null&&!cancelled){
-            ToolsBridge.ask(this,mine);                                      // one reconciliation after every change
+
+        String stage=ToolsCall.stageOf(toolsSnapshot);
+        if(ToolsCall.acceptResult(answeredFor,waitingFor)&&!cancelled&&result!=null&&!"in_progress".equals(result)
+                &&!"unknown".equals(result)){
+            ToolsBridge.forget(this,waitingFor);              // the operation itself came back with a verdict
+            waitingFor=null;
+        }else{
+            ToolsBridge.observe(this,waitingFor,stage);        // otherwise only a terminal stage may close it
+            if(ToolsCall.terminal(stage))waitingFor=null;
+        }
+
+        if(toolsMenuPending){toolsMenuPending=false;main.post(()->toolsDialog(false));return;}
+        if(waitingFor!=null&&ToolsBridge.pendingOpId(this)!=null){
+            final String asking=waitingFor;
+            main.postDelayed(()->{if(!isFinishing())ToolsBridge.ask(this,asking);},5000);
+        }else if(ToolsCall.acceptResult(answeredFor,ToolsBridge.pendingOpId(this))){
+            ToolsBridge.ask(this,null);                        // one reconciliation after a change
         }
     }
 

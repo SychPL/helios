@@ -15,7 +15,7 @@ final class Updater {
         void download(String url,File target,long expected) throws IOException;
         /** null or "ok" when the archive is pl.mateusz.helios with versionName==version and a higher versionCode; otherwise the message to show. */
         String check(File file,String version,String expectedPackage);
-        int createSession(long size) throws IOException;
+        int createSession(long size,String packageName) throws IOException;
         void write(int session,File file) throws IOException;
         void commit(int session,String operation,File file) throws IOException;
         void abandon(int session);
@@ -94,7 +94,7 @@ final class Updater {
             try{host.download(info.url,file,info.size);}catch(IOException e){fail(record,session,"Brak połączenia z GitHub");return;}
             String problem=host.check(file,info.version,source.expectedPackage);
             if(problem!=null&&!problem.equals("ok")){fail(record,session,problem);return;}
-            try{session=host.createSession(file.length());}catch(IOException e){fail(record,session,"Instalacja nieudana");return;}
+            try{session=host.createSession(file.length(),source.expectedPackage);}catch(IOException e){fail(record,session,"Instalacja nieudana");return;}
             try{record.put("session",session);}catch(Exception ignored){}
             if(!host.saveRecord(record)){fail(record,session,"Nie udało się zapisać stanu aktualizacji");return;}
             try{host.write(session,file);}catch(IOException e){fail(record,session,"Instalacja nieudana");return;}
@@ -116,7 +116,8 @@ final class Updater {
         if(!"newer".equals(decision)&&!"absent".equals(decision)){host.status("Masz najnowszą wersję ("+installedVersion+")");return null;}
         File file=new File(host.cacheDir(),"silent-"+info.version+".apk");
         host.status("Pobieram "+source.label+" "+info.version+"…");
-        try{host.download(info.url,file,info.size);}catch(IOException e){host.status("Brak połączenia z GitHub");return null;}
+        try{host.download(info.url,file,info.size);}
+        catch(IOException e){host.status("Brak połączenia z GitHub");host.deleteFile(file.getPath());return null;}
         String problem=host.check(file,info.version,source.expectedPackage);
         if(problem!=null&&!problem.equals("ok")){host.status(problem);host.deleteFile(file.getPath());return null;}
         return file;
@@ -181,9 +182,10 @@ final class Updater {
             if(context.getPackageName().equals(expectedPackage)&&pi.getLongVersionCode()<=BuildConfig.VERSION_CODE)return "Nieprawidłowy plik wydania";
             return "ok";
         }
-        public int createSession(long size) throws IOException {
+        public int createSession(long size,String packageName) throws IOException {
             PackageInstaller.SessionParams p=new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-            p.setAppPackageName(context.getPackageName());p.setSize(size);
+            // the package being installed, which is not always us: the installer refuses a session that names another
+            p.setAppPackageName(packageName);p.setSize(size);
             return installer().createSession(p);
         }
         public void write(int session,File file) throws IOException {

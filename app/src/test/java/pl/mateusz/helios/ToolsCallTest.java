@@ -67,14 +67,23 @@ public class ToolsCallTest {
 
     @Test
     public void anotherOperationWaitsForATerminalStage() {
-        assertFalse(ToolsCall.mayStartAnother("running"));
-        assertFalse(ToolsCall.mayStartAnother("awaiting_consent"));
-        assertFalse(ToolsCall.mayStartAnother("copying"));
-        assertFalse(ToolsCall.mayStartAnother("installing"));
+        assertFalse(ToolsCall.mayStartAnother("op-mine", "running"));
+        assertFalse(ToolsCall.mayStartAnother("op-mine", "awaiting_consent"));
+        assertFalse(ToolsCall.mayStartAnother("op-mine", "copying"));
+        assertFalse(ToolsCall.mayStartAnother("op-mine", "installing"));
+        assertFalse("not knowing is not the same as being over", ToolsCall.mayStartAnother("op-mine", ""));
 
-        assertTrue(ToolsCall.mayStartAnother("finished"));
-        assertTrue(ToolsCall.mayStartAnother("interrupted"));
-        assertTrue(ToolsCall.mayStartAnother("absent"));
-        assertTrue("nothing pending at all is also fine", ToolsCall.mayStartAnother(""));
+        assertTrue(ToolsCall.mayStartAnother("op-mine", "finished"));
+        assertTrue(ToolsCall.mayStartAnother("op-mine", "interrupted"));
+        assertTrue(ToolsCall.mayStartAnother("op-mine", "absent"));
+        assertTrue("nothing pending at all is also fine", ToolsCall.mayStartAnother(null, ""));
+    }
+
+    @Test
+    public void anEmptyStageNeverCountsAsFinished() {
+        assertFalse(ToolsCall.terminal(""));
+        assertFalse(ToolsCall.terminal(null));
+        assertFalse(ToolsCall.terminal("running"));
+        assertTrue(ToolsCall.terminal("finished"));
     }
 }

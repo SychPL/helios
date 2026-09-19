@@ -102,7 +102,10 @@ final class ToolsBridge {
         return opId;
     }
 
-    /** A read that needs no record of its own; it asks about somebody else's request. */
+    /**
+     * A read. It carries its own identifier, because it is its own request, and asks about the operation we are
+     * waiting for. The answer therefore never matches the pending identifier, and must not be judged by that.
+     */
     static String ask(Activity activity, String aboutOpId) {
         if (!ToolsTrust.mayCall(status(activity))) return null;
         String opId = ToolsCall.newOpId();
@@ -124,12 +127,22 @@ final class ToolsBridge {
         return prefs(context).getString(KEY_PENDING_OP, "");
     }
 
-    /** A stage that cannot change by itself closes the record; anything else keeps it. */
+    /**
+     * Closes the pending record, but only on a stage that cannot change by itself. Not knowing (an empty stage,
+     * a cancelled screen, a lost answer) keeps the record: the work may well be running, and the record is the
+     * only way back to it.
+     */
     static void observe(Context context, String opId, String stage) {
         if (opId == null || !opId.equals(pendingOpId(context))) return;
-        if (ToolsCall.mayStartAnother(stage)) {
+        if (ToolsCall.terminal(stage)) {
             prefs(context).edit().remove(KEY_PENDING_ID).remove(KEY_PENDING_OP).commit();
         }
+    }
+
+    /** Drops the record without waiting for a stage, for an answer that settles the operation by itself. */
+    static void forget(Context context, String opId) {
+        if (opId == null || !opId.equals(pendingOpId(context))) return;
+        prefs(context).edit().remove(KEY_PENDING_ID).remove(KEY_PENDING_OP).commit();
     }
 
     static String statusOf(Intent data) {

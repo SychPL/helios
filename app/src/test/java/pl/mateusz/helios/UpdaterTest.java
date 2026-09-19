@@ -43,7 +43,7 @@ public class UpdaterTest {
         public JSONObject release(ReleaseInfo.Source source) throws IOException {if(release==null)throw new IOException("offline");return release;}
         public void download(String url,File target,long expected) throws IOException {log.add("download:"+url);if(!downloadOk)throw new IOException("net");}
         public String check(File file,String version,String expectedPackage){return check;}
-        public int createSession(long size) throws IOException {log.add("create");if(!createOk)throw new IOException("create");return nextSession;}
+        public int createSession(long size,String packageName) throws IOException {log.add("create");if(!createOk)throw new IOException("create");return nextSession;}
         public void write(int session,File file) throws IOException {log.add("write:"+session);if(!writeOk)throw new IOException("write");}
         public void commit(int session,String operation,File file) throws IOException {log.add("commit:"+session+":"+operation);if(!commitOk)throw new IOException("commit");}
         public void abandon(int session){log.add("abandon:"+session);}
