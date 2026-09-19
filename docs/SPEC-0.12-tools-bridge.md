@@ -1,6 +1,6 @@
 # SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
-Status: po przeglądzie (własnym i Codex, rundy 1-8). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
+Status: po przeglądzie (własnym i Codex, rundy 1-9). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
 
 ## 1. Problem i cel
 
@@ -292,7 +292,7 @@ Etapy 2-6 są zapisywane w rejestrze pod `op_id`, więc po restarcie sc2t wie, c
 
 Zwalnia ją zakończenie tego etapu, który faktycznie trwał: przy odmowie zgody, błędzie kopiowania, przekroczeniu limitu kopiowania i każdym odrzuceniu z kroków 1-5 blokada schodzi od razu, bo instalator jeszcze nie istnieje i nie ma na co czekać.
 
-W kroku 6 blokada trwa tak długo, jak długo cokolwiek może jeszcze zmienić system. Schodzi w trzech przypadkach: po potwierdzonym zakończeniu instalatora, po restarcie zegara oraz po potwierdzeniu, że instalator **nie wystartował**, a uprzywilejowany wykonawca skończył pracę. Ten trzeci przypadek obejmuje nieudane przeniesienie pliku, nieudane ustawienie kontekstu i nieudane uruchomienie instalatora: wtedy wynikiem jest `failed`, a nie wieczne `busy`. Dopóki sc2t nie potrafi stwierdzić żadnej z tych trzech rzeczy, wpis zostaje `interrupted` ze statusem `unknown`, a blokada trwa.
+W kroku 6 blokada trwa tak długo, jak długo cokolwiek może jeszcze zmienić system. Schodzi w trzech przypadkach: po potwierdzonym zakończeniu instalatora, po restarcie zegara oraz po potwierdzeniu, że instalator **nie wystartował**, a uprzywilejowany wykonawca skończył pracę. Ten trzeci przypadek obejmuje nieudane przeniesienie pliku, nieudane ustawienie kontekstu i nieudane uruchomienie instalatora: wtedy wynikiem jest `failed`, a nie wieczne `busy`. Trwająca normalnie instalacja to `installing` ze statusem `in_progress`, także po przekroczeniu limitu. Etap `interrupted` ze statusem `unknown` dotyczy wyłącznie wpisu odtwarzanego po przerwaniu procesu sc2t, gdy żadnej z tych trzech rzeczy nie da się stwierdzić; blokada trwa wtedy dalej.
 
 Aktualizacja może zakończyć proces wywołującego, zanim odbierze on wynik. Dlatego potwierdzeniem instalacji jest wyłącznie `versionCode` odczytany po ponownym starcie, nigdy sam kod wyniku. Instalacja tej samej wersji jest odrzucana razem z niższą (punkt 4 powyżej): sukces, odmowa i awaria dawałyby wtedy identyczny odczyt, więc kontrakt nie miałby jak potwierdzić skutku.
 
