@@ -1,6 +1,6 @@
 # SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
-Status: po przeglądzie (własnym i Codex, rundy 1-6). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
+Status: po przeglądzie (własnym i Codex, rundy 1-7). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
 
 ## 1. Problem i cel
 
@@ -102,6 +102,8 @@ Znaczenie kodów: `denied` decyzja człowieka albo brak zaufania, `unsupported` 
 - `chain: unknown` **nie przechodzi w `idle` przez zgodę człowieka**. Blokada schodzi wyłącznie wtedy, gdy sc2t potwierdzi, że poprzedni uprzywilejowany wykonawca nie żyje (brak jego procesu i brak jego pliku blokady), albo gdy `boot_id` migawki różni się od zapisanego we wpisie, czyli zegar był restartowany. Do tego czasu każda operacja zmieniająca stan **z nowym `op_id`** zwraca `busy` z wyjaśnieniem w `detail`; powtórzenie żądania, które ten stan wywołało, nadal odpowiada jego etapem, a odczyty przechodzą normalnie. Jedyne, co człowiek może zrobić, to odciąć zasilanie.
 
 Limity czasu są dwa i liczone osobno: oczekiwanie na decyzję człowieka nie jest ograniczone, a wykonanie ma własny limit. Limity wykonania: pomiar stanu 3 s, przełączanie ADB 45 s, nadanie uprawnienia, `set_home` i każda pojedyncza zmiana uprawnień mikrofonu 20 s, kopiowanie pliku 60 s, instalacja 120 s, łańcuch roota 4 minuty. Przekroczenie daje `in_progress` przy żyjącym wykonawcy, a `unknown`, gdy tego nie da się stwierdzić.
+
+Wyjątkiem jest `copying`: kopiowanie prowadzi sam sc2t, więc po przekroczeniu limitu przerywa je, kasuje niepełną kopię i zwraca `failed`. Dopiero po zatrzymaniu kopiowania blokada schodzi; `in_progress` i `unknown` dotyczą wyłącznie etapów, które wykonuje uprzywilejowany proces potomny albo instalator.
 
 Helios nie mierzy czasu, dopóki mostek jest na wierzchu: nie wie, czy stoi tam pytanie do człowieka, czy pasek postępu, a czekanie na człowieka nigdy nie jest awarią. Liczy się dopiero to, co widać po powrocie:
 
@@ -286,7 +288,9 @@ Operacja wysokiego ryzyka: zgoda przy każdym wywołaniu. Przebieg:
 6. instalacja **kanałem roota**, nie własną sesją instalatora: sc2t przenosi kopię do katalogu czytelnego dla instalatora, nadaje jej właściciela i kontekst SELinux, po czym uruchamia instalację z uprawnieniami powłoki. Własna sesja `PackageInstaller` sc2t nie byłaby cicha: bez uprawnienia systemowego kończy się ona `STATUS_PENDING_USER_ACTION`, czyli tym samym oknem, którego ta operacja ma uniknąć. Posiadanie kanału roota nie nadaje takiego uprawnienia procesowi sc2t, więc instalacja musi wyjść spod roota, a nie spod aplikacji,
 7. kasowanie kopii i pliku przeniesionego do katalogu instalatora po zakończeniu operacji. Sprzątanie przy starcie sc2t obejmuje wyłącznie pliki żądań o etapie `finished` albo `absent`; pliki żądania o etapie `running` lub `interrupted` zostają, dopóki sc2t nie potwierdzi, że instalator i wykonawca nie żyją. Kasowanie pliku spod pracującego instalatora zamieniłoby udaną aktualizację w awarię.
 
-Etapy 2-6 są zapisywane w rejestrze pod `op_id`, więc po restarcie sc2t wie, czy instalacja zdążyła się zacząć. Blokada obejmuje cały ten czas, także gdy proces sc2t zginie w trakcie; zwalnia ją dopiero potwierdzone zakończenie instalatora albo restart zegara (pkt 4.2).
+Etapy 2-6 są zapisywane w rejestrze pod `op_id`, więc po restarcie sc2t wie, czy instalacja zdążyła się zacząć. Blokada obejmuje cały ten czas.
+
+Zwalnia ją zakończenie tego etapu, który faktycznie trwał: przy odmowie zgody, błędzie kopiowania, przekroczeniu limitu kopiowania i każdym odrzuceniu z kroków 1-5 blokada schodzi od razu, bo instalator jeszcze nie istnieje i nie ma na co czekać. Dopiero gdy krok 6 się zaczął, blokada trwa aż do potwierdzonego zakończenia instalatora albo restartu zegara (pkt 4.2).
 
 Aktualizacja może zakończyć proces wywołującego, zanim odbierze on wynik. Dlatego potwierdzeniem instalacji jest wyłącznie `versionCode` odczytany po ponownym starcie, nigdy sam kod wyniku. Instalacja tej samej wersji jest odrzucana razem z niższą (punkt 4 powyżej): sukces, odmowa i awaria dawałyby wtedy identyczny odczyt, więc kontrakt nie miałby jak potwierdzić skutku.
 
@@ -337,7 +341,9 @@ Kalibracja exploita dotyczy kompilacji `LenovoCD-24502F_ROW_1.2.2.627_220105`. `
 
 ### 7.2 Zawieszenie zegara
 
-Prymityw zapisu może zawiesić jądro. Dlatego łańcuch startuje wyłącznie z ręki człowieka, sc2t nie ponawia go samoczynnie, a ekran zgody mówi o ryzyku. Znacznik etapu zapisany przed uruchomieniem sprawia, że po ponownym starcie sc2t wie o przerwanej próbie i pokazuje `chain: unknown`. Ten stan nie przechodzi w `idle` przez zgodę człowieka (pkt 4.2): potrzebne jest potwierdzone zakończenie poprzedniego wykonawcy albo restart zegara.
+Prymityw zapisu może zawiesić jądro. Dlatego łańcuch startuje wyłącznie z ręki człowieka, sc2t nie ponawia go samoczynnie, a ekran zgody mówi o ryzyku. Znacznik etapu zapisany przed uruchomieniem sprawia, że po ponownym starcie narzędzia sc2t wie o przerwanej próbie. `chain: unknown` pokazuje wtedy, gdy zginął **sam proces**, a los uprzywilejowanego wykonawcy pozostaje nieustalony; ten stan nie przechodzi w `idle` przez zgodę człowieka (pkt 4.2), tylko przez potwierdzenie, że wykonawca nie żyje.
+
+Po restarcie **zegara** niepewności nie ma: żaden wykonawca z poprzedniego uruchomienia nie działa, więc zmiana `boot_id` domyka wpis i `chain` wraca do `idle`. Zostaje jedynie wiedza o przerwanej próbie, którą sc2t pokazuje przed kolejnym uruchomieniem łańcucha.
 
 ### 7.3 Powierzchnia ataku
 
