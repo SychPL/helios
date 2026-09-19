@@ -346,12 +346,13 @@ Wyzwalacz nie może w teście uruchamiać prawdziwego łańcucha, więc `AgentRu
     assertEquals("absent", r.about(key("pl.mateusz.helios", "BB", "op1")).stage);
 }
 
-@Test public void anotherAppCannotOverwriteAnExistingId() {
+@Test public void anotherAppCannotTouchAnExistingEntryButMayUseTheSameIdItself() {
     OpRegistry r = new OpRegistry(store, clock);
     r.accept(key("pl.mateusz.helios", "AA", "op1"), "root_adb_on", "d1");
     r.stage(key("pl.mateusz.helios", "AA", "op1"), "running");
-    assertNull("a foreign key must not be accepted under a taken id", r.accept(key("pl.evil", "CC", "op1"), "state", "d2"));
-    assertEquals("running", r.about(key("pl.mateusz.helios", "AA", "op1")).stage);
+    assertNotNull("the id is unique per caller, not globally", r.accept(key("pl.evil", "CC", "op1"), "state", "d2"));
+    assertEquals("and the two entries do not touch each other", "running", r.about(key("pl.mateusz.helios", "AA", "op1")).stage);
+    assertEquals("accepted", r.about(key("pl.evil", "CC", "op1")).stage);
 }
 
 @Test public void reacceptingTheSameIdDoesNotResetTheEntry() {
@@ -423,7 +424,7 @@ Wyzwalacz nie może w teście uruchamiać prawdziwego łańcucha, więc `AgentRu
 Atrapy `FakeStore` i `FakeClock` w tym samym pliku, w stylu `ExecUtilTest`.
 
 - [ ] **Krok 2: czerwone**
-- [ ] **Krok 3: implementacja** - `accept` zwraca `null`, gdy identyfikator jest zajęty (przez kogokolwiek); `stage` i `finish` zwracają `false` dla obcego klucza; `recoverOnce()` wykonuje się raz na instancję i domyka wyłącznie wpisy zastane przy wczytaniu, nigdy przyjęte później; `previousBootId()` zapamiętuje poprzedni identyfikator uruchomienia przed nadpisaniem.
+- [ ] **Krok 3: implementacja** - `accept` zwraca `null`, gdy **ta sama krotka** ma już wpis (czyli przy duplikacie), a identyfikator zajęty przez innego wywołującego nie przeszkadza, bo klucz jest trójką; `stage` i `finish` zwracają `false` dla obcego klucza; `recoverOnce()` wykonuje się raz na instancję i domyka wyłącznie wpisy zastane przy wczytaniu, nigdy przyjęte później; `previousBootId()` zapamiętuje poprzedni identyfikator uruchomienia przed nadpisaniem.
 - [ ] **Krok 4: jedna instancja na proces** - `BridgeFiles.registry()` zwraca singleton i woła `recoverOnce()` przy pierwszym użyciu. Aktywności i serwis biorą rejestr wyłącznie stamtąd; otwarcie aktywności nie jest restartem procesu i nie domyka niczego.
 - [ ] **Krok 5: zielone i commit** - `feat(bridge): persistent request registry keyed by caller, signature and id, with one-shot recovery`
 
@@ -661,20 +662,21 @@ Test budżetu używa prawdziwego zegara i prawdziwego wątku, bo zegar atrapa pr
     assertEquals("ok", d.status);
 }
 
-@Test public void anInstallRequestIsIdentifiedByTheDigestOfTheCopyOnceItExists() {
+@Test public void anInstallRequestIsIdentifiedByItsArgumentsAndThenByTheCopy() {
     OpRegistry reg = registry();
-    // etap copying: skrótu jeszcze nie ma, więc powtórzenie dostaje etap, a nie porównanie
+    // pierwsze żądanie nie deklaruje skrótu; etap copying, skrótu kopii jeszcze nie ma
     reg.accept(key("pl.mateusz.helios", "AA", "op1"), "install_apk", Ops.requestDigest("install_apk", "", null));
     reg.stage(key("pl.mateusz.helios", "AA", "op1"), "copying");
-    assertEquals("in_progress", decide(installRequest("op1", null), helios(), consented(), reg, running(), facts()).status);
+    assertEquals("the identical repeat asks about it", "in_progress",
+                 decide(installRequestWithArgs("op1", ""), helios(), consented(), reg, running(), facts()).status);
+    assertEquals("adding expect changes the arguments, so it is a different request", "unsupported",
+                 decide(installRequestWithArgs("op1", "{\"expect\":\"sha-1\"}"), helios(), consented(), reg, running(), facts()).status);
 
-    // po skopiowaniu digest jest już niezmienny i rozstrzyga o tożsamości żądania
-    reg.bindDigest(key("pl.mateusz.helios", "AA", "op1"), Ops.requestDigest("install_apk", "", "sha-1"));
+    // po skopiowaniu skrót kopii jest już niezmienny i wiąże się z wpisem
+    reg.bindDigest(key("pl.mateusz.helios", "AA", "op1"), "sha-of-copy");
     reg.stage(key("pl.mateusz.helios", "AA", "op1"), "installing");
-    assertEquals("in_progress", decide(installRequest("op1", "sha-1"), helios(), consented(), reg, running(), facts()).status);
-    assertEquals("another file under a taken id is a different request", "unsupported",
-                 decide(installRequest("op1", "sha-2"), helios(), consented(), reg, running(), facts()).status);
-    assertEquals("and no second copy is made for it", 1, reg.about(key("pl.mateusz.helios", "AA", "op1")).copies);
+    assertEquals("in_progress", decide(installRequestWithArgs("op1", ""), helios(), consented(), reg, running(), facts()).status);
+    assertEquals("and no second copy is ever made", 1, reg.about(key("pl.mateusz.helios", "AA", "op1")).copies);
 }
 
 @Test public void aNewRequestWhileAnotherRunsIsBusy() {
