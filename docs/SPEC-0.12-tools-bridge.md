@@ -1,6 +1,6 @@
 # SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
-Status: po przeglądzie (własnym i Codex, runda 1). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
+Status: po przeglądzie (własnym i Codex, rundy 1-2). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
 
 ## 1. Problem i cel
 
@@ -47,19 +47,25 @@ action    = pl.mateusz.clockadbprobe.action.BRIDGE
 data      = content://... (tylko operacje przekazujące plik, pkt 5.8)
 flags     = FLAG_GRANT_READ_URI_PERMISSION (tylko wtedy)
 extras:
-  api  : int     - wersja kontraktu, dla tej specyfikacji 1
-  op   : String  - nazwa operacji z pkt 5
-  args : String  - argumenty operacji jako JSON, dopuszczalne puste
+  api   : int    - wersja kontraktu, dla tej specyfikacji 1
+  op    : String - nazwa operacji z pkt 5
+  args  : String - argumenty operacji jako JSON, dopuszczalne puste
+  op_id : String - identyfikator żądania nadany przez wywołującego, 32 znaki heksadecymalne
 ```
+
+`op_id` nadaje **wywołujący** i zapisuje go trwale, zanim wywoła mostek. Dzięki temu zna go także wtedy, gdy nigdy nie zobaczy odpowiedzi, i może później zapytać o los tego żądania (pkt 5.1). Powtórzenie tego samego `op_id` nie uruchamia drugiej operacji: sc2t odpowiada zapisanym wynikiem albo bieżącym etapem.
 
 `BridgeActivity` jest jedynym eksportowanym wejściem mostka. Jawna intencja chroni przed przechwyceniem wywołania przez inną aplikację, ale **nie uwierzytelnia nadawcy**: wywołać eksportowaną aktywność może każdy, a filtr akcji nie zabezpiecza wywołań jawnych. Dlatego sc2t sprawdza w kodzie, że `action` jest dokładnie tą powyżej, że typy pól się zgadzają i że `args` jest poprawnym JSON-em; cokolwiek innego to `unsupported` bez skutków ubocznych.
 
 Wymagania dotyczące zadania i trybu:
 
 - `launchMode="standard"`. `singleTask` i `singleInstance` są wykluczone, bo aktywność w osobnym zadaniu dostaje od systemu natychmiastowe `RESULT_CANCELED`, a `getCallingPackage()` przestaje działać. `singleTop` jest wykluczony, bo `onNewIntent()` przyniósłby nowe argumenty do ekranu, który ma już ustaloną tożsamość i zgodę wywołującego.
-- Helios nie ustawia `FLAG_ACTIVITY_NEW_TASK`.
+- Dozwolone flagi intencji to wyłącznie `FLAG_GRANT_READ_URI_PERMISSION` przy operacjach z plikiem. Każda inna flaga, w szczególności `FLAG_ACTIVITY_NEW_TASK`, `FLAG_ACTIVITY_SINGLE_TOP`, `FLAG_ACTIVITY_CLEAR_TOP` i `FLAG_ACTIVITY_MULTIPLE_TASK`, powoduje `denied`. Sam `launchMode` nie wystarcza: pojedyncza flaga po stronie wywołującego potrafi wymusić ponowne użycie żywej aktywności.
+- `onNewIntent()` nigdy nie przejmuje argumentów ani tożsamości: intencja przyjęta tą drogą kończy się `denied`, a trwający ekran zgody pozostaje związany ze swoim pierwotnym żądaniem.
 - sc2t odrzuca wywołanie z `FLAG_ACTIVITY_FORWARD_RESULT` jako `denied`: ta flaga przenosi adresata wyniku na inną aktywność, więc tożsamość z `getCallingPackage()` przestałaby odpowiadać temu, kto wynik odbierze.
 - Wszystkie przyciski ekranów zgody mają `setFilterTouchesWhenObscured(true)`, żeby nie dało się ich zatwierdzić dotykiem przez nakładkę innej aplikacji.
+
+Kontrakt obejmuje wyłącznie użytkownika Androida `0`. Zegar nie ma profili ani drugiego użytkownika, a rozszerzanie kontraktu na nich bez sprzętu do testów byłoby zgadywaniem. Wywołanie od innego użytkownika kończy się `unsupported`, a każdy pomiar, każda zgoda i każdy zapis w rejestrze dotyczą użytkownika `0`.
 
 ### 4.2 Odpowiedź
 
@@ -80,9 +86,12 @@ Znaczenie kodów: `denied` decyzja człowieka albo brak zaufania, `unsupported` 
 
 - Helios po każdej operacji innej niż `state` wykonuje `state` i porównuje migawkę z oczekiwaniem; interfejs buduje z migawki i z własnych sprawdzeń lokalnych (pkt 6.3), nigdy z samego kodu wyniku.
 - sc2t zapisuje trwale etap każdej operacji pod jej `op_id`, zanim zrobi cokolwiek nieodwracalnego, i potrafi po ponownym starcie powiedzieć, na czym stanęła.
-- Ponowienie jest dozwolone dopiero, gdy migawka mówi `chain: idle`. Przy `chain: running` powtórzenie zwraca `busy`, przy `chain: unknown` sc2t wymaga potwierdzenia człowieka, bo poprzedni uprzywilejowany proces potomny mógł przeżyć śmierć aktywności.
+- Ponowienie jest dozwolone dopiero, gdy migawka mówi `chain: idle`. Przy `chain: running` powtórzenie zwraca `busy`.
+- `chain: unknown` **nie przechodzi w `idle` przez zgodę człowieka**. Blokada schodzi wyłącznie wtedy, gdy sc2t potwierdzi, że poprzedni uprzywilejowany wykonawca nie żyje (brak jego procesu i brak jego pliku blokady), albo gdy czas startu systemu jest późniejszy niż zapis etapu, czyli zegar był restartowany. Do tego czasu każda operacja zmieniająca stan zwraca `busy` z wyjaśnieniem w `detail`, a jedyne, co człowiek może zrobić, to odciąć zasilanie.
 
-Limity czasu są dwa i liczone osobno: oczekiwanie na decyzję człowieka nie jest ograniczone, a wykonanie ma limit z opisu operacji. Helios uznaje brak jakiegokolwiek wyniku po 6 minutach za `unknown`, nie za `failed`.
+Limity czasu są dwa i liczone osobno: oczekiwanie na decyzję człowieka nie jest ograniczone, a wykonanie ma własny limit. Limity wykonania: pomiar stanu 3 s, przełączanie ADB 45 s, nadanie uprawnienia, `set_home` i każda pojedyncza zmiana uprawnień mikrofonu 20 s, kopiowanie pliku 60 s, instalacja 120 s, łańcuch roota 4 minuty. Przekroczenie daje `in_progress` przy żyjącym wykonawcy, a `unknown`, gdy tego nie da się stwierdzić.
+
+Po stronie Heliosa licznik 6 minut dotyczy wyłącznie czasu wykonania i jest wstrzymany, dopóki na wierzchu stoi ekran mostka: czekanie na człowieka nigdy nie jest awarią. Po upływie limitu Helios nie uruchamia drugiej operacji, tylko odpytuje `state` o swój `op_id`. Spóźniony wynik tego samego `op_id`, który przyjdzie później, jest przyjmowany normalnie; wynik z nieznanym `op_id` jest ignorowany.
 
 ### 4.3 Tożsamość i zaufanie
 
@@ -128,11 +137,10 @@ sc2t trzyma jedną blokadę wykonawczą. Obejmuje ona **rzeczywisty czas pracy w
 
 ### 5.1 `state`
 
-Odczyt, bez zgody, bez blokady, bez skutków ubocznych. Każde pole może mieć wartość `"unknown"`. Migawka:
+Odczyt, bez zgody, bez blokady, bez skutków ubocznych. `args` może nieść `{"about": "<op_id>"}`, żeby zapytać o los wcześniejszego żądania; odpowiedź niesie wtedy jego etap i wynik z trwałego rejestru, nawet gdy pytanie pada po restarcie zegara. Nieznany `op_id` daje `about` o etapie `absent`, co znaczy, że sc2t nigdy nie zaczął tej operacji. Każde pole migawki może mieć wartość `"unknown"`. Migawka:
 
 ```json
 {
-  "op_id": "9f2c...",
   "measured_at_ms": 1789760000000,
   "root": true,
   "adb_property": "5555",
@@ -153,7 +161,14 @@ Odczyt, bez zgody, bez blokady, bez skutków ubocznych. Każde pole może mieć 
     "declares_home": true
   },
   "mic_holders": ["com.google.android.apps.mediashell"],
-  "mic_saved_state": "none"
+  "mic_saved_state": "none",
+  "about": {
+    "op_id": "9f2c...",
+    "op": "root_adb_on",
+    "stage": "absent | accepted | running | finished | interrupted",
+    "status": "ok | failed | denied | unknown",
+    "finished_at_ms": 1789760000000
+  }
 }
 ```
 
@@ -177,9 +192,15 @@ Wynik `ok` znaczy: kanał roota odpowiada **i** połączenie TCP na port 5555 zo
 
 ### 5.3 `adb_on` i `adb_off`
 
-`adb_on` włącza ADB po Wi-Fi przy żywym rootcie, bez uruchamiania łańcucha; przy martwym rootcie zwraca `unsupported`, a Helios proponuje `root_adb_on`. Rozdzielenie jest potrzebne, bo dziś jedyną drogą do ponownego włączenia ADB było wywołanie operacji wysokiego ryzyka.
+`adb_on` włącza ADB po Wi-Fi przy żywym rootcie, bez uruchamiania łańcucha; przy martwym rootcie zwraca `unsupported`, a Helios proponuje `root_adb_on`. Rozdzielenie jest potrzebne, bo dziś jedyną drogą do ponownego włączenia ADB było wywołanie operacji wysokiego ryzyka. Ekran zgody `adb_on` niesie to samo ostrzeżenie o sieci, co `root_adb_on` (pkt 7.4): skutek dla bezpieczeństwa jest identyczny.
 
-`adb_off` wyłącza ADB: ustawia właściwość portu na zero, wymusza restart demona i potwierdza, że port 5555 nie przyjmuje już połączeń. Istniejące sesje padają razem z demonem. `ro.adb.secure` jest właściwością tylko do odczytu w zwykłym trybie, więc sc2t zmienia ją tym samym zapisem do obszaru właściwości, którego używa przy włączaniu, i dopiero restart demona nadaje jej znaczenie; opis tego mechanizmu należy do dokumentacji sc2t. Żadna z tych operacji nie gasi roota.
+`adb_off` wyłącza ADB i **potwierdza skutek**, a nie samą konfigurację: ustawia właściwość portu, wymusza restart demona i sprawdza, że połączenie na 5555 jest odrzucane. Istniejące sesje padają razem z demonem.
+
+Sama wartość zero w porcie nie jest wystarczająca: w kodzie AOSP istnieje ścieżka, w której demon przy niedodatnim porcie i braku transportu USB uruchamia domyślny nasłuch TCP. Dlatego kolejność jest taka: właściwość, restart demona, sprawdzenie portu, a gdy port nadal odpowiada, zatrzymanie samego demona (`stop adbd`) i ponowne sprawdzenie. Dopiero brak nasłuchu to `ok`, inaczej `failed` z wyjaśnieniem. Które z tych dwóch wystarcza na tym firmware, ustala krok weryfikacyjny wdrożenia (pkt 10) i wynik trafia do dokumentacji sc2t.
+
+`ro.adb.secure` jest właściwością tylko do odczytu w zwykłym trybie, więc sc2t zmienia ją tym samym zapisem do obszaru właściwości, którego używa przy włączaniu, i dopiero restart demona nadaje jej znaczenie.
+
+Żadna z tych operacji nie gasi roota, a obie wymagają żywego kanału roota: bez niego zwracają `unsupported`, bo wyłączenie nasłuchu bez przywilejów jest niewykonalne. Pozycja w menu Heliosa pozostaje wtedy widoczna z wyjaśnieniem, że najpierw trzeba wrócić do roota.
 
 ### 5.4 `grant_permission`
 
@@ -203,9 +224,14 @@ Ustawia pakiet wywołujący jako domyślny ekran główny. Warunki wstępne: wyw
 
 Zasady przywracania:
 
-- przed pierwszą zmianą sc2t zapisuje trwale rzeczywisty stan każdego pakietu z listy (czy uprawnienie było nadane) i oznacza `mic_saved_state: saved`,
-- powtórne `mic_release` przy istniejącym zapisie **nie nadpisuje** go stanem już zmienionym,
-- `mic_restore` odtwarza dokładnie zapisany stan i nigdy nie nadaje uprawnienia, którego wcześniej nie było; po sukcesie kasuje zapis,
+- zapis jest mapą: dla każdego pakietu z listy osobny wpis ze stanem sprzed zmiany i znacznikiem, kiedy powstał,
+- przed każdą zmianą sc2t dopisuje do mapy **brakujące** pakiety, odczytując ich rzeczywisty stan przed odebraniem uprawnienia. Dzięki temu lista rozszerzona w nowej wersji narzędzia nie zostaje bez zapisu,
+- powtórne `mic_release` **nie nadpisuje** istniejących wpisów stanem już zmienionym,
+- `mic_release` obejmujące pakiet spoza zakresu wcześniejszej zgody wymaga nowej zgody (pkt 4.4): zmiana listy w narzędziu zmienia istotne argumenty operacji,
+- pakiet, którego nie ma w systemie, jest pomijany, a jego wpis nie powstaje,
+- `mic_restore` odtwarza dokładnie zapisane wpisy i nigdy nie nadaje uprawnienia, którego wcześniej nie było; po pełnym sukcesie kasuje mapę,
+- `mic_restore` bez zapisu (`mic_saved_state: none`) jest bezczynne i kończy się `ok`,
+- przywrócenie częściowe kasuje wyłącznie wpisy, które udało się odtworzyć, zwraca `failed` i zostawia resztę mapy do kolejnej próby,
 - awaria między pakietami zostawia zapis nietknięty, więc `mic_restore` po restarcie zegara nadal wie, do czego wracać,
 - restart zegara nie przywraca niczego samoczynnie: odebrane uprawnienie jest trwałe, i to jest celem.
 
@@ -222,12 +248,14 @@ Operacja wysokiego ryzyka: zgoda przy każdym wywołaniu. Przebieg:
 1. uwierzytelnienie wywołującego (pkt 4.3) **przed** otwarciem strumienia,
 2. kopiowanie do katalogu prywatnego sc2t z limitem 64 MB i 60 s; przekroczenie, brak miejsca, zerwany albo blokujący strumień to `failed`,
 3. odczyt z **kopii**: nazwa pakietu, `versionCode`, `versionName`, odcisk podpisu, poprawność archiwum,
-4. odmowa (`unsupported`), gdy pakiet w pliku różni się od wywołującego, gdy odcisk różni się od zainstalowanej wersji tego pakietu albo gdy `versionCode` jest niższy niż zainstalowany (instalacja wstecz wymaga odinstalowania i nie należy do mostka),
+4. odmowa (`unsupported`), gdy pakiet w pliku różni się od wywołującego, gdy odcisk różni się od zainstalowanej wersji tego pakietu albo gdy `versionCode` nie jest **ściśle wyższy** niż zainstalowany (instalacja wstecz i ponowna instalacja tej samej wersji nie należą do mostka),
 5. ekran zgody z danymi z kroku 3, nie z argumentów,
-6. instalacja przez sesję `PackageInstaller`, do której sc2t podaje strumień z własnej kopii. Root nie znosi reguł SELinux, więc żadna ścieżka w katalogu prywatnym innej aplikacji nie jest czytana przez instalator,
-7. kasowanie kopii niezależnie od wyniku, także po awarii i po restarcie (sprzątanie przy starcie sc2t).
+6. instalacja **kanałem roota**, nie własną sesją instalatora: sc2t przenosi kopię do katalogu czytelnego dla instalatora, nadaje jej właściciela i kontekst SELinux, po czym uruchamia instalację z uprawnieniami powłoki. Własna sesja `PackageInstaller` sc2t nie byłaby cicha: bez uprawnienia systemowego kończy się ona `STATUS_PENDING_USER_ACTION`, czyli tym samym oknem, którego ta operacja ma uniknąć. Posiadanie kanału roota nie nadaje takiego uprawnienia procesowi sc2t, więc instalacja musi wyjść spod roota, a nie spod aplikacji,
+7. kasowanie kopii i pliku przeniesionego do katalogu instalatora, niezależnie od wyniku, także po awarii i po restarcie (sprzątanie przy starcie sc2t).
 
-Aktualizacja może zakończyć proces wywołującego, zanim odbierze on wynik. Dlatego potwierdzeniem instalacji jest wyłącznie `versionCode` odczytany po ponownym starcie, nigdy sam kod wyniku.
+Etapy 2-6 są zapisywane w rejestrze pod `op_id`, więc po restarcie sc2t wie, czy instalacja zdążyła się zacząć. Blokada obejmuje cały ten czas, także gdy proces sc2t zginie w trakcie; zwalnia ją dopiero potwierdzone zakończenie instalatora albo restart zegara (pkt 4.2).
+
+Aktualizacja może zakończyć proces wywołującego, zanim odbierze on wynik. Dlatego potwierdzeniem instalacji jest wyłącznie `versionCode` odczytany po ponownym starcie, nigdy sam kod wyniku. Instalacja tej samej wersji jest odrzucana razem z niższą (punkt 4 powyżej): sukces, odmowa i awaria dawałyby wtedy identyczny odczyt, więc kontrakt nie miałby jak potwierdzić skutku.
 
 ## 6. Strona Heliosa
 
@@ -254,7 +282,9 @@ Stan nieznany nigdy nie ukrywa pozycji naprawczej: jeśli sc2t nie potrafi zmier
 
 Ten sam mechanizm, którym Helios aktualizuje siebie, uogólniony o źródło: repozytorium, wzorzec nazwy pliku i oczekiwany pakiet stają się parametrami. Reguły z SPEC 0.10 pkt 7 zostają bez zmian: tylko wydania ostateczne, tag `vX.Y.Z`, jeden pasujący plik, adresy wyłącznie w domenach GitHuba, limit rozmiaru, weryfikacja nazwy pakietu w pobranym pliku przed instalacją.
 
-Instalacja sc2t idzie przez systemowy instalator z potwierdzeniem na ekranie, bo Helios nie ma jeszcze żadnych przywilejów. Po instalacji Helios nie uruchamia nic samoczynnie: zapamiętuje odcisk podpisu narzędzia (pkt 4.3), przebudowuje menu i pokazuje **Włącz root i ADB**.
+Instalacja sc2t idzie przez systemowy instalator z potwierdzeniem na ekranie, bo Helios nie ma jeszcze żadnych przywilejów. Po instalacji Helios nie uruchamia nic samoczynnie: odczytuje odcisk podpisu narzędzia, przebudowuje menu i pokazuje **Włącz root i ADB**.
+
+Odcisk **wykryty** to nie to samo, co **zaakceptowany**. Zgoda na instalację nie jest zgodą na rolę uprzywilejowanego mostka, więc przed pierwszym wywołaniem mostka, a także przed pierwszym przekazaniem pliku, Helios pokazuje własny ekran: nazwa pakietu, odcisk i pytanie, czy temu narzędziu wolno nadawać uprawnienia. Dopiero zgoda zapisuje odcisk jako zaakceptowany. Każde kolejne wywołanie sprawdza, że odcisk zainstalowanego sc2t nadal równa się zaakceptowanemu; rozbieżność zatrzymuje wywołanie i pyta od nowa.
 
 ### 6.3 Korzystanie z nadanych uprawnień
 
@@ -282,7 +312,7 @@ Mostek nie przyjmuje poleceń powłoki, nie przyjmuje nazw pakietów do operacji
 
 ### 7.4 ADB po Wi-Fi to koniec ochrony mostka
 
-Włączone ADB daje każdemu w sieci lokalnej powłokę na zegarze bez uwierzytelnienia, a przez kanał roota także uprawnienia. Wszystko, co mostek chroni zgodami, jest wtedy dostępne z pominięciem mostka, w tym z każdej aplikacji na tym samym zegarze, która ma dostęp do sieci. Ekran zgody `root_adb_on` mówi to wprost. Uwierzytelnione ADB byłoby lepsze, ale fabryczna konfiguracja tego urządzenia go nie daje i kontrakt przyjmuje ten kompromis świadomie. `adb_off` jest zawsze dostępne, a menu Heliosa pokazuje fakt nasłuchu, nie samą właściwość.
+Włączone ADB daje każdemu w sieci lokalnej powłokę na zegarze bez uwierzytelnienia, a przez kanał roota także uprawnienia. Wszystko, co mostek chroni zgodami, jest wtedy dostępne z pominięciem mostka, w tym z każdej aplikacji na tym samym zegarze, która ma dostęp do sieci. Ekran zgody `root_adb_on` mówi to wprost. Uwierzytelnione ADB byłoby lepsze, ale fabryczna konfiguracja tego urządzenia go nie daje i kontrakt przyjmuje ten kompromis świadomie. `adb_off` jest zawsze **widoczne** w menu, gdy nasłuch trwa, ale wykonalne tylko przy żywym kanale roota i wolnej blokadzie; w pozostałych przypadkach zwraca `unsupported` albo `busy` i mówi, czego brakuje. Menu Heliosa pokazuje fakt nasłuchu, nie samą właściwość.
 
 ### 7.5 Dane w odpowiedziach
 
@@ -313,19 +343,25 @@ Mostek nie przekazuje niczego z Home Assistanta ani z konfiguracji Heliosa. `det
 8. `mic_release` sprawia, że sesja nagrywania Heliosa raportuje `1ch 16000Hz`, pomiar rzeczywistego strumienia pokazuje częstotliwość równą żądanej, a hasło wybudzające jest rozpoznawane; `mic_restore` odtwarza dokładnie stan sprzed zmiany.
 9. `install_apk` z własną nowszą wersją instaluje ją bez dodatkowego potwierdzenia instalatora po zgodzie mostka, a potwierdzeniem jest `versionCode` odczytany po restarcie procesu.
 
-Ścieżki negatywne, każda bez zmiany stanu urządzenia:
+Odrzucenia przed wykonaniem. Każde kończy się bez najmniejszej zmiany stanu urządzenia, bo sc2t nie zdążył niczego zrobić:
 
-10. Wywołanie bez `startActivityForResult`, z inną akcją, ze złymi typami pól albo z niepoprawnym JSON-em w `args`.
-11. Wywołanie z `FLAG_ACTIVITY_FORWARD_RESULT`.
-12. Wywołujący o nieznanym odcisku (odmowa na ekranie zaufania) oraz wywołujący, którego odcisk zmienił się po wcześniejszej zgodzie.
+10. Wywołanie bez `startActivityForResult`, z inną akcją, ze złymi typami pól, z niepoprawnym JSON-em w `args` albo od innego użytkownika Androida niż `0`.
+11. Wywołanie z `FLAG_ACTIVITY_FORWARD_RESULT`, z `FLAG_ACTIVITY_NEW_TASK`, z `FLAG_ACTIVITY_SINGLE_TOP` oraz intencja doręczona przez `onNewIntent()`.
+12. Wywołujący o nieznanym odcisku, gdy człowiek odmawia na ekranie zaufania, oraz wywołujący, którego odcisk zmienił się po wcześniejszej zgodzie: pytanie pada od nowa, odmowa daje `denied`, a wcześniejsze zgody tego pakietu już nie obowiązują, bo zgoda na nowy odcisk nie dziedziczy niczego po starym.
 13. Odinstalowanie albo podmiana pakietu wywołującego przy otwartym ekranie zgody.
-14. Cofnięcie zaufania w trakcie oczekującego żądania.
+14. Cofnięcie zaufania w całości oraz cofnięcie pojedynczej zgody operacyjnej w trakcie oczekującego żądania.
 15. Drugie wywołanie operacji zmieniającej stan w trakcie pierwszej, z interfejsu i z agenta HTTP, daje `busy` z aktualną migawką.
-16. `grant_permission` z uprawnieniem spoza listy, dla innego pakietu albo bez deklaracji w manifeście; `write_settings` bez deklaracji; `set_home` przy zerowej albo wielokrotnej liczbie kandydatów.
-17. `install_apk` z plikiem innego pakietu, z obcym podpisem, z niższym `versionCode`, bez grantu do adresu, ze strumienia, który się blokuje albo przekracza limit.
-18. Śmierć procesu sc2t i śmierć procesu Heliosa na każdym etapie długiej operacji oraz odcięcie zasilania w trakcie łańcucha: po ponownym starcie migawka mówi `chain: unknown`, ponowienie wymaga potwierdzenia, a `mic_saved_state` przeżywa restart.
-19. Timeout przy żyjącym wykonawcy daje `in_progress`, a nie `failed`, i nie zwalnia blokady.
-20. Kontrakt z nieznanym `api` daje `unsupported_api`, nieznana operacja daje `unsupported`; `detail` w żadnym z tych przypadków nie zawiera tokenu ani ścieżki prywatnej.
+16. `grant_permission` z uprawnieniem spoza listy, dla innego pakietu albo bez deklaracji w manifeście; `write_settings` bez deklaracji; `set_home` przy zerowej albo wielokrotnej liczbie kandydatów; `adb_on` i `adb_off` przy martwym kanale roota.
+17. `install_apk` z plikiem innego pakietu, z obcym podpisem, z `versionCode` równym albo niższym, bez grantu do adresu, ze strumienia, który się blokuje albo przekracza limit, oraz z podmianą pliku pod tym samym adresem po skopiowaniu, gdzie rozstrzyga skrót kopii.
+18. Helios wobec sc2t, którego odcisk zmienił się po akceptacji: żadne wywołanie ani przekazanie pliku nie wychodzi, dopóki człowiek nie zaakceptuje nowego odcisku.
+
+Przerwania po rozpoczęciu. Tu stan urządzenia może być już częściowo zmieniony, więc kryterium dotyczy tego, co kontrakt o nim mówi:
+
+19. Śmierć procesu sc2t, śmierć procesu Heliosa i odcięcie zasilania na każdym etapie długiej operacji: po ponownym starcie `state` z `about` dla tego `op_id` podaje etap zgodny z tym, co zdążyło się wykonać (`accepted`, `running`, `interrupted` albo `finished` z wynikiem), a nie zawsze to samo. `chain` jest `unknown` tylko wtedy, gdy sc2t nie potrafi stwierdzić losu wykonawcy.
+20. Przy `chain: unknown` żadna zgoda człowieka nie odblokowuje ponowienia: dopiero potwierdzone zakończenie wykonawcy albo restart zegara przełącza stan na `idle`. Próba równoległego uruchomienia po śmierci sc2t, gdy wykonawca żyje, daje `busy`.
+21. Timeout przy żyjącym wykonawcy daje `in_progress`, a nie `failed`, i nie zwalnia blokady; spóźniony wynik tego samego `op_id` jest przyjmowany, a Helios nie uruchamia w międzyczasie drugiej operacji.
+22. Powtórne `mic_release` po przerwanej próbie nie nadpisuje zapisu stanem już zmienionym, a `mic_restore` po awarii w połowie przywraca to, co się da, zwraca `failed` i zostawia resztę mapy; `mic_saved_state` przeżywa restart zegara.
+23. Kontrakt z nieznanym `api` daje `unsupported_api`, nieznana operacja daje `unsupported`, nieznany `op_id` w `state` daje etap `absent`; `detail` w żadnym z tych przypadków nie zawiera tokenu ani ścieżki prywatnej.
 
 ## 10. Kolejność wdrożenia
 
@@ -335,7 +371,8 @@ Mostek nie przekazuje niczego z Home Assistanta ani z konfiguracji Heliosa. `det
 4. sc2t: `grant_permission`, `write_settings`, `mic_release`, `mic_restore` z zapisem stanu, `set_home`.
 5. Helios: korzystanie z nadanych uprawnień i uogólniony instalator sc2t.
 6. sc2t: `install_apk` przez sesję instalatora, Helios: cicha aktualizacja własna.
-7. Dokumentacja po obu stronach, wydania, weryfikacja na zegarze od czystego stanu po odcięciu zasilania.
+7. Weryfikacja na sprzęcie dwóch rzeczy, których nie da się rozstrzygnąć z dokumentacji: czy zerowanie właściwości portu z restartem demona faktycznie wyłącza nasłuch na tym firmware, czy potrzebne jest zatrzymanie demona, oraz czy instalacja kanałem roota przechodzi bez okna instalatora. Wynik obu trafia do dokumentacji sc2t.
+8. Dokumentacja po obu stronach, wydania, weryfikacja na zegarze od czystego stanu po odcięciu zasilania.
 
 ## 11. Ryzyka
 
