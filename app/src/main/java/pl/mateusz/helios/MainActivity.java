@@ -625,9 +625,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             // a file per hand-off: the tools may still be copying the previous one
             String opId=ToolsCall.newOpId();
             java.io.File shared=ApkProvider.shared(this,opId);
-            if(!moveInto(file,shared)){toast("Nie udało się przygotować pliku");return;}
+            if(!moveInto(file,shared)){shared.delete();toast("Nie udało się przygotować pliku");return;}
             android.net.Uri uri=ApkProvider.uriFor(this,opId);
-            if(uri==null){toast("Nie udało się przygotować pliku");return;}
+            if(uri==null){shared.delete();toast("Nie udało się przygotować pliku");return;}
             if(!ToolsBridge.startWithFile(this,"install_apk","",opId,uri)){
                 shared.delete();
                 toast("Nie udało się uruchomić narzędzi");
@@ -652,7 +652,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(tool==null){toast("Narzędzia nie są zainstalowane");return;}
         String fingerprint=tool.fingerprint.length()<=16?tool.fingerprint:tool.fingerprint.substring(0,16)+"...";
         confirmDialog("Pozwolić narzędziom zegara nadawać uprawnienia Heliosowi?\n\nPodpis "+fingerprint,
-                "Pozwól",()->{ToolsBridge.accept(this);toast("Narzędzia zaakceptowane");},()->{});
+                "Pozwól",()->{
+                    if(ToolsBridge.accept(this,tool.fingerprint))toast("Narzędzia zaakceptowane");
+                    else toast("Narzędzia zmieniły się w międzyczasie, spróbuj ponownie");
+                },()->{});
     }
 
     /** Every answer is reconciled against the tool's own record, never trusted on its own. */

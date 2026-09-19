@@ -65,11 +65,14 @@ final class ToolsBridge {
         return ToolsTrust.check(installed(context), prefs(context).getString(KEY_ACCEPTED, ""));
     }
 
-    /** Recording the fingerprint the user agreed to; installing it was not the same as trusting it. */
-    static void accept(Context context) {
+    /**
+     * Records the fingerprint the user agreed to, and only that one. The tool could be replaced while the dialog is
+     * open, and trusting what happens to be installed at the moment of the tap would trust something never shown.
+     */
+    static boolean accept(Context context, String shownFingerprint) {
         ToolsTrust.Installed tool = installed(context);
-        if (tool == null) return;
-        prefs(context).edit().putString(KEY_ACCEPTED, tool.fingerprint).commit();
+        if (tool == null || shownFingerprint == null || !shownFingerprint.equals(tool.fingerprint)) return false;
+        return prefs(context).edit().putString(KEY_ACCEPTED, shownFingerprint).commit();
     }
 
     /**
