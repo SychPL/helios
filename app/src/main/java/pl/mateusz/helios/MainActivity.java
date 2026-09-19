@@ -125,6 +125,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             public void pair(){onboarding(false);}
             public void device(){deviceDialog();}
             public void update(){if(service!=null)service.update();}
+            public void tools(){toolsDialog();}
         });
         dashboard.onBrandHold(()->navigation.show());
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
@@ -508,6 +509,92 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("HA nie potwierdził połączenia");}},20000);
         });
     }
+
+    private void toast(String text){
+        if(text!=null&&!text.isEmpty())Toast.makeText(this,text,Toast.LENGTH_SHORT).show();
+    }
+
+    // -- clock tools (SPEC 0.12) -----------------------------------------------------------------------------
+
+    private String toolsSnapshot="{}";
+
+    /** The menu of what the tools can do here; every entry has its own condition, so nothing is offered in vain. */
+    private void toolsDialog(){
+        closePanel();
+        ToolsState state=ToolsBridge.stateFrom(this,toolsSnapshot);
+        java.util.List<String> items=ToolsMenu.items(state);
+        LinearLayout column=Theme.dialogColumn(this,16);
+        column.addView(Theme.label(this,"Narzędzia zegara",20,false));
+        String pending=ToolsBridge.pendingOpId(this);
+        if(pending!=null)column.addView(Theme.label(this,"Trwa: "+ToolsBridge.pendingOp(this),13,true));
+        String explain=ToolsTrust.explain(state.trust);
+        if(!explain.isEmpty())column.addView(Theme.label(this,explain,13,true));
+        for(String item:items){
+            Button button=Theme.button(this,item,false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
+            button.setOnClickListener(v->{closePanel();toolsAction(item);});
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,Theme.dp(this,52));p.topMargin=Theme.dp(this,8);
+            column.addView(button,p);
+        }
+        Button close=Theme.button(this,"Zamknij",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
+        close.setOnClickListener(v->closePanel());
+        LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Theme.dp(this,52));c.topMargin=Theme.dp(this,12);
+        column.addView(close,c);
+        Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->panel=null);
+        if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dialog.show();
+    }
+
+    private void toolsAction(String item){
+        if(ToolsMenu.INSTALL.equals(item)||ToolsMenu.UPDATE.equals(item)){
+            toast("Instalacja narzędzi jeszcze niedostępna");return;       // arrives with the updater task
+        }
+        if(ToolsMenu.ACCEPT.equals(item)){acceptTools();return;}
+        String op=null,args="";
+        if(ToolsMenu.ROOT_AND_ADB.equals(item))op="root_adb_on";
+        else if(ToolsMenu.ADB_ON.equals(item))op="adb_on";
+        else if(ToolsMenu.ADB_OFF.equals(item))op="adb_off";
+        else if(ToolsMenu.MIC_FIX.equals(item))op="mic_release";
+        else if(ToolsMenu.MIC_RESTORE.equals(item))op="mic_restore";
+        else if(ToolsMenu.ALLOW_BRIGHTNESS.equals(item))op="write_settings";
+        else if(ToolsMenu.SET_HOME.equals(item))op="set_home";
+        else if(ToolsMenu.PERMISSION_MIC.equals(item)){op="grant_permission";args=ToolsBridge.grantArgs("android.permission.RECORD_AUDIO");}
+        if(op==null)return;
+        if(!ToolsCall.mayStartAnother(ToolsCall.stageOf(toolsSnapshot))){toast("Poprzednia operacja jeszcze trwa");return;}
+        if(ToolsBridge.start(this,op,args,null)==null)toast(ToolsTrust.explain(ToolsBridge.status(this)));
+    }
+
+    /** Installing the tool is not the same as trusting it, so the user says so here, once. */
+    private void acceptTools(){
+        ToolsTrust.Installed tool=ToolsBridge.installed(this);
+        if(tool==null){toast("Narzędzia nie są zainstalowane");return;}
+        String fingerprint=tool.fingerprint.length()<=16?tool.fingerprint:tool.fingerprint.substring(0,16)+"...";
+        confirmDialog("Pozwolić narzędziom zegara nadawać uprawnienia Heliosowi?\n\nPodpis "+fingerprint,
+                "Pozwól",()->{ToolsBridge.accept(this);toast("Narzędzia zaakceptowane");},()->{});
+    }
+
+    /** Every answer is reconciled against the tool's own record, never trusted on its own. */
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode!=ToolsBridge.REQUEST_CODE)return;
+        String mine=ToolsBridge.pendingOpId(this);
+        String answeredFor=ToolsBridge.opIdOf(data);
+        toolsSnapshot=ToolsBridge.snapshotOf(data);
+        String result=ToolsBridge.statusOf(data);
+        boolean cancelled=resultCode!=RESULT_OK;
+        if(answeredFor!=null&&mine!=null&&!ToolsCall.acceptResult(answeredFor,mine)){
+            return;                                                          // a late answer to somebody else
+        }
+        String detail=ToolsBridge.detailOf(data);
+        if(!cancelled&&result!=null&&!detail.isEmpty())toast(detail);
+        ToolsBridge.observe(this,mine,ToolsCall.stageOf(toolsSnapshot));
+        if(ToolsCall.next(result,cancelled)==ToolsCall.Next.POLL&&mine!=null){
+            main.postDelayed(()->ToolsBridge.ask(this,mine),5000);
+        }else if(mine!=null&&!cancelled){
+            ToolsBridge.ask(this,mine);                                      // one reconciliation after every change
+        }
+    }
+
     private void deviceDialog(){
         if(service==null)return;
         closePanel();

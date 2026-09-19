@@ -27,7 +27,7 @@ final class NavigationMenu {
     private final java.util.function.BooleanSupplier updateBusy;
     private Dialog dialog;
     private String status="";
-    interface Actions {void talk();void cancel();void pair();void device();void update();}
+    interface Actions {void talk();void cancel();void pair();void device();void update();void tools();}
     private final Actions actions;
     NavigationMenu(Activity activity,java.util.function.Supplier<org.json.JSONObject> connection,java.util.function.BooleanSupplier updateBusy,Actions actions){this.activity=activity;this.connection=connection;this.updateBusy=updateBusy;this.actions=actions;}
     private int dp(int n){return Math.round(n*activity.getResources().getDisplayMetrics().density);}
@@ -48,6 +48,7 @@ final class NavigationMenu {
         button(rows,"Anuluj rozmowę",()->{close();actions.cancel();});
         button(rows,"Urządzenie: głośność i lampka",()->{close();actions.device();});
         button(rows,"Paruj z HA",()->{close();actions.pair();});
+        button(rows,"Narzędzia zegara",()->{close();actions.tools();});
         button(rows,"Konfiguracja ekranu w HA",()->openHa(true));
         button(rows,"Strona główna HA",()->openHa(false));
         button(rows,"Ustawienia zegara",()->open(new Intent(Settings.ACTION_SETTINGS)));
