@@ -1,6 +1,6 @@
 # SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
-Status: po przeglądzie (własnym i Codex, rundy 1-3). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
+Status: po przeglądzie (własnym i Codex, rundy 1-4). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
 
 ## 1. Problem i cel
 
@@ -96,16 +96,17 @@ Znaczenie kodów: `denied` decyzja człowieka albo brak zaufania, `unsupported` 
 
 - Helios po każdej operacji innej niż `state` wykonuje `state` i porównuje migawkę z oczekiwaniem; interfejs buduje z migawki i z własnych sprawdzeń lokalnych (pkt 6.3), nigdy z samego kodu wyniku.
 - sc2t zapisuje trwale etap każdej operacji pod jej `op_id`, zanim zrobi cokolwiek nieodwracalnego, i potrafi po ponownym starcie powiedzieć, na czym stanęła.
-- Ponowienie jest dozwolone dopiero, gdy migawka mówi `chain: idle`. Przy `chain: running` powtórzenie zwraca `busy`.
+- Uruchomienie **nowego** wykonania (nowy `op_id`) jest dozwolone dopiero, gdy migawka mówi `chain: idle`. Przy `chain: running` nowe żądanie zwraca `busy`. Powtórzenie identycznego żądania z tym samym `op_id` nie jest nowym wykonaniem i odpowiada etapem albo zapisanym wynikiem (pkt 4.1), nigdy `busy`.
 - `chain: unknown` **nie przechodzi w `idle` przez zgodę człowieka**. Blokada schodzi wyłącznie wtedy, gdy sc2t potwierdzi, że poprzedni uprzywilejowany wykonawca nie żyje (brak jego procesu i brak jego pliku blokady), albo gdy czas startu systemu jest późniejszy niż zapis etapu, czyli zegar był restartowany. Do tego czasu każda operacja zmieniająca stan zwraca `busy` z wyjaśnieniem w `detail`, a jedyne, co człowiek może zrobić, to odciąć zasilanie.
 
 Limity czasu są dwa i liczone osobno: oczekiwanie na decyzję człowieka nie jest ograniczone, a wykonanie ma własny limit. Limity wykonania: pomiar stanu 3 s, przełączanie ADB 45 s, nadanie uprawnienia, `set_home` i każda pojedyncza zmiana uprawnień mikrofonu 20 s, kopiowanie pliku 60 s, instalacja 120 s, łańcuch roota 4 minuty. Przekroczenie daje `in_progress` przy żyjącym wykonawcy, a `unknown`, gdy tego nie da się stwierdzić.
 
 Helios nie mierzy czasu, dopóki mostek jest na wierzchu: nie wie, czy stoi tam pytanie do człowieka, czy pasek postępu, a czekanie na człowieka nigdy nie jest awarią. Liczy się dopiero to, co widać po powrocie:
 
-- odpowiedź z kodem innym niż `in_progress` kończy sprawę,
-- `in_progress`, `RESULT_CANCELED` albo brak odpowiedzi uruchamiają odpytywanie `state` o własny `op_id` co 5 s, aż do limitu wykonania tej operacji liczonego od etapu `running` z rejestru,
-- po limicie Helios przestaje pytać i pokazuje stan z rejestru, nie własny domysł.
+- odpowiedź `ok`, `failed`, `denied`, `unsupported`, `unsupported_api`, `busy` albo `wrong_firmware` kończy sprawę,
+- `in_progress`, `unknown`, `RESULT_CANCELED` albo brak odpowiedzi uruchamiają odpytywanie `state` o własny `op_id` co 5 s. `unknown` nie jest rozstrzygnięciem: znaczy tylko tyle, że sc2t nie wiedział w chwili odpowiedzi,
+- limit liczy sam Helios z pól `stage_since_ms` i `boot_id` rejestru, osobno dla każdego etapu maszynowego; etap `awaiting_consent` nie ma limitu,
+- po limicie Helios przestaje pytać cyklicznie, ale przy każdym otwarciu menu pyta jeszcze raz, dopóki rejestr nie poda etapu terminalnego. Utracona odpowiedź nie może zostawić trwałej blokady w interfejsie, skoro wykonawca dawno skończył.
 
 Helios nigdy nie uruchamia drugiej operacji, zanim rejestr nie powie `finished`, `interrupted` albo `absent`. Spóźniona odpowiedź z tym samym `op_id` jest przyjmowana normalnie, z nieznanym jest ignorowana.
 
@@ -141,7 +142,7 @@ Ekran zgody nazywa operację po ludzku i mówi, co się stanie. Dla `root_adb_on
 
 ### 4.5 Blokada i odczyt stanu
 
-sc2t trzyma jedną blokadę wykonawczą. Obejmuje ona **rzeczywisty czas pracy wykonawcy**, a nie czas życia ekranu: zamknięcie okna postępu nie zwalnia blokady, dopóki uprzywilejowany proces potomny żyje. Drugie wywołanie operacji zmieniającej stan dostaje `busy`; dotyczy to także wyzwalaczy agenta HTTP, które dziś blokady nie biorą (pkt 8.4). Łańcuch roota nie może działać w dwóch kopiach.
+sc2t trzyma jedną blokadę wykonawczą. Obejmuje ona **rzeczywisty czas pracy wykonawcy**, a nie czas życia ekranu: zamknięcie okna postępu nie zwalnia blokady, dopóki uprzywilejowany proces potomny żyje. Blokada dotyczy wyłącznie uruchamiania nowego wykonania, więc powtórzenie tego samego żądania i każdy odczyt przechodzą obok niej. Wywołanie operacji zmieniającej stan **z nowym `op_id`** w trakcie trwania innej dostaje `busy`; dotyczy to także wyzwalaczy agenta HTTP, które dziś blokady nie biorą (pkt 8.4). Łańcuch roota nie może działać w dwóch kopiach.
 
 `state` nigdy nie czeka na tę blokadę. Migawka powstaje z limitem czasu 3 s na całość; pole, którego nie udało się zmierzyć w tym czasie, ma wartość `"unknown"`, a nie wartość domyślną. Każda odpowiedź, także `busy`, niesie świeżą migawkę, więc Helios po timeoucie zawsze ma jak sprawdzić, co się dzieje. Uwierzytelnienie wywołującego zawsze poprzedza zajęcie blokady.
 
@@ -155,7 +156,11 @@ sc2t trzyma jedną blokadę wykonawczą. Obejmuje ona **rzeczywisty czas pracy w
 
 Odczyt, bez zgody, bez blokady, bez skutków ubocznych. `args` może nieść `{"about": "<op_id>"}`, żeby zapytać o los wcześniejszego żądania tego samego wywołującego; odpowiedź niesie wtedy jego etap i wynik z trwałego rejestru, nawet gdy pytanie pada po restarcie zegara.
 
-Zasady bloku `about`: nieznany identyfikator, identyfikator cudzy i identyfikator sprzed zmiany podpisu dają `stage: absent`, `status: none` i `finished_at_ms: null`, bez rozróżniania tych przypadków. Etapy `accepted` i `running` mają `status: in_progress`, etap `interrupted` ma `status: unknown`, a `finished_at_ms` jest wypełniony wyłącznie dla etapu `finished`. Gdy `args` nie niesie `about`, bloku nie ma w migawce w ogóle. Każde pole migawki może mieć wartość `"unknown"`. Migawka:
+Zasady bloku `about`: nieznany identyfikator, identyfikator cudzy i identyfikator sprzed zmiany podpisu dają `stage: absent`, `status: none` oraz puste znaczniki czasu, bez rozróżniania tych przypadków. Etapy `accepted`, `awaiting_consent`, `copying`, `running` i `installing` mają `status: in_progress`, etap `interrupted` ma `status: unknown`, a `finished_at_ms` jest wypełniony wyłącznie dla etapu `finished`. Gdy `args` nie niesie `about`, bloku nie ma w migawce w ogóle.
+
+Czas mierzy sc2t i tylko sc2t, bo tylko on wie, kiedy co się zaczęło. `started_at_ms` to moment przyjęcia żądania, `stage_since_ms` moment wejścia w bieżący etap, oba w czasie ściennym urządzenia, a `boot_id` identyfikuje uruchomienie systemu. Zmiana `boot_id` między odczytami znaczy, że zegar był restartowany, więc różnice czasu z poprzedniego uruchomienia nic nie mówią; Helios porównuje czasy wyłącznie w obrębie jednego `boot_id`.
+
+Etapy rozdzielają czas człowieka od czasu maszyny, bo tylko ten drugi ma limit: `awaiting_consent` trwa bez ograniczeń, a limity z pkt 4.2 dotyczą `copying`, `running` i `installing`, każdego osobno. Operacja instalacji przechodzi przez `copying`, `awaiting_consent` i `installing`, więc jej trzy limity liczone są niezależnie. Każde pole migawki może mieć wartość `"unknown"`. Migawka:
 
 ```json
 {
@@ -183,7 +188,10 @@ Zasady bloku `about`: nieznany identyfikator, identyfikator cudzy i identyfikato
   "about": {
     "op_id": "9f2c...",
     "op": "root_adb_on",
-    "stage": "absent | accepted | running | finished | interrupted",
+    "stage": "absent | accepted | awaiting_consent | copying | running | installing | finished | interrupted",
+    "started_at_ms": 1789759880000,
+    "stage_since_ms": 1789759890000,
+    "boot_id": "c4f1...",
     "status": "ok | failed | denied | unsupported | unsupported_api | busy | wrong_firmware | in_progress | unknown | none",
     "finished_at_ms": 1789760000000
   }
@@ -368,7 +376,7 @@ Odrzucenia przed wykonaniem. Żadne z nich nie zmienia stanu urządzenia w zakre
 12. Wywołujący o nieznanym odcisku, gdy człowiek odmawia na ekranie zaufania, oraz wywołujący, którego odcisk zmienił się po wcześniejszej zgodzie: pytanie pada od nowa, odmowa daje `denied`, a wcześniejsze zgody tego pakietu już nie obowiązują, bo zgoda na nowy odcisk nie dziedziczy niczego po starym.
 13. Odinstalowanie albo podmiana pakietu wywołującego przy otwartym ekranie zgody.
 14. Cofnięcie zaufania w całości oraz cofnięcie pojedynczej zgody operacyjnej w trakcie oczekującego żądania.
-15. Drugie wywołanie operacji zmieniającej stan w trakcie pierwszej, z interfejsu i z agenta HTTP, daje `busy` z aktualną migawką.
+15. Wywołanie operacji zmieniającej stan **z nowym `op_id`** w trakcie trwania innej, z interfejsu i z agenta HTTP, daje `busy` z aktualną migawką; powtórzenie tego samego żądania w tym samym czasie daje `in_progress`, a nie `busy`.
 16. `grant_permission` z uprawnieniem spoza listy, dla innego pakietu albo bez deklaracji w manifeście; `write_settings` bez deklaracji; `set_home` przy zerowej albo wielokrotnej liczbie kandydatów; `adb_on` i `adb_off` przy martwym kanale roota.
 17. `install_apk` z plikiem innego pakietu, z obcym podpisem, z `versionCode` równym albo niższym, bez grantu do adresu oraz ze strumienia, który się blokuje albo przekracza limit. Osobno: podmiana pliku pod tym samym adresem po skopiowaniu nie zmienia wyniku, bo instalowana jest zweryfikowana kopia; gdy wywołujący przysłał oczekiwany skrót, niezgodność z kopią daje `failed`.
 17a. Powtórzenie tego samego `op_id` z inną operacją albo innymi argumentami daje `unsupported`; powtórzenie identycznego żądania w trakcie wykonania daje `in_progress`, a po zakończeniu zapisany wynik, i w żadnym z tych przypadków operacja nie wykonuje się drugi raz.
