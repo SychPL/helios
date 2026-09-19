@@ -554,6 +554,8 @@ public final class HeliosService extends Service {
     void setOnStatus(java.util.function.Consumer<String> c){onStatus=c;}
     /** Menu → "Aktualizacja Heliosa" (SPEC 0.10 pkt 7); one operation at a time, the updater says so itself. */
     void update(){network.execute(updater::run);}
+    /** Fetches and installs another package from its own GitHub releases (SPEC 0.12 pkt 6.2). */
+    void install(ReleaseInfo.Source source,String installedVersion){network.execute(()->updater.run(source,installedVersion));}
     private Runnable onConnectionChanged,onAuthInvalid;
     private Consumer<String> onChannelIssue;
     private String channelIssue;

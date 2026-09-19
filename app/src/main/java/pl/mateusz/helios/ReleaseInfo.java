@@ -16,18 +16,18 @@ final class ReleaseInfo {
      * and a package name that is checked in the downloaded file before anything is installed.
      */
     static final class Source {
-        final String repository,assetPattern,expectedPackage;
-        Source(String repository,String assetPattern,String expectedPackage){
-            this.repository=repository;this.assetPattern=assetPattern;this.expectedPackage=expectedPackage;
+        final String repository,assetPattern,expectedPackage,label;
+        Source(String repository,String assetPattern,String expectedPackage,String label){
+            this.repository=repository;this.assetPattern=assetPattern;this.expectedPackage=expectedPackage;this.label=label;
         }
         String apiUrl(){return "https://api.github.com/repos/"+repository+"/releases/latest";}
         String assetName(String version){return String.format(assetPattern,version);}
     }
 
     /** Helios itself: the source the updater has always used. */
-    static final Source HELIOS=new Source("SychPL/helios","helios-%s.apk","pl.mateusz.helios");
+    static final Source HELIOS=new Source("SychPL/helios","helios-%s.apk","pl.mateusz.helios","Helios");
     /** The clock tools, fetched by the menu entry when they are missing (SPEC 0.12 pkt 6.2). */
-    static final Source TOOLS=new Source("SychPL/smartclock2tool","smartclock2tool-%s.apk","pl.mateusz.clockadbprobe");
+    static final Source TOOLS=new Source("SychPL/smartclock2tool","smartclock2tool-%s.apk","pl.mateusz.clockadbprobe","narzędzia zegara");
     private static final Pattern TAG=Pattern.compile("^v([0-9]+\\.[0-9]+\\.[0-9]+)$");
     final String version,url;final long size;
     private ReleaseInfo(String version,String url,long size){this.version=version;this.url=url;this.size=size;}

@@ -52,6 +52,15 @@ final class ToolsBridge {
         }
     }
 
+    /** The version of the installed tool, empty when it is not there at all. */
+    static String installedVersionName(Context context) {
+        try {
+            return context.getPackageManager().getPackageInfo(ToolsTrust.TOOL_PACKAGE, 0).versionName;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     static ToolsTrust.Status status(Context context) {
         return ToolsTrust.check(installed(context), prefs(context).getString(KEY_ACCEPTED, ""));
     }

@@ -547,7 +547,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
 
     private void toolsAction(String item){
         if(ToolsMenu.INSTALL.equals(item)||ToolsMenu.UPDATE.equals(item)){
-            toast("Instalacja narzędzi jeszcze niedostępna");return;       // arrives with the updater task
+            if(service==null){toast("Usługa Heliosa jeszcze nie działa");return;}
+            ToolsTrust.Installed tool=ToolsBridge.installed(this);
+            // the installed version of the tool decides, not the version of Helios
+            service.install(ReleaseInfo.TOOLS,tool==null?"":ToolsBridge.installedVersionName(this));
+            toast("Pobieram narzędzia zegara…");
+            return;
         }
         if(ToolsMenu.ACCEPT.equals(item)){acceptTools();return;}
         String op=null,args="";

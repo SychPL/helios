@@ -40,9 +40,9 @@ public class UpdaterTest {
         final List<String> log=new ArrayList<>();JSONObject record;boolean canInstall=true,saveOk=true,clearOk=true,downloadOk=true,createOk=true,writeOk=true,commitOk=true;int saveFailAt=-1,saves;JSONObject release;String check="ok";Boolean sealed;int nextSession=41;
         public boolean canInstall(){return canInstall;}
         public void openInstallSettings(){log.add("settings");}
-        public JSONObject release() throws IOException {if(release==null)throw new IOException("offline");return release;}
+        public JSONObject release(ReleaseInfo.Source source) throws IOException {if(release==null)throw new IOException("offline");return release;}
         public void download(String url,File target,long expected) throws IOException {log.add("download:"+url);if(!downloadOk)throw new IOException("net");}
-        public String check(File file,String version){return check;}
+        public String check(File file,String version,String expectedPackage){return check;}
         public int createSession(long size) throws IOException {log.add("create");if(!createOk)throw new IOException("create");return nextSession;}
         public void write(int session,File file) throws IOException {log.add("write:"+session);if(!writeOk)throw new IOException("write");}
         public void commit(int session,String operation,File file) throws IOException {log.add("commit:"+session+":"+operation);if(!commitOk)throw new IOException("commit");}

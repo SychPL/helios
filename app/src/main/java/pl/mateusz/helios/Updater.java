@@ -11,10 +11,10 @@ import org.json.JSONObject;
 final class Updater {
     interface Host {
         boolean canInstall();void openInstallSettings();
-        JSONObject release() throws IOException;
+        JSONObject release(ReleaseInfo.Source source) throws IOException;
         void download(String url,File target,long expected) throws IOException;
         /** null or "ok" when the archive is pl.mateusz.helios with versionName==version and a higher versionCode; otherwise the message to show. */
-        String check(File file,String version);
+        String check(File file,String version,String expectedPackage);
         int createSession(long size) throws IOException;
         void write(int session,File file) throws IOException;
         void commit(int session,String operation,File file) throws IOException;
@@ -30,7 +30,10 @@ final class Updater {
     private volatile boolean active; // an operation running in this process (before commit)
     Updater(Host host,String versionName,int versionCode){this.host=host;this.versionName=versionName;this.versionCode=versionCode;}
 
-    static String decision(String latest,String current){int c=Version.compare(latest,current);return c>0?"newer":c==0?"same":"older";}
+    static String decision(String latest,String current){
+        if(current==null||current.isEmpty())return "absent";            // nothing installed: a first install
+        int c=Version.compare(latest,current);return c>0?"newer":c==0?"same":"older";
+    }
     static String nextHop(String location,String base,HostPolicy policy){
         try{if(location==null)return null;String abs=new URL(new URL(base),location).toString();return policy.allowed(abs)?abs:null;}catch(Exception e){return null;}
     }
@@ -63,26 +66,33 @@ final class Updater {
         JSONObject record=host.record();
         return "busy".equals(restoreDecision(record!=null,record==null?null:host.sealed(record.optInt("session",-1))));
     }
-    /** Menu entry; network thread. */
-    void run(){
+    /** Menu entry; network thread. Updates Helios itself. */
+    void run(){run(ReleaseInfo.HELIOS,versionName);}
+
+    /**
+     * Fetches and installs one release of the given source (SPEC 0.12 pkt 6.2). Helios updates itself with its own
+     * version; another package is compared against whatever is installed, and "absent" means a first install.
+     */
+    void run(ReleaseInfo.Source source,String installedVersion){
         if(busy()){host.status("Aktualizacja w toku…");return;}
         if(!host.canInstall()){host.openInstallSettings();host.status("Zezwól Heliosowi na instalację, potem powtórz");return;}
         JSONObject release;
-        try{release=host.release();}catch(IOException e){host.status("Brak połączenia z GitHub");return;}
-        ReleaseInfo info=ReleaseInfo.parse(release);
+        try{release=host.release(source);}catch(IOException e){host.status("Brak połączenia z GitHub");return;}
+        ReleaseInfo info=ReleaseInfo.parse(release,source);
         if(info==null){host.status("Brak wydań");return;}
-        if(!"newer".equals(decision(info.version,versionName))){host.status("Masz najnowszą wersję ("+versionName+")");return;}
+        String decision=decision(info.version,installedVersion);
+        if(!"newer".equals(decision)&&!"absent".equals(decision)){host.status("Masz najnowszą wersję ("+installedVersion+")");return;}
         active=true;
         byte[] rnd=new byte[8];new SecureRandom().nextBytes(rnd);StringBuilder id=new StringBuilder();for(byte b:rnd)id.append(String.format("%02x",b));
-        File file=new File(host.cacheDir(),"helios-update-"+id+".apk");
+        File file=new File(host.cacheDir(),"update-"+id+".apk");
         JSONObject record;
         try{record=new JSONObject().put("id",id.toString()).put("started",System.currentTimeMillis()).put("file",file.getPath()).put("session",-1);}catch(Exception e){active=false;return;}
         if(!host.saveRecord(record)){host.status("Nie udało się zapisać stanu aktualizacji");active=false;return;} // nothing else happened yet
-        host.status("Pobieram Helios "+info.version+"…");
+        host.status("Pobieram "+source.label+" "+info.version+"…");
         int session=-1;
         try{
             try{host.download(info.url,file,info.size);}catch(IOException e){fail(record,session,"Brak połączenia z GitHub");return;}
-            String problem=host.check(file,info.version);
+            String problem=host.check(file,info.version,source.expectedPackage);
             if(problem!=null&&!problem.equals("ok")){fail(record,session,problem);return;}
             try{session=host.createSession(file.length());}catch(IOException e){fail(record,session,"Instalacja nieudana");return;}
             try{record.put("session",session);}catch(Exception ignored){}
@@ -131,8 +141,8 @@ final class Updater {
         private PackageInstaller installer(){return context.getPackageManager().getPackageInstaller();}
         public boolean canInstall(){return context.getPackageManager().canRequestPackageInstalls();}
         public void openInstallSettings(){context.startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,android.net.Uri.parse("package:"+context.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}
-        public JSONObject release() throws IOException {
-            HttpURLConnection c=(HttpURLConnection)new URL(ReleaseInfo.API_URL).openConnection(); // the only metadata address; never a redirect
+        public JSONObject release(ReleaseInfo.Source source) throws IOException {
+            HttpURLConnection c=(HttpURLConnection)new URL(source.apiUrl()).openConnection(); // the only metadata address; never a redirect
             c.setConnectTimeout(10000);c.setReadTimeout(10000);c.setInstanceFollowRedirects(false);c.setRequestProperty("Accept","application/vnd.github+json");
             try{
                 if(c.getResponseCode()!=200)return null; // 404 = no releases yet, 3xx = refused
@@ -144,9 +154,11 @@ final class Updater {
             finally{c.disconnect();}
         }
         public void download(String url,File target,long expected) throws IOException {Updater.download(url,target,expected,ReleaseInfo::allowedHost);}
-        public String check(File file,String version){
+        public String check(File file,String version,String expectedPackage){
             android.content.pm.PackageInfo pi=context.getPackageManager().getPackageArchiveInfo(file.getPath(),0);
-            if(pi==null||!context.getPackageName().equals(pi.packageName)||!version.equals(pi.versionName)||pi.getLongVersionCode()<=BuildConfig.VERSION_CODE)return "Nieprawidłowy plik wydania";
+            if(pi==null||!expectedPackage.equals(pi.packageName)||!version.equals(pi.versionName))return "Nieprawidłowy plik wydania";
+            // only our own update has to move forward; another package may be installed for the first time
+            if(context.getPackageName().equals(expectedPackage)&&pi.getLongVersionCode()<=BuildConfig.VERSION_CODE)return "Nieprawidłowy plik wydania";
             return "ok";
         }
         public int createSession(long size) throws IOException {
