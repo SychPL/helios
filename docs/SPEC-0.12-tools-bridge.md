@@ -1,6 +1,6 @@
 # SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
-Status: po przeglądzie (własnym i Codex, rundy 1-4). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
+Status: po przeglądzie (własnym i Codex, rundy 1-5). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
 
 ## 1. Problem i cel
 
@@ -95,9 +95,10 @@ Znaczenie kodów: `denied` decyzja człowieka albo brak zaufania, `unsupported` 
 **Przerwanie w trakcie.** Zabicie którejkolwiek z aplikacji, odcięcie zasilania albo wyjście użytkownika z okna postępu kończy się dla Heliosa brakiem wyniku albo `RESULT_CANCELED`. Żadna z tych sytuacji nie mówi, czy operacja się wykonała. Dlatego:
 
 - Helios po każdej operacji innej niż `state` wykonuje `state` i porównuje migawkę z oczekiwaniem; interfejs buduje z migawki i z własnych sprawdzeń lokalnych (pkt 6.3), nigdy z samego kodu wyniku.
+- Żaden wpis rejestru nie zostaje w etapie nieterminalnym w nieskończoność. Zamknięcie ekranu zgody albo cofnięcie się z niego przenosi wpis w `finished` ze statusem `denied`. Śmierć procesu sc2t przenosi każdy wpis w etapie `accepted` albo `awaiting_consent` w `finished` ze statusem `denied` przy najbliższym starcie narzędzia, bo nic jeszcze nie zdążyło się wykonać. Wpis w etapie `copying`, `running` albo `installing` przechodzi wtedy w `interrupted` ze statusem `unknown`, dopóki los wykonawcy nie zostanie ustalony. Wpis, którego `boot_id` jest starszy od bieżącego, nigdy nie zostaje nieterminalny: restart zegara domyka go w `interrupted`.
 - sc2t zapisuje trwale etap każdej operacji pod jej `op_id`, zanim zrobi cokolwiek nieodwracalnego, i potrafi po ponownym starcie powiedzieć, na czym stanęła.
 - Uruchomienie **nowego** wykonania (nowy `op_id`) jest dozwolone dopiero, gdy migawka mówi `chain: idle`. Przy `chain: running` nowe żądanie zwraca `busy`. Powtórzenie identycznego żądania z tym samym `op_id` nie jest nowym wykonaniem i odpowiada etapem albo zapisanym wynikiem (pkt 4.1), nigdy `busy`.
-- `chain: unknown` **nie przechodzi w `idle` przez zgodę człowieka**. Blokada schodzi wyłącznie wtedy, gdy sc2t potwierdzi, że poprzedni uprzywilejowany wykonawca nie żyje (brak jego procesu i brak jego pliku blokady), albo gdy czas startu systemu jest późniejszy niż zapis etapu, czyli zegar był restartowany. Do tego czasu każda operacja zmieniająca stan zwraca `busy` z wyjaśnieniem w `detail`, a jedyne, co człowiek może zrobić, to odciąć zasilanie.
+- `chain: unknown` **nie przechodzi w `idle` przez zgodę człowieka**. Blokada schodzi wyłącznie wtedy, gdy sc2t potwierdzi, że poprzedni uprzywilejowany wykonawca nie żyje (brak jego procesu i brak jego pliku blokady), albo gdy czas startu systemu jest późniejszy niż zapis etapu, czyli zegar był restartowany. Do tego czasu każda operacja zmieniająca stan **z nowym `op_id`** zwraca `busy` z wyjaśnieniem w `detail`; powtórzenie żądania, które ten stan wywołało, nadal odpowiada jego etapem, a odczyty przechodzą normalnie. Jedyne, co człowiek może zrobić, to odciąć zasilanie.
 
 Limity czasu są dwa i liczone osobno: oczekiwanie na decyzję człowieka nie jest ograniczone, a wykonanie ma własny limit. Limity wykonania: pomiar stanu 3 s, przełączanie ADB 45 s, nadanie uprawnienia, `set_home` i każda pojedyncza zmiana uprawnień mikrofonu 20 s, kopiowanie pliku 60 s, instalacja 120 s, łańcuch roota 4 minuty. Przekroczenie daje `in_progress` przy żyjącym wykonawcy, a `unknown`, gdy tego nie da się stwierdzić.
 
@@ -158,7 +159,11 @@ Odczyt, bez zgody, bez blokady, bez skutków ubocznych. `args` może nieść `{"
 
 Zasady bloku `about`: nieznany identyfikator, identyfikator cudzy i identyfikator sprzed zmiany podpisu dają `stage: absent`, `status: none` oraz puste znaczniki czasu, bez rozróżniania tych przypadków. Etapy `accepted`, `awaiting_consent`, `copying`, `running` i `installing` mają `status: in_progress`, etap `interrupted` ma `status: unknown`, a `finished_at_ms` jest wypełniony wyłącznie dla etapu `finished`. Gdy `args` nie niesie `about`, bloku nie ma w migawce w ogóle.
 
-Czas mierzy sc2t i tylko sc2t, bo tylko on wie, kiedy co się zaczęło. `started_at_ms` to moment przyjęcia żądania, `stage_since_ms` moment wejścia w bieżący etap, oba w czasie ściennym urządzenia, a `boot_id` identyfikuje uruchomienie systemu. Zmiana `boot_id` między odczytami znaczy, że zegar był restartowany, więc różnice czasu z poprzedniego uruchomienia nic nie mówią; Helios porównuje czasy wyłącznie w obrębie jednego `boot_id`.
+Czas mierzy sc2t i tylko sc2t, bo tylko on wie, kiedy co się zaczęło. Wszystkie trzy znaczniki są **monotoniczne**, liczone od startu systemu (`SystemClock.elapsedRealtime`), a nie z zegara ściennego: ten drugi przesuwa się przy synchronizacji czasu i zmianie strefy, co skracałoby albo wydłużało limity bez żadnego związku z rzeczywistością. `started_at_uptime_ms` to moment przyjęcia żądania, `stage_since_uptime_ms` moment wejścia w bieżący etap, a `now_uptime_ms` moment pomiaru migawki, żeby odbiorca liczył różnice bez własnego zegara.
+
+`boot_id` identyfikuje uruchomienie systemu i jest jedynym sposobem rozpoznania restartu: znaczniki monotoniczne z poprzedniego uruchomienia są nieporównywalne z obecnymi. Zmiana `boot_id` między odczytami oznacza więc restart zegara i unieważnia każdą różnicę czasu sprzed niej.
+
+Do czasu ściennego zostaje wyłącznie `finished_at_ms`, bo służy człowiekowi, a nie liczeniu limitów.
 
 Etapy rozdzielają czas człowieka od czasu maszyny, bo tylko ten drugi ma limit: `awaiting_consent` trwa bez ograniczeń, a limity z pkt 4.2 dotyczą `copying`, `running` i `installing`, każdego osobno. Operacja instalacji przechodzi przez `copying`, `awaiting_consent` i `installing`, więc jej trzy limity liczone są niezależnie. Każde pole migawki może mieć wartość `"unknown"`. Migawka:
 
@@ -189,8 +194,9 @@ Etapy rozdzielają czas człowieka od czasu maszyny, bo tylko ten drugi ma limit
     "op_id": "9f2c...",
     "op": "root_adb_on",
     "stage": "absent | accepted | awaiting_consent | copying | running | installing | finished | interrupted",
-    "started_at_ms": 1789759880000,
-    "stage_since_ms": 1789759890000,
+    "started_at_uptime_ms": 5310000,
+    "stage_since_uptime_ms": 5320000,
+    "now_uptime_ms": 5395000,
     "boot_id": "c4f1...",
     "status": "ok | failed | denied | unsupported | unsupported_api | busy | wrong_firmware | in_progress | unknown | none",
     "finished_at_ms": 1789760000000
