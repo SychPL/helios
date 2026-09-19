@@ -180,13 +180,18 @@ Blokada w pamięci znika razem z procesem, a uprzywilejowany wykonawca nie. To j
 
 **Interfejsy:**
 - Konsumuje: `ExecutorLock.Files`, `ExecutorLock.Processes` (`Liveness alive(int pid, long startTicks)` zwracające `ALIVE`, `DEAD` albo `UNKNOWN`; `long startTicks(int pid)`), `ExecutorLock.Clock` (`String bootId()`).
-- Produkuje: `boolean reserve(String opId)`, `void attach(String opId, int pid, long startTicks)`, `void handOff(String opId, String worker)`, `void done(String opId)`, `String chain()`, `boolean mayStartNew()`.
+- Produkuje: `boolean reserve(String opId, String kind)`, `void attach(String opId, int pid, long startTicks)`, `void handOff(String opId, String worker)`, `void done(String opId)`, `String chain()`, `boolean mayStartNew()`.
 
 **Protokół rezerwacji.** Między uruchomieniem procesu a poznaniem jego identyfikatora jest szczelina, w której awaria zostawiłaby ślad bez wykonawcy albo wykonawcę bez śladu. Dlatego kolejność jest: `reserve(opId)` zapisuje ślad **przed** uruchomieniem czegokolwiek, `attach` uzupełnia go o identyfikator procesu i czas jego startu, a zastany ślad bez identyfikatora liczy się jako `unknown`, nie `idle`.
 
 **Tożsamość procesu.** Sam identyfikator procesu nie wystarcza, bo system nadaje go ponownie w tym samym uruchomieniu. Ślad trzyma więc parę: identyfikator i czas startu procesu (22. pole `/proc/<pid>/stat`). Zgodność obu znaczy "ten sam proces", rozbieżność znaczy "tamten już nie żyje", a brak dostępu do `/proc` znaczy `UNKNOWN`.
 
-**Praca poza procesem potomnym.** `handOff(opId, worker)` zaznacza, że pracę przejął ktoś, kogo nie widać jako własny proces potomny, na przykład instalator systemowy. Od tej chwili śmierć wykonawcy nie zwalnia blokady: potrzebne jest osobne potwierdzenie zakończenia tego, komu przekazano pracę (zadanie 14).
+**Rodzaj pracy.** Rezerwacja niesie pole `kind`:
+
+- `in_process` - praca dzieje się wyłącznie w sc2t (kopiowanie pliku, oczekiwanie na zgodę). Śmierć procesu kończy ją z definicji, więc zastany taki ślad daje `idle` i podlega sprzątnięciu. Wymaganie restartu zegara po zamknięciu okna zgody byłoby absurdem.
+- `privileged` - pracę wykonuje albo ma wykonać uprzywilejowany proces potomny. Zastany ślad bez identyfikatora procesu daje `unknown`, bo nie wiadomo, czy proces zdążył wystartować.
+
+**Praca przekazana.** `handOff(opId, worker)` zaznacza, że pracę przejął ktoś, kogo nie widać jako własny proces potomny, na przykład instalator systemowy. **Zapis idzie przed uruchomieniem instalatora**, nie po: awaria w odwrotnej kolejności pozwoliłaby uznać, że instalator nie wystartował, i skasować plik spod pracującego instalatora. Od chwili zapisu śmierć wykonawcy nie zwalnia blokady, a potrzebne jest osobne potwierdzenie zakończenia (zadanie 14).
 
 - [ ] **Krok 1: testy**
 
@@ -198,11 +203,18 @@ Blokada w pamięci znika razem z procesem, a uprzywilejowany wykonawca nie. To j
     assertFalse(l.mayStartNew());
 }
 
-@Test public void aReservationWithoutAProcessIsUnknownNotIdle() {
+@Test public void aPrivilegedReservationWithoutAProcessIsUnknownNotIdle() {
     ExecutorLock l = lock(dead(), boot("b1"));
-    l.reserve("op1");                                   // proces zginął między rezerwacją a startem
+    l.reserve("op1", "privileged");                     // proces zginął między rezerwacją a startem
     assertEquals("unknown", newLock(dead(), boot("b1")).chain());
     assertFalse(newLock(dead(), boot("b1")).mayStartNew());
+}
+
+@Test public void workThatLivesOnlyInsideTheAppDiesWithIt() {
+    lock(dead(), boot("b1")).reserve("op1", "in_process");   // kopiowanie albo ekran zgody
+    assertEquals("nothing outside the app was running, so nothing is running now",
+                 "idle", newLock(dead(), boot("b1")).chain());
+    assertTrue("and no power cycle may be required for that", newLock(dead(), boot("b1")).mayStartNew());
 }
 
 @Test public void aDeadExecutorFromThisBootMeansIdle() {
@@ -250,16 +262,29 @@ Utwórz `bridge/Executions.java` z jedyną dopuszczalną drogą do rozpoczęcia 
 
 ```java
 /** Ślad i blokada w jednym kroku: bez tego dwa wejścia mogą zacząć pracę naraz. */
-static synchronized Grant begin(String opId, String stage) {
+static synchronized Grant begin(String opId, String stage, String kind) {
     if (!lock.mayStartNew()) return Grant.refused(lock.chain());   // trwały ślad ma pierwszeństwo
     if (!OperationGate.acquire(opId, stage)) return Grant.refused("running");
-    if (!lock.reserve(opId)) { OperationGate.release(opId); return Grant.refused("unknown"); }
+    if (!lock.reserve(opId, kind)) { OperationGate.release(opId); return Grant.refused("unknown"); }
     return Grant.granted(opId);
 }
 static synchronized void end(String opId) { lock.done(opId); OperationGate.release(opId); }
+static synchronized void endAfterWorker(String opId) { /* dla pracy przekazanej: dopiero po potwierdzeniu */ }
 ```
 
-Przez `Executions.begin` przechodzą **wszystkie** wejścia: mostek, przyciski interfejsu, wyzwalacze agenta i `tryStartProbe()`, które staje się opakowaniem `begin("probe", "running")`. Blokada w pamięci sama nie wystarcza, bo po śmierci procesu stary wykonawca może żyć, a nowe wywołanie zastałoby pustą blokadę.
+Przez `Executions.begin` przechodzą **wszystkie** wejścia: mostek, przyciski interfejsu, wyzwalacze agenta i `tryStartProbe()`, które staje się opakowaniem `begin("probe", "running", "privileged")`. Blokada w pamięci sama nie wystarcza, bo po śmierci procesu stary wykonawca może żyć, a nowe wywołanie zastałoby pustą blokadę.
+
+Symetrycznie przepina się **każde** zwolnienie: `finishProbe()` to odtąd `Executions.end("probe")`, a nie samo `OperationGate.release`. Zwolnienie wyłącznie blokady pamięciowej zostawiłoby trwałą rezerwację, która zablokowałaby wszystkie kolejne wejścia aż do restartu zegara. Miejsca do przepięcia: `AgentServer:272`, `MainActivity` (`runProbe`, `floaton`, `openaccessibility`, `toggleApkServer`), `InstallActivity:126,147,155`.
+
+```java
+@Test public void theOldEntryPointCanRunTwiceInARow() {
+    assertTrue(OperationGate.tryStartProbe());
+    OperationGate.finishProbe();
+    assertTrue("a released run must leave no persistent reservation behind", OperationGate.tryStartProbe());
+    OperationGate.finishProbe();
+    assertEquals("idle", Executions.lock().chain());
+}
+```
 
 Obejmuje to także etapy `copying` i `awaiting_consent` instalacji: one również zajmują blokadę, choć nie mają uprzywilejowanego wykonawcy.
 
@@ -1062,7 +1087,26 @@ Skrót pliku powstaje dopiero po skopiowaniu strumienia, więc tożsamość żą
 2. po zakończonym kopiowaniu `bindDigest` dopisuje do wpisu **niezmienny** skrót kopii; od tej chwili każde powtórzenie porównuje się właśnie z nim,
 3. powtórzenie w trakcie etapu `copying` nie ma z czym porównywać, więc dostaje bieżący etap i nie uruchamia drugiego kopiowania,
 4. skrót przysłany przez wywołującego w `args` służy wyłącznie do odrzucenia niezgodnej kopii (`failed`) i nigdy nie zastępuje skrótu policzonego z kopii,
-5. prywatna kopia pierwszego żądania nie jest ruszana przez żadne powtórzenie, także to z innym plikiem: takie żądanie kończy się `unsupported`, zanim cokolwiek zostanie skopiowane.
+5. prywatna kopia pierwszego żądania nie jest ruszana przez żadne powtórzenie.
+
+**Powtórzenie bez zadeklarowanego skrótu.** Zawartość strumienia pod tym samym adresem może się zmienić, a policzenie jej wymagałoby drugiego kopiowania, czyli dokładnie tego, czego duplikat ma uniknąć. Dlatego po `bindDigest` mostek **nie otwiera ponownie strumienia**: żądanie o tym samym kluczu i tej samej operacji jest pytaniem o los tamtego żądania i dostaje jego etap albo zapisany wynik. Plikiem tożsamości jest kopia, która już istnieje, bo to ona się instaluje; to, co w międzyczasie stało się ze źródłem, nie ma znaczenia.
+
+Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i różni się od skrótu kopii, powtórzenie dostaje `unsupported`, bo wywołujący sam mówi, że chodzi mu o inny plik.
+
+```java
+@Test public void aRepeatWithoutADeclaredShaAsksAboutTheFirstRequest() {
+    OpRegistry reg = registryWithBoundInstall("op1", "sha-of-copy");
+    Decision d = decide(installRequest("op1", null), helios(), consented(), reg, running(), facts());
+    assertEquals("in_progress", d.status);
+    assertEquals("no second stream is ever opened for a repeat", 0, streamOpens());
+}
+
+@Test public void aRepeatDeclaringAnotherFileIsRefused() {
+    OpRegistry reg = registryWithBoundInstall("op1", "sha-of-copy");
+    assertEquals("unsupported", decide(installRequest("op1", "sha-of-something-else"), helios(), consented(), reg, running(), facts()).status);
+    assertEquals(0, streamOpens());
+}
+```
 
 - [ ] **Krok 5: potwierdzenie zakończenia instalatora**
 
@@ -1070,7 +1114,7 @@ Skrót pliku powstaje dopiero po skopiowaniu strumienia, więc tożsamość żą
 
 | ślad | znaczenie | blokada i pliki |
 | --- | --- | --- |
-| brak przekazania, wykonawca martwy | instalator nie wystartował | zwolnić, sprzątnąć, wynik `failed` |
+| brak przekazania, wykonawca martwy | instalator nie wystartował, bo przekazanie zapisuje się przed jego uruchomieniem | zwolnić, sprzątnąć, wynik `failed` |
 | przekazanie, instalacja potwierdzona zakończeniem (zmieniony `versionCode` albo wynik z sesji) | skończone | zwolnić, sprzątnąć |
 | przekazanie, brak potwierdzenia | może nadal trwać | trzymać blokadę i pliki, etap `interrupted`, status `unknown` |
 
@@ -1085,6 +1129,20 @@ Skrót pliku powstaje dopiero po skopiowaniu strumienia, więc tożsamość żą
     assertEquals("ok", done.status);
     assertFalse(done.filesKept);
     assertFalse(done.lockHeld);
+}
+
+@Test public void theHandOffIsWrittenBeforeTheInstallerStarts() {
+    RecordingTrace trace = new RecordingTrace();
+    runInstall(installerThatRecords(trace));
+    assertEquals("hand off first, start second; the other order loses the APK",
+                 asList("handOff", "installerStarted"), trace.order());
+}
+
+@Test public void aCrashBetweenTheHandOffAndTheInstallerKeepsEverything() {
+    Outcome o = recover(traceWith(handOff("installer"), noInstallerEverStarted(), deadExecutor()), installedVersionCode(29));
+    assertEquals("we cannot tell whether it started, so we assume it did", "unknown", o.status);
+    assertTrue(o.filesKept);
+    assertTrue(o.lockHeld);
 }
 ```
 
