@@ -628,8 +628,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             if(!moveInto(file,shared)){toast("Nie udało się przygotować pliku");return;}
             android.net.Uri uri=ApkProvider.uriFor(this,opId);
             if(uri==null){toast("Nie udało się przygotować pliku");return;}
-            ToolsBridge.remember(this,opId,"install_apk");
-            startActivityForResult(ToolsBridge.intentFor("install_apk","",opId,uri),ToolsBridge.REQUEST_CODE);
+            if(!ToolsBridge.startWithFile(this,"install_apk","",opId,uri)){
+                shared.delete();
+                toast("Nie udało się uruchomić narzędzi");
+            }
         }));
     }
 

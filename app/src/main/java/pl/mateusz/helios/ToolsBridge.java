@@ -130,6 +130,20 @@ final class ToolsBridge {
         }
     }
 
+    /**
+     * Starts an operation whose file was prepared under a known identifier, so the record and the file agree.
+     * Same guards as {@link #start}: nothing goes out without a durable record, and a missing bridge is an answer.
+     */
+    static boolean startWithFile(Activity activity, String op, String argsJson, String opId, Uri file) {
+        if (!ToolsTrust.mayCall(status(activity))) return false;
+        if (!remember(activity, opId, op)) return false;
+        if (!launch(activity, intentFor(op, argsJson, opId, file))) {
+            forget(activity, opId);
+            return false;
+        }
+        return true;
+    }
+
     /** Written before the call goes out; false means it was not written, and then no call goes out either. */
     static boolean remember(Context context, String opId, String op) {
         return prefs(context).edit().putString(KEY_PENDING_ID, opId).putString(KEY_PENDING_OP, op).commit();
