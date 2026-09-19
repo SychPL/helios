@@ -1,5 +1,7 @@
 # Plan wdrożenia SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
+> **Status:** zatwierdzony (przegląd Codex, 10 rund, APPROVE 19 września 2026).
+>
 > **Dla wykonawcy:** zadania realizuje się po kolei, każde kończy się działającym, przetestowanym kawałkiem. Kroki mają pola wyboru, bo służą do odhaczania.
 
 **Cel:** Helios prosi narzędzie sc2t o wąsko zdefiniowane operacje (stan, root i ADB, nadanie uprawnień, mikrofon, cicha aktualizacja), nie dostając roota ani powłoki.
