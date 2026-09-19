@@ -517,10 +517,17 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     // -- clock tools (SPEC 0.12) -----------------------------------------------------------------------------
 
     private String toolsSnapshot="{}";
+    private boolean toolsMenuPending;
 
     /** The menu of what the tools can do here; every entry has its own condition, so nothing is offered in vain. */
     private void toolsDialog(){
         closePanel();
+        // the menu is built from a snapshot; without a fresh one we would only ever offer the chain
+        if(toolsSnapshot.length()<10&&ToolsTrust.mayCall(ToolsBridge.status(this))){
+            toolsMenuPending=true;
+            if(ToolsBridge.ask(this,null)!=null)return;
+            toolsMenuPending=false;
+        }
         ToolsState state=ToolsBridge.stateFrom(this,toolsSnapshot);
         java.util.List<String> items=ToolsMenu.items(state);
         LinearLayout column=Theme.dialogColumn(this,16);
@@ -622,6 +629,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         String detail=ToolsBridge.detailOf(data);
         if(!cancelled&&result!=null&&!detail.isEmpty())toast(detail);
         ToolsBridge.observe(this,mine,ToolsCall.stageOf(toolsSnapshot));
+        if(toolsMenuPending){toolsMenuPending=false;main.post(this::toolsDialog);return;}
         if(ToolsCall.next(result,cancelled)==ToolsCall.Next.POLL&&mine!=null){
             main.postDelayed(()->ToolsBridge.ask(this,mine),5000);
         }else if(mine!=null&&!cancelled){
