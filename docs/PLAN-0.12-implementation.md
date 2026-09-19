@@ -1111,7 +1111,11 @@ Skrót pliku powstaje dopiero po skopiowaniu strumienia, więc tożsamość żą
 
 Porównanie pierwotnych argumentów obowiązuje na **każdym** etapie, także po zakończeniu: dorzucenie, usunięcie albo zmiana `expect` to inne żądanie, więc `unsupported`, nigdy odtworzenie cudzego wyniku.
 
-Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i różni się od skrótu kopii, powtórzenie dostaje `unsupported`, bo wywołujący sam mówi, że chodzi mu o inny plik.
+Skrót zadeklarowany przez wywołującego należy do argumentów, więc bierze udział w rozpoznaniu duplikatu, a nie w jego omijaniu. Kolejność jest zatem jednoznaczna:
+
+1. **identyczne żądanie** (ten sam klucz, operacja i pierwotne argumenty, ze skrótem albo bez) zawsze dostaje etap albo zapisany wynik tamtego żądania, także wtedy, gdy tym wynikiem było `failed` z powodu niezgodnego skrótu,
+2. **inne argumenty** to `unsupported`,
+3. porównanie zadeklarowanego skrótu ze skrótem kopii rozstrzyga wyłącznie o **pierwszym** wykonaniu, nigdy o powtórzeniu.
 
 ```java
 @Test public void aRepeatWithoutADeclaredShaAsksAboutTheFirstRequest() {
@@ -1126,8 +1130,16 @@ Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i r�
     reg.finish(key("pl.mateusz.helios", "AA", "op1"), "ok");
     assertEquals("removing expect changes the request", "unsupported",
                  decide(installRequestWithArgs("op1", ""), helios(), consented(), reg, idle(), facts()).status);
-    assertEquals("in_progress or the stored result only for the identical request", "ok",
+    assertEquals("the identical request replays the stored result", "ok",
                  decide(installRequestWithArgs("op1", "{\"expect\":\"sha-1\"}"), helios(), consented(), reg, idle(), facts()).status);
+}
+
+@Test public void anIdenticalRepeatOfAMismatchedRequestReplaysItsFailure() {
+    OpRegistry reg = registryWithBoundInstall("op1", "sha-of-copy", "{\"expect\":\"sha-9\"}");
+    reg.finish(key("pl.mateusz.helios", "AA", "op1"), "failed");   // skrót nie zgadzał się z kopią
+    assertEquals("the same request gets the same answer, not a different refusal", "failed",
+                 decide(installRequestWithArgs("op1", "{\"expect\":\"sha-9\"}"), helios(), consented(), reg, idle(), facts()).status);
+    assertEquals(0, streamOpens());
 }
 
 @Test public void changedArgumentsAreNotADuplicateEvenWhileCopying() {
