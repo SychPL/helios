@@ -180,7 +180,7 @@ Blokada w pamięci znika razem z procesem, a uprzywilejowany wykonawca nie. To j
 
 **Interfejsy:**
 - Konsumuje: `ExecutorLock.Files`, `ExecutorLock.Processes` (`Liveness alive(int pid, long startTicks)` zwracające `ALIVE`, `DEAD` albo `UNKNOWN`; `long startTicks(int pid)`), `ExecutorLock.Clock` (`String bootId()`).
-- Produkuje: `boolean reserve(String opId, String kind)`, `void attach(String opId, int pid, long startTicks)`, `void handOff(String opId, String worker)`, `void done(String opId)`, `String chain()`, `boolean mayStartNew()`.
+- Produkuje: `boolean reserve(String opId, String kind)`, `void promote(String opId)`, `void attach(String opId, int pid, long startTicks)`, `void handOff(String opId, String worker)`, `void handOffFailed(String opId)`, `void done(String opId)`, `String chain()`, `boolean mayStartNew()`.
 
 **Protokół rezerwacji.** Między uruchomieniem procesu a poznaniem jego identyfikatora jest szczelina, w której awaria zostawiłaby ślad bez wykonawcy albo wykonawcę bez śladu. Dlatego kolejność jest: `reserve(opId)` zapisuje ślad **przed** uruchomieniem czegokolwiek, `attach` uzupełnia go o identyfikator procesu i czas jego startu, a zastany ślad bez identyfikatora liczy się jako `unknown`, nie `idle`.
 
@@ -190,6 +190,8 @@ Blokada w pamięci znika razem z procesem, a uprzywilejowany wykonawca nie. To j
 
 - `in_process` - praca dzieje się wyłącznie w sc2t (kopiowanie pliku, oczekiwanie na zgodę). Śmierć procesu kończy ją z definicji, więc zastany taki ślad daje `idle` i podlega sprzątnięciu. Wymaganie restartu zegara po zamknięciu okna zgody byłoby absurdem.
 - `privileged` - pracę wykonuje albo ma wykonać uprzywilejowany proces potomny. Zastany ślad bez identyfikatora procesu daje `unknown`, bo nie wiadomo, czy proces zdążył wystartować.
+
+Rodzaj pracy potrafi się zmienić w trakcie jednej operacji: instalacja zaczyna się jako `in_process` (kopiowanie, zgoda), a kończy uprzywilejowanym wykonawcą. Służy do tego `promote(opId)`, który **trwale** zmienia rodzaj na `privileged` i jest zapisywany **przed** uruchomieniem potomka, bez zwalniania blokady. Odwrotna kolejność zostawiłaby po awarii ślad `in_process`, który odzyskiwanie uzna za martwy i sprzątnie, mimo że uprzywilejowany proces żyje.
 
 **Praca przekazana.** `handOff(opId, worker)` zaznacza, że pracę przejął ktoś, kogo nie widać jako własny proces potomny, na przykład instalator systemowy. **Zapis idzie przed uruchomieniem instalatora**, nie po: awaria w odwrotnej kolejności pozwoliłaby uznać, że instalator nie wystartował, i skasować plik spod pracującego instalatora. Od chwili zapisu śmierć wykonawcy nie zwalnia blokady, a potrzebne jest osobne potwierdzenie zakończenia (zadanie 14).
 
@@ -215,6 +217,22 @@ Blokada w pamięci znika razem z procesem, a uprzywilejowany wykonawca nie. To j
     assertEquals("nothing outside the app was running, so nothing is running now",
                  "idle", newLock(dead(), boot("b1")).chain());
     assertTrue("and no power cycle may be required for that", newLock(dead(), boot("b1")).mayStartNew());
+}
+
+@Test public void promotingIsPersistedBeforeTheChildStarts() {
+    RecordingTrace trace = new RecordingTrace();
+    ExecutorLock l = lock(alive(1234, 500), boot("b1"), trace);
+    l.reserve("op1", "in_process");
+    startPrivilegedWork(l, "op1", 1234, 500);
+    assertEquals("promote first, start second", asList("reserve", "promote", "childStarted", "attach"), trace.order());
+}
+
+@Test public void aCrashRightAfterPromotingIsUnknownNotIdle() {
+    ExecutorLock l = lock(dead(), boot("b1"));
+    l.reserve("op1", "in_process");
+    l.promote("op1");                                      // proces zginął tuż po tym, potomek mógł już żyć
+    assertEquals("unknown", newLock(dead(), boot("b1")).chain());
+    assertFalse(newLock(dead(), boot("b1")).mayStartNew());
 }
 
 @Test public void aDeadExecutorFromThisBootMeansIdle() {
@@ -1085,7 +1103,7 @@ Skrót pliku powstaje dopiero po skopiowaniu strumienia, więc tożsamość żą
 
 1. `accept` zapisuje `requestDigest` bez skrótu pliku (operacja plus argumenty),
 2. po zakończonym kopiowaniu `bindDigest` dopisuje do wpisu **niezmienny** skrót kopii; od tej chwili każde powtórzenie porównuje się właśnie z nim,
-3. powtórzenie w trakcie etapu `copying` nie ma z czym porównywać, więc dostaje bieżący etap i nie uruchamia drugiego kopiowania,
+3. powtórzenie w trakcie etapu `copying` porównuje operację i **pierwotne argumenty** z wpisu; zgodne dostaje bieżący etap i nie uruchamia drugiego kopiowania, a zmienione argumenty dostają `unsupported`, również bez otwierania strumienia,
 4. skrót przysłany przez wywołującego w `args` służy wyłącznie do odrzucenia niezgodnej kopii (`failed`) i nigdy nie zastępuje skrótu policzonego z kopii,
 5. prywatna kopia pierwszego żądania nie jest ruszana przez żadne powtórzenie.
 
@@ -1099,6 +1117,14 @@ Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i r�
     Decision d = decide(installRequest("op1", null), helios(), consented(), reg, running(), facts());
     assertEquals("in_progress", d.status);
     assertEquals("no second stream is ever opened for a repeat", 0, streamOpens());
+}
+
+@Test public void changedArgumentsAreNotADuplicateEvenWhileCopying() {
+    OpRegistry reg = registry();
+    reg.accept(key("pl.mateusz.helios", "AA", "op1"), "install_apk", Ops.requestDigest("install_apk", "{\"expect\":\"sha-1\"}", null));
+    reg.stage(key("pl.mateusz.helios", "AA", "op1"), "copying");
+    assertEquals("unsupported", decide(installRequestWithArgs("op1", "{\"expect\":\"sha-9\"}"), helios(), consented(), reg, running(), facts()).status);
+    assertEquals(0, streamOpens());
 }
 
 @Test public void aRepeatDeclaringAnotherFileIsRefused() {
@@ -1115,8 +1141,11 @@ Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i r�
 | ślad | znaczenie | blokada i pliki |
 | --- | --- | --- |
 | brak przekazania, wykonawca martwy | instalator nie wystartował, bo przekazanie zapisuje się przed jego uruchomieniem | zwolnić, sprzątnąć, wynik `failed` |
+| przekazanie, potwierdzone niewystartowanie (`handOffFailed`, bo uruchomienie zwróciło błąd) | instalator nigdy nie ruszył | zwolnić po zakończeniu wykonawcy, sprzątnąć, wynik `failed` |
 | przekazanie, instalacja potwierdzona zakończeniem (zmieniony `versionCode` albo wynik z sesji) | skończone | zwolnić, sprzątnąć |
-| przekazanie, brak potwierdzenia | może nadal trwać | trzymać blokadę i pliki, etap `interrupted`, status `unknown` |
+| przekazanie bez żadnego z powyższych | może nadal trwać | trzymać blokadę i pliki, etap `interrupted`, status `unknown` |
+
+`handOffFailed(opId)` zapisuje się wtedy i tylko wtedy, gdy samo uruchomienie instalatora zwróciło błąd, czyli gdy wiadomo na pewno, że nic nie ruszyło. Bez tego zapisu każde nieudane uruchomienie trzymałoby blokadę do restartu zegara.
 
 ```java
 @Test public void aDeadExecutorDoesNotProveTheInstallerFinished() {
@@ -1139,10 +1168,17 @@ Skrót zadeklarowany przez wywołującego zmienia tylko jedno: jeżeli jest i r�
 }
 
 @Test public void aCrashBetweenTheHandOffAndTheInstallerKeepsEverything() {
-    Outcome o = recover(traceWith(handOff("installer"), noInstallerEverStarted(), deadExecutor()), installedVersionCode(29));
+    Outcome o = recover(traceWith(handOff("installer"), deadExecutor()), installedVersionCode(29));
     assertEquals("we cannot tell whether it started, so we assume it did", "unknown", o.status);
     assertTrue(o.filesKept);
     assertTrue(o.lockHeld);
+}
+
+@Test public void anInstallerThatProvablyNeverStartedFreesEverything() {
+    Outcome o = recover(traceWith(handOff("installer"), handOffFailed(), deadExecutor()), installedVersionCode(29));
+    assertEquals("failed", o.status);
+    assertFalse("a lock held forever after a failed start would need a power cycle", o.lockHeld);
+    assertFalse(o.filesKept);
 }
 ```
 
