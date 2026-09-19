@@ -22,6 +22,7 @@
 - Czas: `SystemClock.elapsedRealtime()` do limitów, `System.currentTimeMillis()` wyłącznie do `finished_at_ms`.
 - Nazwy operacji, kody stanu i nazwy pól JSON są dokładnie te ze specyfikacji.
 - Wersjonowanie wydań w obu projektach: tag `vX.Y.Z`, trzy człony. sc2t przechodzi więc z `2.18` na **`2.19.0`**, bo aktualizator Heliosa odrzuca tagi dwuczłonowe.
+- sc2t z mostkiem ma **`versionCode 32`**. Obecne wydanie bez mostka to już `31`, więc próg w `ToolsTrust` musi wynosić `32`; inaczej Helios uznałby dzisiejszą wersję za zgodną i nie zaproponowałby aktualizacji. Podniesienie `versionCode` należy do zadania 9, razem z pierwszym działającym mostkiem.
 
 ## Struktura plików
 
@@ -178,57 +179,108 @@ Blokada w pamięci znika razem z procesem, a uprzywilejowany wykonawca nie. To j
 **Pliki:** utwórz `bridge/ExecutorLock.java`, `bridge/BridgeFiles.java`; testy `bridge/ExecutorLockTest.java`. Zmień `AgentRuntime.java` (wyzwalacz `rootssh` bierze blokadę i zakłada ślad).
 
 **Interfejsy:**
-- Konsumuje: `ExecutorLock.Files` (`String read(String name)`, `void write(String name, String text)`, `void delete(String name)`), `ExecutorLock.Processes` (`boolean alive(int pid)`), `ExecutorLock.Clock` (`String bootId()`).
-- Produkuje: `void claim(String opId, int pid)`, `void done(String opId)`, `String chain()` zwracające `idle`, `running` albo `unknown`, `boolean mayStartNew()`.
+- Konsumuje: `ExecutorLock.Files`, `ExecutorLock.Processes` (`Liveness alive(int pid, long startTicks)` zwracające `ALIVE`, `DEAD` albo `UNKNOWN`; `long startTicks(int pid)`), `ExecutorLock.Clock` (`String bootId()`).
+- Produkuje: `boolean reserve(String opId)`, `void attach(String opId, int pid, long startTicks)`, `void handOff(String opId, String worker)`, `void done(String opId)`, `String chain()`, `boolean mayStartNew()`.
+
+**Protokół rezerwacji.** Między uruchomieniem procesu a poznaniem jego identyfikatora jest szczelina, w której awaria zostawiłaby ślad bez wykonawcy albo wykonawcę bez śladu. Dlatego kolejność jest: `reserve(opId)` zapisuje ślad **przed** uruchomieniem czegokolwiek, `attach` uzupełnia go o identyfikator procesu i czas jego startu, a zastany ślad bez identyfikatora liczy się jako `unknown`, nie `idle`.
+
+**Tożsamość procesu.** Sam identyfikator procesu nie wystarcza, bo system nadaje go ponownie w tym samym uruchomieniu. Ślad trzyma więc parę: identyfikator i czas startu procesu (22. pole `/proc/<pid>/stat`). Zgodność obu znaczy "ten sam proces", rozbieżność znaczy "tamten już nie żyje", a brak dostępu do `/proc` znaczy `UNKNOWN`.
+
+**Praca poza procesem potomnym.** `handOff(opId, worker)` zaznacza, że pracę przejął ktoś, kogo nie widać jako własny proces potomny, na przykład instalator systemowy. Od tej chwili śmierć wykonawcy nie zwalnia blokady: potrzebne jest osobne potwierdzenie zakończenia tego, komu przekazano pracę (zadanie 14).
 
 - [ ] **Krok 1: testy**
 
 ```java
 @Test public void aLiveExecutorMeansRunning() {
-    ExecutorLock l = lock(alive(1234), boot("b1"));
-    l.claim("op1", 1234);
+    ExecutorLock l = lock(alive(1234, 500), boot("b1"));
+    l.reserve("op1"); l.attach("op1", 1234, 500);
     assertEquals("running", l.chain());
     assertFalse(l.mayStartNew());
 }
 
+@Test public void aReservationWithoutAProcessIsUnknownNotIdle() {
+    ExecutorLock l = lock(dead(), boot("b1"));
+    l.reserve("op1");                                   // proces zginął między rezerwacją a startem
+    assertEquals("unknown", newLock(dead(), boot("b1")).chain());
+    assertFalse(newLock(dead(), boot("b1")).mayStartNew());
+}
+
 @Test public void aDeadExecutorFromThisBootMeansIdle() {
     ExecutorLock l = lock(dead(), boot("b1"));
-    l.claim("op1", 1234);
+    l.reserve("op1"); l.attach("op1", 1234, 500);
     assertEquals("a process that is gone did finish, whatever it did", "idle", newLock(dead(), boot("b1")).chain());
 }
 
-@Test public void anExecutorFromAnotherBootIsGoneByDefinition() {
-    lock(alive(1234), boot("b1")).claim("op1", 1234);
-    assertEquals("idle", newLock(alive(1234), boot("b2")).chain());
+@Test public void aRecycledPidIsNotOurExecutor() {
+    lock(alive(1234, 500), boot("b1")).attachAfterReserve("op1", 1234, 500);
+    assertEquals("the same pid started later is a different process", "idle",
+                 newLock(alive(1234, 900), boot("b1")).chain());
 }
 
-@Test public void anUnreadableTraceIsUnknownNotIdle() {
-    ExecutorLock l = lock(unknownLiveness(), boot("b1"));
-    l.claim("op1", 1234);
+@Test public void anExecutorFromAnotherBootIsGoneByDefinition() {
+    lock(alive(1234, 500), boot("b1")).attachAfterReserve("op1", 1234, 500);
+    assertEquals("idle", newLock(alive(1234, 500), boot("b2")).chain());
+}
+
+@Test public void anUnreadableProcessStateIsUnknownNotIdle() {
+    lock(unknownLiveness(), boot("b1")).attachAfterReserve("op1", 1234, 500);
     assertEquals("unknown", newLock(unknownLiveness(), boot("b1")).chain());
     assertFalse("unknown never lets a new operation start", newLock(unknownLiveness(), boot("b1")).mayStartNew());
 }
 
+@Test public void handedOffWorkOutlivesTheExecutorProcess() {
+    ExecutorLock l = lock(dead(), boot("b1"));
+    l.reserve("op1"); l.attach("op1", 1234, 500); l.handOff("op1", "installer");
+    assertEquals("a dead child does not mean the installer finished", "unknown", newLock(dead(), boot("b1")).chain());
+    assertFalse(newLock(dead(), boot("b1")).mayStartNew());
+}
+
 @Test public void doneClearsTheTrace() {
-    ExecutorLock l = lock(alive(1234), boot("b1"));
-    l.claim("op1", 1234); l.done("op1");
+    ExecutorLock l = lock(alive(1234, 500), boot("b1"));
+    l.reserve("op1"); l.attach("op1", 1234, 500); l.done("op1");
     assertEquals("idle", l.chain());
 }
 ```
 
 - [ ] **Krok 2: czerwone**
 - [ ] **Krok 3: implementacja** - ślad to plik `filesDir/bridge/executor.json` z `op_id`, `pid` i `boot_id`. Żywotność procesu: istnienie `/proc/<pid>`; brak dostępu do `/proc` to `unknown`, nigdy `idle`.
-- [ ] **Krok 4: `rootssh` pod blokadą** - w `AgentRuntime.trigger` ścieżka `rootssh` bierze `OperationGate.acquire` i zakłada ślad, tak samo jak mostek. Dziś nie bierze żadnej blokady, więc dwa wywołania z sieci potrafią uruchomić dwa przebiegi exploita naraz (SPEC pkt 8.4).
-- [ ] **Krok 5: test regresji wyzwalacza**
+- [ ] **Krok 4: jedna ścieżka zajmowania dla wszystkich wykonawców**
+
+Utwórz `bridge/Executions.java` z jedyną dopuszczalną drogą do rozpoczęcia pracy:
+
+```java
+/** Ślad i blokada w jednym kroku: bez tego dwa wejścia mogą zacząć pracę naraz. */
+static synchronized Grant begin(String opId, String stage) {
+    if (!lock.mayStartNew()) return Grant.refused(lock.chain());   // trwały ślad ma pierwszeństwo
+    if (!OperationGate.acquire(opId, stage)) return Grant.refused("running");
+    if (!lock.reserve(opId)) { OperationGate.release(opId); return Grant.refused("unknown"); }
+    return Grant.granted(opId);
+}
+static synchronized void end(String opId) { lock.done(opId); OperationGate.release(opId); }
+```
+
+Przez `Executions.begin` przechodzą **wszystkie** wejścia: mostek, przyciski interfejsu, wyzwalacze agenta i `tryStartProbe()`, które staje się opakowaniem `begin("probe", "running")`. Blokada w pamięci sama nie wystarcza, bo po śmierci procesu stary wykonawca może żyć, a nowe wywołanie zastałoby pustą blokadę.
+
+Obejmuje to także etapy `copying` i `awaiting_consent` instalacji: one również zajmują blokadę, choć nie mają uprzywilejowanego wykonawcy.
+
+- [ ] **Krok 5: test regresji wyzwalacza, z atrapą wykonawcy**
+
+Wyzwalacz nie może w teście uruchamiać prawdziwego łańcucha, więc `AgentRuntime` dostaje seam: `ChainStarter` z jedyną metodą `int start(Context ctx)`. Test podstawia atrapę, która blokuje się do zwolnienia.
 
 ```java
 @Test public void twoAgentTriggersDoNotStartTwoChains() {
+    BlockingStarter starter = new BlockingStarter();
+    AgentRuntime.setChainStarter(starter);
     assertTrue(AgentRuntime.trigger(ctx, "rootssh"));
+    starter.awaitStarted();
     assertFalse("the second one must be refused while the first runs", AgentRuntime.trigger(ctx, "rootssh"));
+    starter.release();
+    starter.awaitFinished();
+    assertTrue("and allowed again once it is over", AgentRuntime.trigger(ctx, "rootssh"));
 }
 ```
 
-- [ ] **Krok 6: zielone i commit** - `feat(bridge): out-of-process executor trace so chain state survives a dead app, and the agent rootssh trigger takes the lock`
+- [ ] **Krok 6: zielone i commit** - `feat(bridge): out-of-process executor trace with reservation and process identity, one path to start work for every entry point`
 
 ---
 
@@ -349,6 +401,16 @@ Atrapy `FakeStore` i `FakeClock` w tym samym pliku, w stylu `ExecUtilTest`.
     assertFalse(t.trusted("p", "BB"));
     t.trust("p", "BB");
     assertFalse(t.consented("p", "BB", "grant_permission", "android.permission.RECORD_AUDIO"));
+}
+
+@Test public void detectingAChangedSignatureDropsTheOldConsentsEvenIfTheUserRefuses() {
+    TrustStore t = new TrustStore(store);
+    t.trust("p", "AA"); t.consent("p", "AA", "adb_off", "");
+    t.seenFingerprint("p", "BB");                       // wykryte przy wywołaniu, człowiek jeszcze nie odpowiedział
+    assertFalse("the app that asked is not the app that was trusted", t.trusted("p", "BB"));
+    assertFalse("and the old consents must not survive the discovery", t.consented("p", "AA", "adb_off", ""));
+    t.trust("p", "AA");                                 // stara wersja wraca
+    assertFalse("nothing is inherited backwards either", t.consented("p", "AA", "adb_off", ""));
 }
 
 @Test public void consentIsBoundToTheScope() {
@@ -556,10 +618,20 @@ Test budżetu używa prawdziwego zegara i prawdziwego wątku, bo zegar atrapa pr
     assertEquals("ok", d.status);
 }
 
-@Test public void theSameIdWithAnotherFileIsUnsupported() {
+@Test public void anInstallRequestIsIdentifiedByTheDigestOfTheCopyOnceItExists() {
     OpRegistry reg = registry();
-    reg.accept(key("pl.mateusz.helios", "AA", "op1"), "install_apk", digestOf("install_apk", "sha-1"));
-    assertEquals("unsupported", decide(installRequest("op1", "sha-2"), helios(), consented(), reg, idle(), facts()).status);
+    // etap copying: skrótu jeszcze nie ma, więc powtórzenie dostaje etap, a nie porównanie
+    reg.accept(key("pl.mateusz.helios", "AA", "op1"), "install_apk", Ops.requestDigest("install_apk", "", null));
+    reg.stage(key("pl.mateusz.helios", "AA", "op1"), "copying");
+    assertEquals("in_progress", decide(installRequest("op1", null), helios(), consented(), reg, running(), facts()).status);
+
+    // po skopiowaniu digest jest już niezmienny i rozstrzyga o tożsamości żądania
+    reg.bindDigest(key("pl.mateusz.helios", "AA", "op1"), Ops.requestDigest("install_apk", "", "sha-1"));
+    reg.stage(key("pl.mateusz.helios", "AA", "op1"), "installing");
+    assertEquals("in_progress", decide(installRequest("op1", "sha-1"), helios(), consented(), reg, running(), facts()).status);
+    assertEquals("another file under a taken id is a different request", "unsupported",
+                 decide(installRequest("op1", "sha-2"), helios(), consented(), reg, running(), facts()).status);
+    assertEquals("and no second copy is made for it", 1, reg.about(key("pl.mateusz.helios", "AA", "op1")).copies);
 }
 
 @Test public void aNewRequestWhileAnotherRunsIsBusy() {
@@ -573,6 +645,16 @@ Test budżetu używa prawdziwego zegara i prawdziwego wątku, bo zegar atrapa pr
 
 @Test public void anUnsupportedFirmwareRefusesTheChainWithoutRunningIt() {
     assertEquals("wrong_firmware", decide(request("root_adb_on"), helios(), consented(), registry(), idle(), foreignFirmware()).status);
+    assertEquals("firmware is irrelevant to operations that do not touch the chain",
+                 ANSWER, decide(request("state"), helios(), trusting(), registry(), idle(), foreignFirmware()).kind);
+}
+
+@Test public void aStoredResultWinsOverConditionsThatChangedLater() {
+    OpRegistry reg = registry();
+    reg.accept(key("pl.mateusz.helios", "AA", "op1"), "root_adb_on", digestOf("root_adb_on", ""));
+    reg.finish(key("pl.mateusz.helios", "AA", "op1"), "ok");
+    Decision d = decide(request("root_adb_on", "op1"), helios(), consented(), reg, idle(), foreignFirmware());
+    assertEquals("asking about a finished operation is not a new run", "ok", d.status);
 }
 
 @Test public void identityIsRecheckedAgainstTheRegisteredRequestBeforeRunning() {
@@ -585,7 +667,11 @@ Test budżetu używa prawdziwego zegara i prawdziwego wątku, bo zegar atrapa pr
 ```
 
 - [ ] **Krok 2: czerwone**
-- [ ] **Krok 3: implementacja** - kolejność: kształt, tożsamość i użytkownik, `api`, firmware, duplikat, stan łańcucha, zgoda, wykonanie. `Decision.recheck` porównuje tożsamość i `TrustStore.revision()` tuż przed wykonaniem.
+- [ ] **Krok 3: implementacja** - kolejność ma znaczenie i jest taka: kształt żądania, tożsamość i użytkownik, `api`, **rozstrzygnięcie istniejącego wpisu** (duplikat albo zajęty identyfikator), a dopiero potem warunki **nowego** wykonania: firmware, stan łańcucha, zgoda, wykonanie.
+
+Duplikat rozstrzyga się przed firmware, bo powtórzenie pytania o zakończoną operację ma oddać zapisany wynik, a nie `wrong_firmware` z powodu zmiany, która zaszła później. Firmware sprawdza się tylko dla operacji, które go dotyczą (dziś wyłącznie `root_adb_on`).
+
+`Decision.recheck` porównuje tożsamość i `TrustStore.revision()` tuż przed wykonaniem.
 - [ ] **Krok 4: zielone i commit** - `feat(bridge): decision flow covering trust, consent, duplicates, busy chains and a recheck before execution`
 
 ---
@@ -654,8 +740,8 @@ Musi powstać **przed** klientem, bo klient nie ma prawa zawołać mostka, zanim
 }
 
 @Test public void tooOldATool() {
-    assertEquals(TOO_OLD, check(installed("AA", 30), accepted("AA")));   // próg = versionCode 31
-    assertEquals(OK, check(installed("AA", 31), accepted("AA")));
+    assertEquals("the build without the bridge is 31 and must not pass", TOO_OLD, check(installed("AA", 31), accepted("AA")));
+    assertEquals(OK, check(installed("AA", 32), accepted("AA")));   // próg = versionCode 32
 }
 
 @Test public void nothingInstalledIsANormalState() {
@@ -715,15 +801,45 @@ Musi powstać **przed** klientem, bo klient nie ma prawa zawołać mostka, zanim
 
 - [ ] **Krok 2: czerwone**
 - [ ] **Krok 3: implementacja modelu i adaptera** - adapter buduje jawną intencję, wkłada plik w `Intent.data` z grantem wyłącznie dla operacji z plikiem i nie dodaje żadnej innej flagi.
-- [ ] **Krok 4: pełny przebieg w `MainActivity`**
-  - zapis `op_id` w preferencjach **przed** `startActivityForResult`,
+- [ ] **Krok 4: trwały ślad operacji oczekującej**
+
+Zapytanie o stan jest osobnym żądaniem z własnym identyfikatorem, więc Helios musi osobno pamiętać, o którą operację pyta. W preferencjach żyje jeden rekord: `op_id`, nazwa operacji, znacznik czasu i ostatni znany etap. Zapisywany jest **przed** `startActivityForResult` i kasowany dopiero po etapie terminalnym.
+
+```java
+@Test public void theWaitingOperationOutlivesTheProcess() {
+    ToolsCall.remember(prefs, "op-mine", "root_adb_on");
+    ToolsCall.Pending p = ToolsCall.pending(prefs);        // po restarcie Heliosa
+    assertEquals("op-mine", p.opId);
+    assertEquals("root_adb_on", p.op);
+    assertTrue("a pending record means keep asking, even with no onActivityResult", p.shouldResume());
+}
+
+@Test public void aStateQueryHasItsOwnIdAndStillAnswersAboutMine() {
+    String queryId = ToolsCall.newOpId();
+    assertNotEquals("op-mine", queryId);
+    assertEquals("op-mine", ToolsCall.aboutArgs("op-mine").optString("about"));
+}
+
+@Test public void aTerminalStageClearsTheRecord() {
+    ToolsCall.remember(prefs, "op-mine", "adb_off");
+    ToolsCall.observe(prefs, "op-mine", "finished");
+    assertNull(ToolsCall.pending(prefs));
+    ToolsCall.remember(prefs, "op-2", "adb_off");
+    ToolsCall.observe(prefs, "op-2", "running");
+    assertNotNull("a live stage keeps it", ToolsCall.pending(prefs));
+}
+```
+
+- [ ] **Krok 5: pełny przebieg w `MainActivity`**
+  - zapis rekordu operacji oczekującej **przed** `startActivityForResult`,
   - `onActivityResult`: odrzucenie wyniku z cudzym `op_id`, przyjęcie własnego,
-  - `POLL`: odpytywanie `state` z `about` co 5 s, aż etap będzie terminalny albo minie limit maszynowy etapu,
+  - `POLL`: `state` z `args` zawierającym `about` wskazujące zapamiętany `op_id`, co 5 s, aż etap będzie terminalny albo minie limit maszynowy etapu,
+  - **start aplikacji z zapisanym rekordem** wznawia odpytywanie bez `onActivityResult`, bo proces mógł zginąć w trakcie,
   - po limicie: koniec odpytywania cyklicznego, ale pytanie przy każdym otwarciu menu,
   - **po każdej operacji innej niż `state`, także zakończonej `ok`**, jedno dodatkowe `state` w celu uzgodnienia,
   - brak możliwości uruchomienia drugiej operacji, dopóki `mayStartAnother` jest fałszywe.
-- [ ] **Krok 5: zielone** - `./gradlew testDebugUnitTest assembleDebug lintDebug`
-- [ ] **Krok 6: commit** - `feat(tools): bridge client with a persisted op id, registry-driven polling and reconciliation after every operation`
+- [ ] **Krok 6: zielone** - `./gradlew testDebugUnitTest assembleDebug lintDebug`
+- [ ] **Krok 7: commit** - `feat(tools): bridge client with a persisted pending record, registry-driven polling and reconciliation after every operation`
 
 ---
 
@@ -938,8 +1054,42 @@ Musi powstać **przed** klientem, bo klient nie ma prawa zawołać mostka, zanim
 ```
 
 - [ ] **Krok 3: `ApkProvider`** - własny `ContentProvider` w Heliosie (bez AndroidX): `exported="false"`, `grantUriPermissions="true"`, wydaje wyłącznie bieżący plik aktualizacji z katalogu prywatnego, tylko do odczytu, i odmawia każdej innej ścieżki. Test na urządzeniu, nie w JVM.
-- [ ] **Krok 4: implementacja** - kopiowanie z limitem 64 MB i 60 s, odczyt z kopii, instalacja kanałem roota, sprzątanie wyłącznie plików wpisów terminalnych **i** potwierdzonych jako martwe.
-- [ ] **Krok 5: zielone po obu stronach i commit** - `feat(bridge): install_apk through the root channel, ApkProvider in Helios and an updater that handles a second source`
+- [ ] **Krok 4: tożsamość żądania instalacji**
+
+Skrót pliku powstaje dopiero po skopiowaniu strumienia, więc tożsamość żądania ustala się dwuetapowo:
+
+1. `accept` zapisuje `requestDigest` bez skrótu pliku (operacja plus argumenty),
+2. po zakończonym kopiowaniu `bindDigest` dopisuje do wpisu **niezmienny** skrót kopii; od tej chwili każde powtórzenie porównuje się właśnie z nim,
+3. powtórzenie w trakcie etapu `copying` nie ma z czym porównywać, więc dostaje bieżący etap i nie uruchamia drugiego kopiowania,
+4. skrót przysłany przez wywołującego w `args` służy wyłącznie do odrzucenia niezgodnej kopii (`failed`) i nigdy nie zastępuje skrótu policzonego z kopii,
+5. prywatna kopia pierwszego żądania nie jest ruszana przez żadne powtórzenie, także to z innym plikiem: takie żądanie kończy się `unsupported`, zanim cokolwiek zostanie skopiowane.
+
+- [ ] **Krok 5: potwierdzenie zakończenia instalatora**
+
+Ślad wykonawcy zna pracę przekazaną komuś innemu (`handOff` z zadania 3). Dla instalacji oznacza to trzy rozróżnialne sytuacje:
+
+| ślad | znaczenie | blokada i pliki |
+| --- | --- | --- |
+| brak przekazania, wykonawca martwy | instalator nie wystartował | zwolnić, sprzątnąć, wynik `failed` |
+| przekazanie, instalacja potwierdzona zakończeniem (zmieniony `versionCode` albo wynik z sesji) | skończone | zwolnić, sprzątnąć |
+| przekazanie, brak potwierdzenia | może nadal trwać | trzymać blokadę i pliki, etap `interrupted`, status `unknown` |
+
+```java
+@Test public void aDeadExecutorDoesNotProveTheInstallerFinished() {
+    Outcome o = recover(traceWith(handOff("installer"), deadExecutor()), installedVersionCode(29));
+    assertEquals("unknown", o.status);
+    assertTrue("the APK must survive a possibly running installer", o.filesKept);
+    assertTrue(o.lockHeld);
+
+    Outcome done = recover(traceWith(handOff("installer"), deadExecutor()), installedVersionCode(30));
+    assertEquals("ok", done.status);
+    assertFalse(done.filesKept);
+    assertFalse(done.lockHeld);
+}
+```
+
+- [ ] **Krok 6: implementacja** - kopiowanie z limitem 64 MB i 60 s, odczyt z kopii, instalacja kanałem roota, sprzątanie wyłącznie plików wpisów terminalnych **i** potwierdzonych jako zakończone.
+- [ ] **Krok 7: zielone po obu stronach i commit** - `feat(bridge): install_apk through the root channel with a copy-bound identity, ApkProvider in Helios and an updater that handles a second source`
 
 ---
 
@@ -976,6 +1126,8 @@ Kolejność jest istotna: każdy punkt zakłada poprzedni. Artefakt powstaje na 
 - [ ] **Krok 19** - zabicie sc2t i zabicie Heliosa na etapach `awaiting_consent`, `copying`, `running`, `installing`; sprawdzenie etapu z `about` po każdym.
 - [ ] **Krok 20** - odcięcie zasilania w trakcie łańcucha; po starcie `chain` wraca do `idle`, a wpis jest `interrupted`.
 - [ ] **Krok 21** - zabicie sc2t przy żywym wykonawcy: nowe żądanie dostaje `busy`, duplikat swój etap, odczyty działają.
+- [ ] **Krok 21a** - przekroczenie limitu przy żywym wykonawcy (łańcuch dłuższy niż 4 minuty): Helios pokazuje `in_progress`, blokada nadal trzyma, a spóźniony wynik tej samej operacji zostaje przyjęty, gdy przyjdzie.
+- [ ] **Krok 21b** - odcięcie zasilania **w trakcie instalacji**, osobno na etapie `copying` i po przekazaniu pracy instalatorowi: po starcie pliki etapu przekazanego nie są skasowane, a wynik ustala się przez `versionCode`.
 - [ ] **Krok 22** - przerwane `mic_release` i częściowe `mic_restore`; `mic_saved_state` przeżywa restart zegara.
 - [ ] **Krok 23** - nieznane `api`, nieznana operacja, nieznany `op_id`; `detail` bez tokenów i ścieżek prywatnych.
 
