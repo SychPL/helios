@@ -121,6 +121,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         dashboard=new DashboardView(this);setContentView(dashboard);
         // a killed process can leave an update file behind; the one still being handed over stays
         ApkProvider.sweep(this,ToolsBridge.pendingOpId(this));
+        // and an operation we never saw the answer to is picked up again, without waiting for the menu
+        if(ToolsBridge.pendingOpId(this)!=null)main.postDelayed(toolsPoll,3000);
         navigation=new NavigationMenu(this,()->config,()->service!=null&&service.updater().busy(),new NavigationMenu.Actions(){
             public void talk(){manualTalk();}
             public void cancel(){if(voice!=null)voice.cancel();}

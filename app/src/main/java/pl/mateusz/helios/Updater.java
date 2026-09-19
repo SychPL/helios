@@ -114,7 +114,10 @@ final class Updater {
         if(info==null){host.status("Brak wydań");return null;}
         String decision=decision(info.version,installedVersion);
         if(!"newer".equals(decision)&&!"absent".equals(decision)){host.status("Masz najnowszą wersję ("+installedVersion+")");return null;}
-        File file=new File(host.cacheDir(),"silent-"+info.version+".apk");
+        // a name per download, not per version: two downloads may overlap, and one must not truncate the other
+        byte[] rnd=new byte[8];new SecureRandom().nextBytes(rnd);StringBuilder tag=new StringBuilder();
+        for(byte b:rnd)tag.append(String.format("%02x",b));
+        File file=new File(host.cacheDir(),"silent-"+tag+".apk");
         host.status("Pobieram "+source.label+" "+info.version+"…");
         try{host.download(info.url,file,info.size);}
         catch(IOException e){host.status("Brak połączenia z GitHub");host.deleteFile(file.getPath());return null;}
