@@ -1,6 +1,6 @@
 # SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
-Status: po przeglądzie (własnym i Codex, rundy 1-7). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
+Status: po przeglądzie (własnym i Codex, rundy 1-8). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
 
 ## 1. Problem i cel
 
@@ -103,7 +103,7 @@ Znaczenie kodów: `denied` decyzja człowieka albo brak zaufania, `unsupported` 
 
 Limity czasu są dwa i liczone osobno: oczekiwanie na decyzję człowieka nie jest ograniczone, a wykonanie ma własny limit. Limity wykonania: pomiar stanu 3 s, przełączanie ADB 45 s, nadanie uprawnienia, `set_home` i każda pojedyncza zmiana uprawnień mikrofonu 20 s, kopiowanie pliku 60 s, instalacja 120 s, łańcuch roota 4 minuty. Przekroczenie daje `in_progress` przy żyjącym wykonawcy, a `unknown`, gdy tego nie da się stwierdzić.
 
-Wyjątkiem jest `copying`: kopiowanie prowadzi sam sc2t, więc po przekroczeniu limitu przerywa je, kasuje niepełną kopię i zwraca `failed`. Dopiero po zatrzymaniu kopiowania blokada schodzi; `in_progress` i `unknown` dotyczą wyłącznie etapów, które wykonuje uprzywilejowany proces potomny albo instalator.
+Wyjątek dotyczy **wyniku przekroczenia limitu na etapie `copying`**, nie samego etapu: kopiowanie prowadzi sam sc2t, więc po limicie przerywa je, kasuje niepełną kopię, zwalnia blokadę i zwraca `failed`, zamiast `in_progress` albo `unknown`. Etap `copying` pozostaje normalnym etapem nieterminalnym: w migawce ma `status: in_progress`, a przerwany przez śmierć procesu albo restart zegara domyka się w `interrupted` ze statusem `unknown`, jak każdy etap maszynowy (pkt 4.2).
 
 Helios nie mierzy czasu, dopóki mostek jest na wierzchu: nie wie, czy stoi tam pytanie do człowieka, czy pasek postępu, a czekanie na człowieka nigdy nie jest awarią. Liczy się dopiero to, co widać po powrocie:
 
@@ -290,7 +290,9 @@ Operacja wysokiego ryzyka: zgoda przy każdym wywołaniu. Przebieg:
 
 Etapy 2-6 są zapisywane w rejestrze pod `op_id`, więc po restarcie sc2t wie, czy instalacja zdążyła się zacząć. Blokada obejmuje cały ten czas.
 
-Zwalnia ją zakończenie tego etapu, który faktycznie trwał: przy odmowie zgody, błędzie kopiowania, przekroczeniu limitu kopiowania i każdym odrzuceniu z kroków 1-5 blokada schodzi od razu, bo instalator jeszcze nie istnieje i nie ma na co czekać. Dopiero gdy krok 6 się zaczął, blokada trwa aż do potwierdzonego zakończenia instalatora albo restartu zegara (pkt 4.2).
+Zwalnia ją zakończenie tego etapu, który faktycznie trwał: przy odmowie zgody, błędzie kopiowania, przekroczeniu limitu kopiowania i każdym odrzuceniu z kroków 1-5 blokada schodzi od razu, bo instalator jeszcze nie istnieje i nie ma na co czekać.
+
+W kroku 6 blokada trwa tak długo, jak długo cokolwiek może jeszcze zmienić system. Schodzi w trzech przypadkach: po potwierdzonym zakończeniu instalatora, po restarcie zegara oraz po potwierdzeniu, że instalator **nie wystartował**, a uprzywilejowany wykonawca skończył pracę. Ten trzeci przypadek obejmuje nieudane przeniesienie pliku, nieudane ustawienie kontekstu i nieudane uruchomienie instalatora: wtedy wynikiem jest `failed`, a nie wieczne `busy`. Dopóki sc2t nie potrafi stwierdzić żadnej z tych trzech rzeczy, wpis zostaje `interrupted` ze statusem `unknown`, a blokada trwa.
 
 Aktualizacja może zakończyć proces wywołującego, zanim odbierze on wynik. Dlatego potwierdzeniem instalacji jest wyłącznie `versionCode` odczytany po ponownym starcie, nigdy sam kod wyniku. Instalacja tej samej wersji jest odrzucana razem z niższą (punkt 4 powyżej): sukces, odmowa i awaria dawałyby wtedy identyczny odczyt, więc kontrakt nie miałby jak potwierdzić skutku.
 
@@ -399,7 +401,7 @@ Przerwania po rozpoczęciu. Tu stan urządzenia może być już częściowo zmie
 
 19. Śmierć procesu sc2t, śmierć procesu Heliosa i odcięcie zasilania na każdym etapie długiej operacji: po ponownym starcie narzędzia `state` z `about` dla tego `op_id` podaje wyłącznie etap terminalny, zgodny z regułą pierwszeństwa - `absent`, gdy sc2t zginął przed przyjęciem żądania, `finished` ze statusem `denied`, gdy zginął przed rozpoczęciem wykonania, `finished` z zapisanym wynikiem, gdy zdążył skończyć, `interrupted` ze statusem `unknown`, gdy zginął w trakcie. Etapy `accepted`, `awaiting_consent`, `copying`, `running` i `installing` nie przeżywają restartu narzędzia. `chain` jest `unknown` tylko wtedy, gdy sc2t nie potrafi stwierdzić losu wykonawcy. Pliki żądania przerwanego nie są kasowane przy starcie.
 20. Przy `chain: unknown` żadna zgoda człowieka nie odblokowuje ponowienia: dopiero potwierdzone zakończenie wykonawcy albo restart zegara przełącza stan na `idle`. Próba uruchomienia operacji **z nowym `op_id`** po śmierci sc2t, gdy wykonawca żyje, daje `busy`; powtórzenie żądania, które ten stan wywołało, nadal dostaje jego etap, a odczyty działają normalnie.
-21. Timeout przy żyjącym wykonawcy daje `in_progress`, a nie `failed`, i nie zwalnia blokady; spóźniony wynik tego samego `op_id` jest przyjmowany, a Helios nie uruchamia w międzyczasie drugiej operacji.
+21. Timeout przy żyjącym wykonawcy daje `in_progress`, a nie `failed`, i nie zwalnia blokady; spóźniony wynik tego samego `op_id` jest przyjmowany, a Helios nie uruchamia w międzyczasie drugiej operacji. Wyjątkiem jest limit etapu `copying`, który kończy się `failed`, skasowaniem niepełnej kopii i zwolnieniem blokady, bo kopiuje sam sc2t.
 22. Powtórne `mic_release` po przerwanej próbie nie nadpisuje zapisu stanem już zmienionym, a `mic_restore` po awarii w połowie przywraca to, co się da, zwraca `failed` i zostawia resztę mapy; `mic_saved_state` przeżywa restart zegara. Osobno: lista pakietów rozszerzona w nowej wersji narzędzia powoduje dopisanie brakujących wpisów przed zmianą i wymaga nowej zgody, a wpisy już istniejące pozostają nietknięte.
 23. Kontrakt z nieznanym `api` daje `unsupported_api`, nieznana operacja daje `unsupported`, nieznany `op_id` w `state` daje etap `absent`; `detail` w żadnym z tych przypadków nie zawiera tokenu ani ścieżki prywatnej.
 
