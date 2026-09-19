@@ -57,7 +57,7 @@ extras:
 
 Kluczem w rejestrze jest krotka: pakiet wywołującego, jego odcisk podpisu i `op_id`. Stąd trzy zasady:
 
-- **Duplikat** to powtórzenie z tą samą krotką **i** tą samą operacją, tymi samymi argumentami oraz, dla operacji z plikiem, tym samym skrótem kopii. Duplikat nigdy nie uruchamia drugiego wykonania: odpowiedzią jest zapisany wynik, gdy operacja się zakończyła, albo jej bieżący etap (`in_progress`), gdy nadal trwa. Duplikat nie dostaje `busy`, bo pyta o samego siebie.
+- **Duplikat** to powtórzenie z tą samą krotką **i** tą samą operacją oraz tymi samymi argumentami. Dla operacji z plikiem tożsamością pliku jest **skrót kopii zapisany przy pierwszym żądaniu**: powtórzenie nie otwiera ponownie strumienia, bo policzenie skrótu wymagałoby drugiego kopiowania, czyli dokładnie tego, czego duplikat ma uniknąć. Instaluje się i tak wyłącznie ta pierwsza kopia, więc to, co w międzyczasie stało się ze źródłem, nie zmienia niczego. Duplikat nigdy nie uruchamia drugiego wykonania: odpowiedzią jest zapisany wynik, gdy operacja się zakończyła, albo jej bieżący etap (`in_progress`), gdy nadal trwa. Duplikat nie dostaje `busy`, bo pyta o samego siebie.
 - **Ten sam `op_id` z inną treścią** (inna operacja, inne argumenty, inny plik) to `unsupported`: identyfikator już należy do innego żądania i nie wolno go przypisać drugi raz.
 - **Nowe żądanie** w czasie, gdy trwa cudze albo wcześniejsze, dostaje `busy`. Blokada z pkt 4.5 dotyczy wyłącznie uruchamiania nowego wykonania; odczyt wyniku i pytanie o etap nigdy jej nie dotyczą.
 
