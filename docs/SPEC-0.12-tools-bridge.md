@@ -1,6 +1,6 @@
 # SPEC 0.12 - mostek Helios ↔ Smart Clock 2 Tools
 
-Status: po przeglądzie (własnym i Codex, rundy 1-5). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
+Status: po przeglądzie (własnym i Codex, rundy 1-6). Dotyczy dwóch repozytoriów: `SychPL/helios` (aplikacja, pakiet `pl.mateusz.helios`) i `SychPL/smartclock2tool` (narzędzie, pakiet `pl.mateusz.clockadbprobe`, dalej **sc2t**).
 
 ## 1. Problem i cel
 
@@ -95,10 +95,11 @@ Znaczenie kodów: `denied` decyzja człowieka albo brak zaufania, `unsupported` 
 **Przerwanie w trakcie.** Zabicie którejkolwiek z aplikacji, odcięcie zasilania albo wyjście użytkownika z okna postępu kończy się dla Heliosa brakiem wyniku albo `RESULT_CANCELED`. Żadna z tych sytuacji nie mówi, czy operacja się wykonała. Dlatego:
 
 - Helios po każdej operacji innej niż `state` wykonuje `state` i porównuje migawkę z oczekiwaniem; interfejs buduje z migawki i z własnych sprawdzeń lokalnych (pkt 6.3), nigdy z samego kodu wyniku.
-- Żaden wpis rejestru nie zostaje w etapie nieterminalnym w nieskończoność. Zamknięcie ekranu zgody albo cofnięcie się z niego przenosi wpis w `finished` ze statusem `denied`. Śmierć procesu sc2t przenosi każdy wpis w etapie `accepted` albo `awaiting_consent` w `finished` ze statusem `denied` przy najbliższym starcie narzędzia, bo nic jeszcze nie zdążyło się wykonać. Wpis w etapie `copying`, `running` albo `installing` przechodzi wtedy w `interrupted` ze statusem `unknown`, dopóki los wykonawcy nie zostanie ustalony. Wpis, którego `boot_id` jest starszy od bieżącego, nigdy nie zostaje nieterminalny: restart zegara domyka go w `interrupted`.
+- Żaden wpis rejestru nie zostaje w etapie nieterminalnym w nieskończoność. Zamknięcie ekranu zgody albo cofnięcie się z niego przenosi wpis w `finished` ze statusem `denied`.
+- O domknięciu wpisu zastanego po śmierci procesu sc2t albo po restarcie zegara decyduje **etap, a nie przyczyna**, i ta reguła ma pierwszeństwo przed każdą inną: `accepted` i `awaiting_consent` przechodzą w `finished` ze statusem `denied`, bo nic się jeszcze nie wykonywało, a `copying`, `running` i `installing` przechodzą w `interrupted` ze statusem `unknown`, dopóki los wykonawcy nie zostanie ustalony. Wpis z obcym `boot_id` domykany jest tą samą regułą przy najbliższym starcie narzędzia, więc po restarcie zegara żaden wpis nie jest już nieterminalny.
 - sc2t zapisuje trwale etap każdej operacji pod jej `op_id`, zanim zrobi cokolwiek nieodwracalnego, i potrafi po ponownym starcie powiedzieć, na czym stanęła.
 - Uruchomienie **nowego** wykonania (nowy `op_id`) jest dozwolone dopiero, gdy migawka mówi `chain: idle`. Przy `chain: running` nowe żądanie zwraca `busy`. Powtórzenie identycznego żądania z tym samym `op_id` nie jest nowym wykonaniem i odpowiada etapem albo zapisanym wynikiem (pkt 4.1), nigdy `busy`.
-- `chain: unknown` **nie przechodzi w `idle` przez zgodę człowieka**. Blokada schodzi wyłącznie wtedy, gdy sc2t potwierdzi, że poprzedni uprzywilejowany wykonawca nie żyje (brak jego procesu i brak jego pliku blokady), albo gdy czas startu systemu jest późniejszy niż zapis etapu, czyli zegar był restartowany. Do tego czasu każda operacja zmieniająca stan **z nowym `op_id`** zwraca `busy` z wyjaśnieniem w `detail`; powtórzenie żądania, które ten stan wywołało, nadal odpowiada jego etapem, a odczyty przechodzą normalnie. Jedyne, co człowiek może zrobić, to odciąć zasilanie.
+- `chain: unknown` **nie przechodzi w `idle` przez zgodę człowieka**. Blokada schodzi wyłącznie wtedy, gdy sc2t potwierdzi, że poprzedni uprzywilejowany wykonawca nie żyje (brak jego procesu i brak jego pliku blokady), albo gdy `boot_id` migawki różni się od zapisanego we wpisie, czyli zegar był restartowany. Do tego czasu każda operacja zmieniająca stan **z nowym `op_id`** zwraca `busy` z wyjaśnieniem w `detail`; powtórzenie żądania, które ten stan wywołało, nadal odpowiada jego etapem, a odczyty przechodzą normalnie. Jedyne, co człowiek może zrobić, to odciąć zasilanie.
 
 Limity czasu są dwa i liczone osobno: oczekiwanie na decyzję człowieka nie jest ograniczone, a wykonanie ma własny limit. Limity wykonania: pomiar stanu 3 s, przełączanie ADB 45 s, nadanie uprawnienia, `set_home` i każda pojedyncza zmiana uprawnień mikrofonu 20 s, kopiowanie pliku 60 s, instalacja 120 s, łańcuch roota 4 minuty. Przekroczenie daje `in_progress` przy żyjącym wykonawcy, a `unknown`, gdy tego nie da się stwierdzić.
 
@@ -106,7 +107,7 @@ Helios nie mierzy czasu, dopóki mostek jest na wierzchu: nie wie, czy stoi tam 
 
 - odpowiedź `ok`, `failed`, `denied`, `unsupported`, `unsupported_api`, `busy` albo `wrong_firmware` kończy sprawę,
 - `in_progress`, `unknown`, `RESULT_CANCELED` albo brak odpowiedzi uruchamiają odpytywanie `state` o własny `op_id` co 5 s. `unknown` nie jest rozstrzygnięciem: znaczy tylko tyle, że sc2t nie wiedział w chwili odpowiedzi,
-- limit liczy sam Helios z pól `stage_since_ms` i `boot_id` rejestru, osobno dla każdego etapu maszynowego; etap `awaiting_consent` nie ma limitu,
+- limit liczy sam Helios jako `now_uptime_ms - stage_since_uptime_ms` z tej samej migawki i wyłącznie przy niezmienionym `boot_id`, osobno dla każdego etapu maszynowego; etap `awaiting_consent` nie ma limitu,
 - po limicie Helios przestaje pytać cyklicznie, ale przy każdym otwarciu menu pyta jeszcze raz, dopóki rejestr nie poda etapu terminalnego. Utracona odpowiedź nie może zostawić trwałej blokady w interfejsie, skoro wykonawca dawno skończył.
 
 Helios nigdy nie uruchamia drugiej operacji, zanim rejestr nie powie `finished`, `interrupted` albo `absent`. Spóźniona odpowiedź z tym samym `op_id` jest przyjmowana normalnie, z nieznanym jest ignorowana.
@@ -165,7 +166,7 @@ Czas mierzy sc2t i tylko sc2t, bo tylko on wie, kiedy co się zaczęło. Wszystk
 
 Do czasu ściennego zostaje wyłącznie `finished_at_ms`, bo służy człowiekowi, a nie liczeniu limitów.
 
-Etapy rozdzielają czas człowieka od czasu maszyny, bo tylko ten drugi ma limit: `awaiting_consent` trwa bez ograniczeń, a limity z pkt 4.2 dotyczą `copying`, `running` i `installing`, każdego osobno. Operacja instalacji przechodzi przez `copying`, `awaiting_consent` i `installing`, więc jej trzy limity liczone są niezależnie. Każde pole migawki może mieć wartość `"unknown"`. Migawka:
+Etapy rozdzielają czas człowieka od czasu maszyny, bo tylko ten drugi ma limit: `awaiting_consent` trwa bez ograniczeń, a limity z pkt 4.2 dotyczą `copying`, `running` i `installing`, każdego osobno. Operacja instalacji przechodzi przez `copying`, `awaiting_consent` i `installing`, ale limity ma tylko dwa, na `copying` i na `installing`, liczone niezależnie; czas zgody nie jest ograniczony. Każde pole migawki może mieć wartość `"unknown"`. Migawka:
 
 ```json
 {
@@ -390,8 +391,8 @@ Odrzucenia przed wykonaniem. Żadne z nich nie zmienia stanu urządzenia w zakre
 
 Przerwania po rozpoczęciu. Tu stan urządzenia może być już częściowo zmieniony, więc kryterium dotyczy tego, co kontrakt o nim mówi:
 
-19. Śmierć procesu sc2t, śmierć procesu Heliosa i odcięcie zasilania na każdym etapie długiej operacji: po ponownym starcie `state` z `about` dla tego `op_id` podaje etap zgodny z tym, co zdążyło się wykonać (`absent`, gdy sc2t zginął przed przyjęciem żądania, dalej `accepted`, `running`, `interrupted` albo `finished` z wynikiem), a nie zawsze to samo. `chain` jest `unknown` tylko wtedy, gdy sc2t nie potrafi stwierdzić losu wykonawcy. Pliki żądania przerwanego nie są kasowane przy starcie.
-20. Przy `chain: unknown` żadna zgoda człowieka nie odblokowuje ponowienia: dopiero potwierdzone zakończenie wykonawcy albo restart zegara przełącza stan na `idle`. Próba równoległego uruchomienia po śmierci sc2t, gdy wykonawca żyje, daje `busy`.
+19. Śmierć procesu sc2t, śmierć procesu Heliosa i odcięcie zasilania na każdym etapie długiej operacji: po ponownym starcie narzędzia `state` z `about` dla tego `op_id` podaje wyłącznie etap terminalny, zgodny z regułą pierwszeństwa - `absent`, gdy sc2t zginął przed przyjęciem żądania, `finished` ze statusem `denied`, gdy zginął przed rozpoczęciem wykonania, `finished` z zapisanym wynikiem, gdy zdążył skończyć, `interrupted` ze statusem `unknown`, gdy zginął w trakcie. Etapy `accepted`, `awaiting_consent`, `copying`, `running` i `installing` nie przeżywają restartu narzędzia. `chain` jest `unknown` tylko wtedy, gdy sc2t nie potrafi stwierdzić losu wykonawcy. Pliki żądania przerwanego nie są kasowane przy starcie.
+20. Przy `chain: unknown` żadna zgoda człowieka nie odblokowuje ponowienia: dopiero potwierdzone zakończenie wykonawcy albo restart zegara przełącza stan na `idle`. Próba uruchomienia operacji **z nowym `op_id`** po śmierci sc2t, gdy wykonawca żyje, daje `busy`; powtórzenie żądania, które ten stan wywołało, nadal dostaje jego etap, a odczyty działają normalnie.
 21. Timeout przy żyjącym wykonawcy daje `in_progress`, a nie `failed`, i nie zwalnia blokady; spóźniony wynik tego samego `op_id` jest przyjmowany, a Helios nie uruchamia w międzyczasie drugiej operacji.
 22. Powtórne `mic_release` po przerwanej próbie nie nadpisuje zapisu stanem już zmienionym, a `mic_restore` po awarii w połowie przywraca to, co się da, zwraca `failed` i zostawia resztę mapy; `mic_saved_state` przeżywa restart zegara. Osobno: lista pakietów rozszerzona w nowej wersji narzędzia powoduje dopisanie brakujących wpisów przed zmianą i wymaga nowej zgody, a wpisy już istniejące pozostają nietknięte.
 23. Kontrakt z nieznanym `api` daje `unsupported_api`, nieznana operacja daje `unsupported`, nieznany `op_id` w `state` daje etap `absent`; `detail` w żadnym z tych przypadków nie zawiera tokenu ani ścieżki prywatnej.
