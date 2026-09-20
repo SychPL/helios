@@ -16,6 +16,7 @@ public final class DashboardView extends FrameLayout {
     public interface Actions { void onTap(DashboardSpec.Item item); }
     static final int WIDTH=800,HEIGHT=480,BAR=52,GAP=8;
     private final TextView brand,status;
+    private final LinearLayout nightLayer;private final TextView nightTime,nightDate;
     private final ImageView connection,backdrop;
     private final View dimLayer,bar;
     private boolean photo;
@@ -42,8 +43,29 @@ public final class DashboardView extends FrameLayout {
         status=text("",sans);status.setMaxLines(1);status.setEllipsize(TextUtils.TruncateAt.END);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         connection=new ImageView(context);connection.setImageResource(R.drawable.ic_home_assistant);addView(connection);
         overlay=new MusicOverlay(context,sans,mono);addView(overlay);
+        // Night clock (SPEC 0.13): a lid over everything, not a separate screen - the panel keeps its state
+        // underneath and comes back the moment the policy says so.
+        nightLayer=new LinearLayout(context);nightLayer.setOrientation(LinearLayout.VERTICAL);
+        nightLayer.setGravity(Gravity.CENTER);nightLayer.setBackgroundColor(0xFF000000);nightLayer.setVisibility(GONE);
+        nightTime=new TextView(context);nightTime.setTypeface(mono);nightTime.setTextColor(NIGHT_TEXT);nightTime.setIncludeFontPadding(false);
+        nightDate=new TextView(context);nightDate.setTypeface(sans);nightDate.setTextColor(NIGHT_MUTED);nightDate.setIncludeFontPadding(false);
+        // the text views span the width and centre their own text: gravity on the column alone leaves the
+        // digits pinned to the left once a view ends up as wide as the screen
+        nightTime.setGravity(Gravity.CENTER);nightDate.setGravity(Gravity.CENTER);
+        nightLayer.addView(nightTime,new LinearLayout.LayoutParams(-1,-2));
+        nightLayer.addView(nightDate,new LinearLayout.LayoutParams(-1,-2));
+        addView(nightLayer,new LayoutParams(-1,-1));
         applyTheme();connected(false);
     }
+    /** Grey rather than white: readable across a dark bedroom without lighting it up. */
+    static final int NIGHT_TEXT=0xFF9A9A9A,NIGHT_MUTED=0xFF5A5A5A;
+    /** Puts the night clock over the panel, or takes it away. Idempotent: the caller may say the same twice. */
+    public void night(boolean on){
+        if(on==(nightLayer.getVisibility()==VISIBLE))return;
+        if(on){nightTime.setText(time);nightDate.setText(date);nightLayer.bringToFront();nightLayer.setVisibility(VISIBLE);}
+        else nightLayer.setVisibility(GONE);
+    }
+    public boolean nightVisible(){return nightLayer.getVisibility()==VISIBLE;}
     public MusicOverlay musicOverlay(){return overlay;}
     /** Background photo already cropped to 800x480 (or null for the theme colour) with its black dim in percent; layout untouched (SPEC 0.8b pkt 6). */
     public void setBackdrop(android.graphics.Bitmap bitmap,int dimPercent){
@@ -75,6 +97,7 @@ public final class DashboardView extends FrameLayout {
         box(brand,24,10,120,32,s,ox,oy);size(brand,17,s);
         box(status,150,10,560,32,s,ox,oy);size(status,16,s);
         box(connection,744,10,32,32,s,ox,oy);
+        size(nightTime,190,s);size(nightDate,22,s); // 190 of 480 units: the hour fills the screen without touching the edges
         float cellW=(WIDTH-GAP*(DashboardSpec.COLUMNS+1))/(float)DashboardSpec.COLUMNS,cellH=(HEIGHT-BAR-GAP*(DashboardSpec.ROWS+1))/(float)DashboardSpec.ROWS;
         for(Tile tile:tiles.values()){
             DashboardSpec.Item i=tile.item;
@@ -96,6 +119,7 @@ public final class DashboardView extends FrameLayout {
     public void clock(String time,String weekday,String date){
         boolean refit=!this.time.equals(time)&&this.time.length()!=time.length();
         this.time=time;this.weekday=weekday;this.date=date;overlay.setClock(time);
+        if(nightLayer.getVisibility()==VISIBLE){nightTime.setText(time);nightDate.setText(date);}
         for(Tile t:tiles.values())if(t.item.type.equals("clock")){if(refit)t.scale(scale,t.unitW,t.unitH);t.clock();}
         long now=System.currentTimeMillis(); // a forecast expires without any HA delta: re-render just that tile (SPEC 0.9 pkt 6.2)
         for(Tile t:tiles.values())if(t.forecastExpiresAt>0&&t.forecastExpiresAt<=now&&lastStates!=null){t.forecastExpiresAt=0;t.render(lastStates,lastLive);}

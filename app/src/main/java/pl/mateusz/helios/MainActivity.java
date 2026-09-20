@@ -33,9 +33,18 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     /** A touch lifts the screen brightness by 20 points for 15 s (dark room: the panel is hard to read at the night level); dialogs inherit the boost from the tap that opened them. */
     private final Runnable unboost=()->{WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;getWindow().setAttributes(p);};
     @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){
-        if(event.getAction()==android.view.MotionEvent.ACTION_DOWN)boostBrightness();
+        int action=event.getActionMasked();
+        // The touch that ends the night clock only wakes the panel (SPEC 0.13 pkt 5): the whole gesture is
+        // swallowed, not just its first event, or the finger would still land on whatever tile is underneath.
+        if(dashboard!=null&&dashboard.nightVisible()){
+            if(action==android.view.MotionEvent.ACTION_DOWN){swallowGesture=true;wakePanel();}
+            if(swallowGesture){if(action==android.view.MotionEvent.ACTION_UP||action==android.view.MotionEvent.ACTION_CANCEL)swallowGesture=false;return true;}
+        }
+        if(swallowGesture){if(action==android.view.MotionEvent.ACTION_UP||action==android.view.MotionEvent.ACTION_CANCEL)swallowGesture=false;return true;}
+        if(action==android.view.MotionEvent.ACTION_DOWN){screensaver.interaction();boostBrightness();}
         return super.dispatchTouchEvent(event);
     }
+    private boolean swallowGesture;
     private void boostBrightness(){
         float base;
         try{base=android.provider.Settings.System.getInt(getContentResolver(),android.provider.Settings.System.SCREEN_BRIGHTNESS)/255f;}catch(Exception e){base=.5f;}
@@ -72,6 +81,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             service.setOnChannelIssue(text->dashboard.setMessage(text));
             service.setOnStatus(text->dashboard.setMessage(text));
             service.setMusicListener(snapshot->{
+                musicActive=snapshot.ui!=MusicSession.Ui.NONE; // a paused queue is still listening, so it blocks too
                 dashboard.musicInfo(snapshot.remoteInfo);
                 if(library!=null&&library.isShowing())dashboard.musicOverlay().closePanel();
                 dashboard.musicOverlay().setSnapshot(snapshot);
@@ -112,14 +122,56 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         Date now=new Date();
         String weekday=new SimpleDateFormat("EEEE",new Locale("pl","PL")).format(now),date=new SimpleDateFormat("d MMMM",new Locale("pl","PL")).format(now);
         dashboard.clock(new SimpleDateFormat("HH:mm",Locale.ROOT).format(now),weekday.substring(0,1).toUpperCase(new Locale("pl"))+weekday.substring(1),date);
+        applyScreensaver();
         if(resumed)main.postDelayed(this,1000);
     }};
+
+    // --- night clock (SPEC 0.13) ---
+    private final ScreensaverPolicy screensaver=new ScreensaverPolicy();
+    private android.hardware.SensorManager sensors;
+    private android.hardware.Sensor lightSensor;
+    private boolean musicActive;
+    private final android.hardware.SensorEventListener light=new android.hardware.SensorEventListener(){
+        public void onSensorChanged(android.hardware.SensorEvent event){
+            if(event.values.length==0)return;
+            screensaver.lux(Math.round(event.values[0]));
+            applyScreensaver(); // a lamp switched on must not wait for the next second
+        }
+        public void onAccuracyChanged(android.hardware.Sensor sensor,int accuracy){}
+    };
+    /** Anything that wants the panel visible. One flag, because the policy has no business knowing our fields. */
+    private boolean panelWanted(){
+        if(busy||pairing||musicActive)return true;
+        if(panel!=null||onboardingDialog!=null||navigation.isShowing())return true;
+        if(library!=null&&library.isShowing())return true;
+        if(dashboard.musicOverlay().isOpen())return true;
+        if(connectionIssue!=null||configIssue!=null)return true;
+        for(Boolean visible:visibility.values())if(Boolean.TRUE.equals(visible))return true; // a conditional tile is this panel's notification
+        return false;
+    }
+    private void applyScreensaver(){
+        boolean night=screensaver.update(android.os.SystemClock.elapsedRealtime(),panelWanted());
+        if(night==dashboard.nightVisible())return;
+        dashboard.night(night);
+        WindowManager.LayoutParams p=getWindow().getAttributes();
+        if(night){main.removeCallbacks(unboost);p.screenBrightness=.01f;} // one arbiter of brightness, or the boost fights the night
+        else p.screenBrightness=WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+        getWindow().setAttributes(p);
+        onEvent(night?"screensaver_on":"screensaver_off","lux="+(screensaver.luxKnown()?screensaver.lux():-1));
+    }
+    /** Leaves the night clock now: a touch, the wake word, anything that owes the user a visible panel. */
+    private void wakePanel(){screensaver.interaction();applyScreensaver();boostBrightness();}
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         dashboard=new DashboardView(this);setContentView(dashboard);
+        sensors=(android.hardware.SensorManager)getSystemService(Context.SENSOR_SERVICE);
+        lightSensor=sensors==null?null:sensors.getDefaultSensor(android.hardware.Sensor.TYPE_LIGHT);
+        // a clock without a working light sensor simply never dims: the panel behaves exactly as before
+        screensaver.thresholds(getSharedPreferences("helios",MODE_PRIVATE).getInt("dark_enter",ScreensaverPolicy.DEFAULT_ENTER),
+                getSharedPreferences("helios",MODE_PRIVATE).getInt("dark_exit",ScreensaverPolicy.DEFAULT_EXIT));
         // a killed process can leave an update file behind; the one still being handed over stays
         ApkProvider.sweep(this,ToolsBridge.pendingOpId(this));
         // and an operation we never saw the answer to is picked up again, without waiting for the menu
@@ -131,6 +183,16 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             public void device(){deviceDialog();}
             public void update(){if(service!=null)service.update();}
             public void tools(){toolsDialog();}
+            public String screensaverLabel(){
+                return "Wygaszacz: ciemno ≤ "+screensaver.darkEnter()+" lx (teraz "+(screensaver.luxKnown()?screensaver.lux()+" lx":"brak odczytu")+")";
+            }
+            public void screensaverStep(){
+                int[] steps={1,2,3,5,8,12,20};int next=steps[0];
+                for(int i=0;i<steps.length;i++)if(steps[i]==screensaver.darkEnter()){next=steps[(i+1)%steps.length];break;}
+                if(screensaver.thresholds(next,next+5))
+                    getSharedPreferences("helios",MODE_PRIVATE).edit().putInt("dark_enter",next).putInt("dark_exit",next+5).apply();
+                applyScreensaver();
+            }
         });
         dashboard.onBrandHold(()->navigation.show());
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
@@ -151,8 +213,15 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(overlay.isOpen()){overlay.closePanel();return;}
         super.onBackPressed();
     }
-    @Override public void onResume(){super.onResume();resumed=true;tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
-    @Override public void onPause(){resumed=false;detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
+    @Override public void onResume(){super.onResume();resumed=true;
+        // the reading from before we went away says nothing about the room we came back to
+        screensaver.forget();
+        if(sensors!=null&&lightSensor!=null)sensors.registerListener(light,lightSensor,android.hardware.SensorManager.SENSOR_DELAY_NORMAL);
+        tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
+    @Override public void onPause(){resumed=false;
+        if(sensors!=null)sensors.unregisterListener(light);
+        screensaver.forget();dashboard.night(false);
+        detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
     @Override public void onDestroy(){main.removeCallbacks(toolsPoll);if(navigation!=null)navigation.close();closePanel();closeOnboarding();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
         if(config==null||config.optBoolean("auth_invalid",false)){connect();return;}
@@ -363,7 +432,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             main.post(()->{
                 if(wakeListener!=current)return;wakeListener=null;
                 if(error!=null){onEvent("wake_error",error);dashboard.setMessage("Nasłuch hasła niedostępny.\nPrzytrzymaj HELIOS → Rozmowa.");}
-                else if(found&&resumed&&!busy){onEvent("wake_detected","Okay Nabu");startVoice();}
+                else if(found&&resumed&&!busy){onEvent("wake_detected","Okay Nabu");wakePanel();startVoice();}
             });
         });
     }

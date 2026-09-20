@@ -27,10 +27,14 @@ final class NavigationMenu {
     private final java.util.function.BooleanSupplier updateBusy;
     private Dialog dialog;
     private String status="";
-    interface Actions {void talk();void cancel();void pair();void device();void update();void tools();}
+    interface Actions {void talk();void cancel();void pair();void device();void update();void tools();
+        /** Label with the live reading, and a tap that steps the darkness threshold (SPEC 0.13 pkt 3). */
+        String screensaverLabel();void screensaverStep();}
     private final Actions actions;
     NavigationMenu(Activity activity,java.util.function.Supplier<org.json.JSONObject> connection,java.util.function.BooleanSupplier updateBusy,Actions actions){this.activity=activity;this.connection=connection;this.updateBusy=updateBusy;this.actions=actions;}
     private int dp(int n){return Math.round(n*activity.getResources().getDisplayMetrics().density);}
+    /** The night clock must not cover an open menu (SPEC 0.13 pkt 4). */
+    boolean isShowing(){return dialog!=null&&dialog.isShowing();}
     void show(){
         if(dialog!=null&&dialog.isShowing())return;
         dialog=new Dialog(activity);
@@ -49,6 +53,8 @@ final class NavigationMenu {
         button(rows,"Urządzenie: głośność i lampka",()->{close();actions.device();});
         button(rows,"Paruj z HA",()->{close();actions.pair();});
         button(rows,"Narzędzia zegara",()->{close();actions.tools();});
+        Button screensaver=button(rows,actions.screensaverLabel(),()->{});
+        screensaver.setOnClickListener(v->{actions.screensaverStep();screensaver.setText(actions.screensaverLabel());}); // stays open: the threshold is picked by watching the reading
         button(rows,"Konfiguracja ekranu w HA",()->openHa(true));
         button(rows,"Strona główna HA",()->openHa(false));
         button(rows,"Ustawienia zegara",()->open(new Intent(Settings.ACTION_SETTINGS)));
