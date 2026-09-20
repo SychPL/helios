@@ -57,8 +57,12 @@ public final class AssistClient {
             if(message.optString("type").equals("result")&&!message.optBoolean("success"))throw new IOException("Pipeline rejected");
             JSONObject event=message.optJSONObject("event");if(event==null)return;
             String type=event.getString("type");JSONObject data=event.optJSONObject("data");
+            if(type.equals("error")){
+                // The code alone ("stt-stream-failed") never says why; the message carries the reason and is the only trace we get of a remote failure.
+                String reason=data==null?"Pipeline error":(data.optString("code","Pipeline error")+" "+data.optString("message","")).trim();
+                log(type,reason);throw new IOException(reason);
+            }
             log(type,"");
-            if(type.equals("error"))throw new IOException(data==null?"Pipeline error":data.optString("code","Pipeline error"));
             if(type.equals("run-start"))handler=data.getJSONObject("runner_data").getInt("stt_binary_handler_id");
             if(type.equals("stt-start"))sttReady=true;
             if(type.equals("stt-vad-start"))vadStarted=true;
