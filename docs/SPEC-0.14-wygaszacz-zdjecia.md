@@ -30,7 +30,7 @@ przyjmuje dokładnie trzy pola i wersję 1 - to jest zmiana po obu stronach, w `
     "idle_seconds": 60,        // >= 15, bo tyle wynosi gwarancja po dotknięciu
     "dark_enter": 3,           // luksy; ignorowane w trybie always
     "dark_exit": 8,
-    "background": "photos",    // black | photos
+    "photos": false,           // pokaz slajdów przy świetle; domyślnie wyłączony
     "photo_seconds": 120,      // co ile zmienia się zdjęcie
     "photo_dim": 45            // przyciemnienie zdjęcia w procentach
   }
@@ -60,8 +60,13 @@ identyfikatora, żeby zegar mógł poprosić o kolejny i nie dostać tego samego
 
 ## 4. Wygląd
 
-- **Tło czarne**: jak w 0.13, szara godzina, data pod spodem.
-- **Tło ze zdjęciem**: zdjęcie na całym ekranie, na nim przyciemnienie `photo_dim`, godzina biała z miękkim
+**Ciemność zawsze wygrywa ze zdjęciami.** Poniżej progu `dark_enter` wygaszacz pokazuje czerń, niezależnie od
+tego, czy pokaz jest włączony - w nocy w sypialni świecące zdjęcie jest gorsze od braku wygaszacza. Pokaz
+działa wyłącznie przy świetle i tylko wtedy, gdy `photos: true`; domyślnie jest wyłączony, bo to funkcja, którą
+ktoś świadomie włącza dla konkretnego pokoju, a nie zachowanie, które ma się pojawić samo po aktualizacji.
+
+- **Tło czarne**: jak w 0.13, szara godzina, data pod spodem. Tak wygląda każda noc.
+- **Tło ze zdjęciem** (dzień, `photos: true`): zdjęcie na całym ekranie, na nim przyciemnienie `photo_dim`, godzina biała z miękkim
   cieniem. Cień jest konieczny, bo jasny kadr zjada szary tekst; samo przyciemnienie nie wystarcza przy
   zdjęciach o wysokim kontraście.
 - Zmiana zdjęcia to przenikanie w pół sekundy, nie cięcie - nocą nagła zmiana jasności budzi.
@@ -82,7 +87,8 @@ identyfikatora, żeby zegar mógł poprosić o kolejny i nie dostać tego samego
 2. `mode: dark` - zachowanie identyczne z 0.13.
 3. `mode: off` - wygaszacz nie wchodzi nigdy, niezależnie od światła i ciszy.
 4. Zmiana trybu w HA działa bez restartu zegara i bez ponownego parowania.
-5. `background: photos` - po wejściu widać zdjęcie, po `photo_seconds` zmienia się przenikaniem.
+5. `photos: true` przy świetle - po wejściu widać zdjęcie, po `photo_seconds` zmienia się przenikaniem.
+5a. `photos: true` po ciemku - czerń, żadnego zdjęcia; po zapaleniu światła pokaz rusza przy następnym wejściu.
 6. Godzina pozostaje czytelna na jasnym zdjęciu (biel z cieniem na przyciemnieniu).
 7. Brak sieci w trakcie pokazu: zostaje ostatnie zdjęcie, a po jego wygaśnięciu czerń; żadnego komunikatu.
 8. Błędna konfiguracja (np. `idle_seconds: 2`, `dark_exit` mniejsze od `dark_enter`) - wygaszacz działa na
@@ -95,7 +101,7 @@ identyfikatora, żeby zegar mógł poprosić o kolejny i nie dostać tego samego
   w HA, ale warto to powiedzieć wprost w dokumentacji: co trafi do albumu, to pokaże się na ścianie.
 - **Immich w HA.** Integracja `immich` jest w Home Assistancie jako media source; przed implementacją trzeba
   potwierdzić na ich instalacji (HA 2026.8.3), czy jest dostępna i jakie identyfikatory albumów wystawia.
-- **Jasność nocą.** W trybie `dark` zdjęcia świecą bardziej niż czerń. Domyślnie w ciemności zostaje czerń,
-  a pokaz włącza się dopiero powyżej progu - albo `photo_dim` rośnie automatycznie. Do rozstrzygnięcia po
-  pierwszym wieczorze z działającym pokazem, bo to jest pytanie o wrażenie, nie o kod.
+- ~~Jasność nocą.~~ Rozstrzygnięte przez użytkownika: w ciemności zawsze czerń, pokaz tylko przy świetle i
+  tylko po świadomym włączeniu. Ten sam próg `dark_enter`, który decyduje o wejściu w tryb `dark`, decyduje
+  o tym, czy tłem jest czerń czy zdjęcie - jedna liczba, dwie role, nic więcej do strojenia.
 - **Wypalenie.** Przy pokazie slajdów problem znika sam; przy czerni pozostaje jak w 0.13.
