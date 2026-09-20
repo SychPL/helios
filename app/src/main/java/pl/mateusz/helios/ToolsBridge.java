@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
+import android.content.pm.SigningInfo;
 import android.net.Uri;
 
 import org.json.JSONObject;
@@ -34,22 +35,40 @@ final class ToolsBridge {
 
     private ToolsBridge() {}
 
-    /** What the package manager says about the tool right now, or null when it is not installed. */
-    @SuppressWarnings("deprecation")
+    /**
+     * What the package manager says about the tool right now, or null when it is not installed.
+     *
+     * <p>The fingerprint comes from the signers of the installed APK, not from {@code GET_SIGNATURES}: after a key
+     * rotation that field still reports the oldest certificate, and a tool signed with a new key would keep the
+     * trust the user granted to the old one.
+     */
     static ToolsTrust.Installed installed(Context context) {
         try {
             PackageManager pm = context.getPackageManager();
-            PackageInfo info = pm.getPackageInfo(ToolsTrust.TOOL_PACKAGE, PackageManager.GET_SIGNATURES);
-            Signature[] signatures = info.signatures;
+            PackageInfo info = pm.getPackageInfo(ToolsTrust.TOOL_PACKAGE, PackageManager.GET_SIGNING_CERTIFICATES);
+            SigningInfo signing = info.signingInfo;
+            if (signing == null) return null;                 // nothing to judge is not the same as a match
+            Signature[] signatures = signing.hasMultipleSigners()
+                    ? signing.getApkContentsSigners()
+                    : new Signature[]{current(signing)};
             StringBuilder fingerprint = new StringBuilder();
             for (Signature signature : signatures == null ? new Signature[0] : signatures) {
+                if (signature == null) return null;
                 if (fingerprint.length() > 0) fingerprint.append('+');
                 fingerprint.append(sha256(signature.toByteArray()));
             }
+            if (fingerprint.length() == 0) return null;
             return new ToolsTrust.Installed(fingerprint.toString(), info.versionCode);
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /** The certificate the package is signed with today, which is the last entry of its history. */
+    private static Signature current(SigningInfo signing) {
+        Signature[] history = signing.getSigningCertificateHistory();
+        if (history == null || history.length == 0) return null;
+        return history[history.length - 1];
     }
 
     /** The version of the installed tool, empty when it is not there at all. */
