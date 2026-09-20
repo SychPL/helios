@@ -87,6 +87,47 @@ public class ScreensaverPolicyTest {
         assertTrue(run(IDLE,false));
     }
 
+    @Test public void alwaysDimsInALitRoomToo(){
+        policy.mode(ScreensaverPolicy.Mode.ALWAYS);
+        assertTrue(run(IDLE,false));              // no reading at all, and it still arrives
+        policy.lux(400);
+        assertTrue(run(TICK,false));              // broad daylight, still the clock
+    }
+
+    @Test public void offNeverDims(){
+        policy.mode(ScreensaverPolicy.Mode.OFF);
+        policy.lux(0);
+        assertFalse(run(10*IDLE,false));
+    }
+
+    @Test public void changingTheModeStartsTheWaitOver(){
+        policy.lux(0);
+        assertTrue(run(IDLE,false));
+        policy.mode(ScreensaverPolicy.Mode.ALWAYS);
+        assertFalse(policy.active());
+        assertFalse(run(IDLE-TICK,false));
+        assertTrue(run(TICK,false));
+    }
+
+    @Test public void photosOnlyInALitRoomAndOnlyWhenAlwaysOn(){
+        policy.lux(0);
+        assertFalse(policy.photosAllowed());      // dark: black, whatever the configuration says
+        policy.mode(ScreensaverPolicy.Mode.ALWAYS);
+        assertFalse(policy.photosAllowed());      // still dark
+        policy.lux(200);
+        assertTrue(policy.photosAllowed());
+        policy.mode(ScreensaverPolicy.Mode.DARK);
+        assertFalse(policy.photosAllowed());
+    }
+
+    @Test public void idleFromHomeAssistantIsRangeChecked(){
+        assertFalse(policy.idleMs(1_000L));       // shorter than the guarantee after a touch
+        assertFalse(policy.idleMs(6*3_600_000L));
+        assertEquals(IDLE,policy.idleMs());
+        assertTrue(policy.idleMs(5*60_000L));
+        assertEquals(5*60_000L,policy.idleMs());
+    }
+
     @Test public void thresholdsAreValidatedAndApplyAtOnce(){
         assertFalse(policy.thresholds(5,5));
         assertFalse(policy.thresholds(9,8));

@@ -23,7 +23,7 @@ public class AppearanceTest {
         for(String[] b:bad){
             JSONObject j=image();JSONObject bg=j.getJSONObject("background");
             switch(b[0]){
-                case "version":j.put("version",2);break;
+                case "version":j.put("version",3);break;
                 case "theme":j.put("theme",b[1]);break;
                 case "extra":j.put("extra",1);break;
                 case "btype":bg.put("type","solid");break; // solid with image fields
@@ -47,5 +47,33 @@ public class AppearanceTest {
         assertEquals(400,small[2]);assertEquals(240,small[3]);
         int[] r=CropMath.rect(1600,960,800,480,50,50);assertArrayEquals(new int[]{0,0,1600,960},r);
         assertEquals(1.0*r[2]/r[3],800/480.0,.01);
+    }
+
+    @Test public void versionTwoCarriesTheScreensaverBlock() throws Exception {
+        JSONObject j=image();j.put("version",2);
+        j.put("screensaver",new JSONObject().put("mode","always").put("idle_seconds",300).put("dark_enter",5)
+                .put("dark_exit",12).put("photos",true).put("photo_seconds",60).put("photo_dim",30));
+        Appearance a=Appearance.parse(j);
+        assertEquals(ScreensaverPolicy.Mode.ALWAYS,a.screensaver.mode);
+        assertEquals(300_000L,a.screensaver.idleMs);
+        assertEquals(5,a.screensaver.darkEnter);assertEquals(12,a.screensaver.darkExit);
+        assertTrue(a.screensaver.photos);assertEquals(60,a.screensaver.photoSeconds);assertEquals(30,a.screensaver.photoDim);
+    }
+
+    @Test public void aBadScreensaverBlockNeverCostsTheUserTheirPanel() throws Exception {
+        JSONObject j=image();j.put("version",2);
+        j.put("screensaver",new JSONObject().put("mode","kiedys").put("idle_seconds",2).put("dark_enter",40).put("dark_exit",10));
+        Appearance a=Appearance.parse(j);
+        assertTrue(a.image);                       // theme and background survive untouched
+        assertEquals(ScreensaverPolicy.Mode.DARK,a.screensaver.mode);
+        assertEquals(ScreensaverPolicy.IDLE_MS,a.screensaver.idleMs);
+        assertEquals(ScreensaverPolicy.DEFAULT_ENTER,a.screensaver.darkEnter);
+        assertEquals(ScreensaverPolicy.DEFAULT_EXIT,a.screensaver.darkExit);
+    }
+
+    @Test public void versionOneKeepsTheOldBehaviour() throws Exception {
+        Appearance a=Appearance.parse(image());
+        assertEquals(ScreensaverPolicy.Mode.DARK,a.screensaver.mode);
+        assertFalse(a.screensaver.photos);
     }
 }

@@ -74,7 +74,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             service=((HeliosService.Local)binder).service();
             service.setOnDeviceLost(()->{if(voice!=null)voice.cancelFollowUp();});
             service.setDiagnostics(MainActivity.this::onEvent);
-            service.setAppearanceListener((appearance,background)->{dashboard.setBackdrop(background,appearance.image?appearance.dim:0);dashboard.applyTheme();});
+            service.setAppearanceListener((appearance,background)->{
+                applyScreensaverConfig(appearance.screensaver);
+                dashboard.setBackdrop(background,appearance.image?appearance.dim:0);dashboard.applyTheme();});
             service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage("Sparowano z HA");main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
             service.setOnConnectionChanged(()->{config=service.connection();detachHa();if(resumed)attachHa();}); // diagnostics_url and the HA client follow every persisted change
             service.setOnAuthInvalid(()->dashboard.setMessage("HA odrzucił token - sparuj ponownie"));
@@ -153,14 +155,31 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         boolean night=screensaver.update(android.os.SystemClock.elapsedRealtime(),panelWanted());
         if(night==dashboard.nightVisible())return;
         dashboard.night(night);
-        WindowManager.LayoutParams p=getWindow().getAttributes();
-        if(night){main.removeCallbacks(unboost);p.screenBrightness=.01f;} // one arbiter of brightness, or the boost fights the night
-        else p.screenBrightness=WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
-        getWindow().setAttributes(p);
+        // One arbiter of brightness, or the touch boost fights the night clock. Dimming to nothing is right in a
+        // dark bedroom and wrong in daylight, where it would hide the slideshow instead of showing it.
+        if(night&&screensaver.mode()==ScreensaverPolicy.Mode.DARK){main.removeCallbacks(unboost);dim();}
+        else restoreBrightness();
         onEvent(night?"screensaver_on":"screensaver_off","lux="+(screensaver.luxKnown()?screensaver.lux():-1));
+    }
+    private void dim(){
+        WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=.01f;getWindow().setAttributes(p);
+    }
+    private void restoreBrightness(){
+        WindowManager.LayoutParams p=getWindow().getAttributes();
+        p.screenBrightness=WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;getWindow().setAttributes(p);
     }
     /** Leaves the night clock now: a touch, the wake word, anything that owes the user a visible panel. */
     private void wakePanel(){screensaver.interaction();applyScreensaver();boostBrightness();}
+    /** Home Assistant is the source of truth for the night clock (SPEC 0.14); the menu only shows the reading. */
+    private void applyScreensaverConfig(Appearance.Screensaver config){
+        if(config==null)return;
+        screensaver.mode(config.mode);
+        screensaver.idleMs(config.idleMs);
+        screensaver.thresholds(config.darkEnter,config.darkExit);
+        photosWanted=config.photos;photoSeconds=config.photoSeconds;photoDim=config.photoDim;
+        applyScreensaver();
+    }
+    private boolean photosWanted;private int photoSeconds=120,photoDim=45;
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -220,9 +239,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
     @Override public void onPause(){resumed=false;
         if(sensors!=null)sensors.unregisterListener(light);
-        screensaver.forget();dashboard.night(false);
+        // the night clock goes away with its dimming: hiding the layer alone would leave the panel at 0.01
+        screensaver.forget();dashboard.night(false);restoreBrightness();
         detachHa();stopWake();main.removeCallbacks(tick);if(voice!=null)voice.cancel();super.onPause();}
-    @Override public void onDestroy(){main.removeCallbacks(toolsPoll);if(navigation!=null)navigation.close();closePanel();closeOnboarding();if(library!=null)library.close();if(service!=null)service.setMusicListener(null);detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
+    @Override public void onDestroy(){main.removeCallbacks(toolsPoll);if(navigation!=null)navigation.close();closePanel();closeOnboarding();if(library!=null)library.close();
+        // the service outlives this activity: a listener left behind holds the old view and its bitmaps
+        if(service!=null){service.setMusicListener(null);service.setAppearanceListener(null);}detachHa();try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}stopWake();if(voice!=null)voice.cancel();audio.shutdown();network.shutdownNow();diagnostics.shutdown();super.onDestroy();}
     private void manualTalk(){
         if(config==null||config.optBoolean("auth_invalid",false)){connect();return;}
         if(busy){if(recording)voice.finishSpeech();else voice.cancel();return;}
