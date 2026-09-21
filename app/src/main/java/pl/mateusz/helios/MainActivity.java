@@ -150,7 +150,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(library!=null&&library.isShowing())return true;
         if(dashboard.musicOverlay().isOpen())return true;
         if(connectionIssue!=null||configIssue!=null)return true;
-        for(Boolean visible:visibility.values())if(Boolean.TRUE.equals(visible))return true; // a conditional tile is this panel's notification
+        // A conditional tile is this panel's notification. Whether one holds the panel up is the house's call:
+        // where a tile stays lit for days, blocking on it means the night clock never appears at all.
+        if(notificationsBlock)for(Boolean visible:visibility.values())if(Boolean.TRUE.equals(visible))return true;
         return false;
     }
     private void applyScreensaver(){
@@ -179,9 +181,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         screensaver.idleMs(config.idleMs);
         screensaver.thresholds(config.darkEnter,config.darkExit);
         photosWanted=config.photos;photoSeconds=config.photoSeconds;photoDim=config.photoDim;
+        notificationsBlock=config.notificationsBlock;
         applyScreensaver();
     }
-    private boolean photosWanted;private int photoSeconds=120,photoDim=45;
+    private boolean photosWanted,notificationsBlock=true;private int photoSeconds=120,photoDim=45;
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);

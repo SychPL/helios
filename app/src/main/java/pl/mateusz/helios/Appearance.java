@@ -19,13 +19,15 @@ final class Appearance {
      */
     static final class Screensaver {
         static final Screensaver DEFAULTS=new Screensaver(ScreensaverPolicy.Mode.DARK,ScreensaverPolicy.IDLE_MS,
-                ScreensaverPolicy.DEFAULT_ENTER,ScreensaverPolicy.DEFAULT_EXIT,false,120,45);
+                ScreensaverPolicy.DEFAULT_ENTER,ScreensaverPolicy.DEFAULT_EXIT,false,120,45,true);
         static final int PHOTO_SECONDS_MIN=15,PHOTO_SECONDS_MAX=3600,PHOTO_DIM_MIN=0,PHOTO_DIM_MAX=90;
         final ScreensaverPolicy.Mode mode;final long idleMs;final int darkEnter,darkExit;
         final boolean photos;final int photoSeconds,photoDim;
-        Screensaver(ScreensaverPolicy.Mode mode,long idleMs,int darkEnter,int darkExit,boolean photos,int photoSeconds,int photoDim){
+        /** Whether a visible conditional tile holds the panel up; false for houses where one stays lit for days. */
+        final boolean notificationsBlock;
+        Screensaver(ScreensaverPolicy.Mode mode,long idleMs,int darkEnter,int darkExit,boolean photos,int photoSeconds,int photoDim,boolean notificationsBlock){
             this.mode=mode;this.idleMs=idleMs;this.darkEnter=darkEnter;this.darkExit=darkExit;
-            this.photos=photos;this.photoSeconds=photoSeconds;this.photoDim=photoDim;
+            this.photos=photos;this.photoSeconds=photoSeconds;this.photoDim=photoDim;this.notificationsBlock=notificationsBlock;
         }
         static Screensaver parse(JSONObject s){
             if(s==null)return DEFAULTS;
@@ -42,7 +44,8 @@ final class Appearance {
             if(exit<=enter){enter=DEFAULTS.darkEnter;exit=DEFAULTS.darkExit;} // the pair is validated as a pair, never field by field
             return new Screensaver(mode,idle,enter,exit,s.optBoolean("photos",DEFAULTS.photos),
                     bounded(s,"photo_seconds",PHOTO_SECONDS_MIN,PHOTO_SECONDS_MAX,DEFAULTS.photoSeconds),
-                    bounded(s,"photo_dim",PHOTO_DIM_MIN,PHOTO_DIM_MAX,DEFAULTS.photoDim));
+                    bounded(s,"photo_dim",PHOTO_DIM_MIN,PHOTO_DIM_MAX,DEFAULTS.photoDim),
+                    s.optBoolean("notifications_block",DEFAULTS.notificationsBlock));
         }
         private static int bounded(JSONObject o,String key,int low,int high,int fallback){
             Object v=o.opt(key);
