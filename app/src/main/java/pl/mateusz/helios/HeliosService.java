@@ -42,6 +42,8 @@ public final class HeliosService extends Service {
     }
     private MusicAssistantClient ma;
     private SendspinClient sendspin;
+    /** How loud the music stays while the assistant is talking (SPEC 0.11 pkt 4, adjusted by ear 2026-09-21). */
+    static final float DUCK_GAIN=.07f;
     private AudioTrackSink sink;
     private MusicSession session;
     private AudioManager audioManager;
@@ -301,10 +303,11 @@ public final class HeliosService extends Service {
         session=new MusicSession(new MusicSession.Sink(){
             public void pause(){sink.pause();}
             public void resume(){sink.resume();}
-            // Talking to the assistant silences the music outright rather than lowering it to a murmur: a
-            // quiet song under a spoken answer is harder to ignore than no song at all. This touches the
-            // music stream's own gain only - the device volume, which the answer is spoken at, stays put.
-            public void duck(boolean on){sink.setGain(on?0f:1f);}
+            // Talking to the assistant leaves the music playing, but far back: 7% of the stream gain is
+            // roughly 23 dB down, quiet enough not to compete with a spoken answer and still obviously
+            // playing. Touches the music stream only - the device volume the answer is spoken at stays put.
+            // ponytail: one constant, tuned by ear; a per-room setting only if someone actually asks.
+            public void duck(boolean on){sink.setGain(on?DUCK_GAIN:1f);}
         },()->sendspin!=null&&sendspin.command("pause"));
         String sendspinUrl=music.optString("sendspin_url","");
         if(!sendspinUrl.isEmpty()){
