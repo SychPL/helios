@@ -143,27 +143,43 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         }
         public void onAccuracyChanged(android.hardware.Sensor sensor,int accuracy){}
     };
-    /** Anything that wants the panel visible. One flag, because the policy has no business knowing our fields. */
-    private boolean panelWanted(){
-        if(busy||pairing||musicActive)return true;
-        if(panel!=null||onboardingDialog!=null||navigation.isShowing())return true;
-        if(library!=null&&library.isShowing())return true;
-        if(dashboard.musicOverlay().isOpen())return true;
-        if(connectionIssue!=null||configIssue!=null)return true;
+    /**
+     * Why the panel must stay visible, or null when nothing needs it. A reason rather than a flag: "the night
+     * clock never appears" is a question nobody can answer from a log that only says it did not.
+     */
+    private String panelWanted(){
+        if(busy)return "rozmowa";
+        if(pairing)return "parowanie";
+        if(musicActive)return "muzyka";
+        if(panel!=null)return "panel rolet";
+        if(onboardingDialog!=null)return "onboarding";
+        if(navigation.isShowing())return "menu";
+        if(library!=null&&library.isShowing())return "biblioteka";
+        if(dashboard.musicOverlay().isOpen())return "odtwarzacz";
+        if(connectionIssue!=null)return "brak HA: "+connectionIssue;
+        if(configIssue!=null)return "konfiguracja: "+configIssue;
         // A conditional tile is this panel's notification. Whether one holds the panel up is the house's call:
         // where a tile stays lit for days, blocking on it means the night clock never appears at all.
-        if(notificationsBlock)for(Boolean visible:visibility.values())if(Boolean.TRUE.equals(visible))return true;
-        return false;
+        if(notificationsBlock)for(Map.Entry<String,Boolean> e:visibility.entrySet())
+            if(Boolean.TRUE.equals(e.getValue()))return "kafelek "+e.getKey();
+        return null;
     }
+    private String lastWait;
     private void applyScreensaver(){
-        boolean night=screensaver.update(android.os.SystemClock.elapsedRealtime(),panelWanted());
+        String blocked=panelWanted();
+        boolean night=screensaver.update(android.os.SystemClock.elapsedRealtime(),blocked!=null);
+        if(!night&&blocked==null)blocked=screensaver.environmentBlock(); // still null = simply counting down
+        // Logged on change only, because the tick runs every second: enough to answer "why is it not on".
+        String wait=night?null:"tryb="+screensaver.mode()+" blokada="+(blocked==null?"odliczanie":blocked);
+        if(wait!=null&&!wait.equals(lastWait))onEvent("screensaver_wait",wait);
+        lastWait=wait;
         if(night==dashboard.nightVisible())return;
         dashboard.night(night);
         // One arbiter of brightness, or the touch boost fights the night clock. Dimming to nothing is right in a
         // dark bedroom and wrong in daylight, where it would hide the slideshow instead of showing it.
         if(night&&screensaver.mode()==ScreensaverPolicy.Mode.DARK){main.removeCallbacks(unboost);dim();}
         else restoreBrightness();
-        onEvent(night?"screensaver_on":"screensaver_off","lux="+(screensaver.luxKnown()?screensaver.lux():-1));
+        onEvent(night?"screensaver_on":"screensaver_off","tryb="+screensaver.mode()+" lux="+(screensaver.luxKnown()?screensaver.lux():-1));
     }
     private void dim(){
         WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=.01f;getWindow().setAttributes(p);

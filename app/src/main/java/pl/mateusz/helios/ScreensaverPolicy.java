@@ -67,13 +67,18 @@ final class ScreensaverPolicy {
         return active;
     }
 
-    private boolean environmentAllows(){
+    /**
+     * Why the room itself forbids the night clock, or null when it allows it. A reason rather than a flag,
+     * because "it never comes on" is unanswerable from a log whose only trace is a transition that never happened.
+     */
+    String environmentBlock(){
         switch(mode){
-            case OFF:return false;
-            case ALWAYS:return true;
-            default:return luxKnown&&dark;
+            case OFF:return "tryb off";
+            case ALWAYS:return null;
+            default:return !luxKnown?"brak odczytu swiatla":dark?null:"jasno ("+lastLux+" lx, wchodzi ponizej "+enter+")";
         }
     }
+    private boolean environmentAllows(){return environmentBlock()==null;}
 
     /** A mode arriving from Home Assistant starts a whole new wait, never finishes an old one. */
     void mode(Mode value){if(value==null||value==mode)return;mode=value;eligibleSince=NEVER;active=false;}
