@@ -98,7 +98,9 @@ public final class AssistClient {
             if(!socket.next(SystemClock.elapsedRealtime()+10000).optString("type").equals("auth_ok"))throw new IOException("HA authentication failed");
             try{tone=new ToneGenerator(AudioManager.STREAM_MUSIC,70);}catch(RuntimeException ignored){}
             AudioManager audio=(AudioManager)ctx.getSystemService(Context.AUDIO_SERVICE);
-            audio.requestAudioFocus(focus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+            // Ducking the music depends entirely on this being granted; a refused request used to pass unnoticed.
+            int granted=audio.requestAudioFocus(focus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+            log("audio_focus","request="+(granted==AudioManager.AUDIOFOCUS_REQUEST_GRANTED?"granted":"refused("+granted+")"));
             String conversationId=null;long followUp=0;int run=1;String sessionDevice=deviceId.get();
             while(!closed){
                 Events events=runOnce(socket,base,run++,conversationId,followUp,tone,sessionDevice);

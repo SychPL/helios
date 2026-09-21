@@ -50,7 +50,9 @@ public final class HeliosService extends Service {
     private boolean musicFocusHeld;
     private final AudioManager.OnAudioFocusChangeListener musicFocus=change->{
         synchronized(focusLock){if(change==AudioManager.AUDIOFOCUS_LOSS)musicFocusHeld=false;else if(change==AudioManager.AUDIOFOCUS_GAIN)musicFocusHeld=true;}
-        main.post(()->{if(session!=null){session.onFocusChange(change);publishMusic();}});
+        main.post(()->{
+            diag("music_focus","change="+change+(session==null?" (brak sesji)":""));
+            if(session!=null){session.onFocusChange(change);publishMusic();}});
     };
     /** Pause = MA stopped the stream and keeps the queue paused (SPEC 0.11 pkt 4); the card stays until the queue says otherwise. Main thread only. */
     private final QueuePause queuePause=new QueuePause();
@@ -209,6 +211,8 @@ public final class HeliosService extends Service {
         }catch(Exception e){return null;}
     }
     void setDiagnostics(java.util.function.BiConsumer<String,String> sink){diagnostics=sink;}
+    /** A method, not a direct field read: the focus listener is built before the field exists. */
+    private void diag(String event,String detail){if(diagnostics!=null)diagnostics.accept(event,detail);}
     void publish(){if(device!=null)device.publish();}
     /** Our own conversation finished: the sink may resume only if the system grants focus again. */
     void onVoiceReady(){if(session!=null){session.onVoiceReady(this::requestMusicFocus);publishMusic();}}
@@ -297,7 +301,10 @@ public final class HeliosService extends Service {
         session=new MusicSession(new MusicSession.Sink(){
             public void pause(){sink.pause();}
             public void resume(){sink.resume();}
-            public void duck(boolean on){sink.setGain(on?0.2f:1f);} // the level is the device volume (plan 0.11 V2); the stream gain only ducks
+            // Talking to the assistant silences the music outright rather than lowering it to a murmur: a
+            // quiet song under a spoken answer is harder to ignore than no song at all. This touches the
+            // music stream's own gain only - the device volume, which the answer is spoken at, stays put.
+            public void duck(boolean on){sink.setGain(on?0f:1f);}
         },()->sendspin!=null&&sendspin.command("pause"));
         String sendspinUrl=music.optString("sendspin_url","");
         if(!sendspinUrl.isEmpty()){
