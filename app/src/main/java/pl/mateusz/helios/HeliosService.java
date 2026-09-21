@@ -32,6 +32,7 @@ public final class HeliosService extends Service {
     private DockController dock;
     private DeviceVolume volume;
     private volatile String voiceState="idle",deviceId;
+    private volatile Integer lux; // null until the light sensor speaks: "unknown" is not "dark"
     // --- music (0.6) ---
     interface MusicListener {void onMusic(MusicSnapshot snapshot);}
     static final class MusicSnapshot {
@@ -126,6 +127,11 @@ public final class HeliosService extends Service {
     String deviceId(){return deviceId;}
     boolean devicePaired(){return device!=null&&device.active();}
     void setVoiceState(String state){if(!state.equals(voiceState)){voiceState=state;publish();if(state.equals("listening"))blinkLamp();}}
+    /**
+     * The room's light level, as the clock's own sensor reports it. The sensor is on-change, so this is called
+     * only when the room actually changes; publishing is guarded by the telemetry fingerprint anyway.
+     */
+    void setLux(int value){if(lux==null||lux!=value){lux=value;publish();}}
     /** One short flash of the dock lamp when the clock starts listening for a command; a lit lamp winks off instead. Errors are ignored: the lamp is a hint, not a gate. */
     private void blinkLamp(){
         network.execute(()->{
@@ -524,7 +530,7 @@ public final class HeliosService extends Service {
     private void stopHa(){if(device!=null){device.stop();device=null;}if(ha!=null){ha.stop();ha=null;}deviceId=null;}
     private Telemetry telemetry(){
         MusicSession.Ui ui=musicUi();
-        return new Telemetry(BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE,voiceState,dock.dockConnected(),dock.charging(),dock.ledOn(),dock.ledBrightness(),dock.padVersion(),volume.percent(),(SystemClock.elapsedRealtime()-startedAt)/1000,ui==MusicSession.Ui.PLAYING?"playing":ui==MusicSession.Ui.PAUSED?"paused":"none");
+        return new Telemetry(BuildConfig.VERSION_NAME,BuildConfig.VERSION_CODE,voiceState,dock.dockConnected(),dock.charging(),dock.ledOn(),dock.ledBrightness(),dock.padVersion(),volume.percent(),(SystemClock.elapsedRealtime()-startedAt)/1000,ui==MusicSession.Ui.PLAYING?"playing":ui==MusicSession.Ui.PAUSED?"paused":"none",lux);
     }
     /** Allowlisted hardware commands from HA; the caller already validated names and argument ranges. */
     private String execute(String command,JSONObject args) throws Exception {

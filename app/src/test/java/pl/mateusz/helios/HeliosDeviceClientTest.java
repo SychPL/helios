@@ -17,7 +17,7 @@ public class HeliosDeviceClientTest {
     private final BlockingQueue<String> issues=new LinkedBlockingQueue<>();
     private final BlockingQueue<String> connections=new LinkedBlockingQueue<>();
     private volatile CountDownLatch hold;
-    private static Telemetry snapshot(int volume){return new Telemetry("0.7.0",8,"idle",true,null,false,null,"22.127",volume,5,"none");}
+    private static Telemetry snapshot(int volume){return new Telemetry("0.7.0",8,"idle",true,null,false,null,"22.127",volume,5,"none",42);}
     private HeliosDeviceClient client() throws Exception {
         server=new HaDashboardClientTest.Server();server.start();assertTrue(server.ready.await(5,TimeUnit.SECONDS));
         ha=new HaDashboardClient(new JSONObject().put("url","http://127.0.0.1:"+server.getPort()).put("token","t"),null);

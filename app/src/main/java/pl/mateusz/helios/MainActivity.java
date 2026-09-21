@@ -136,7 +136,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private final android.hardware.SensorEventListener light=new android.hardware.SensorEventListener(){
         public void onSensorChanged(android.hardware.SensorEvent event){
             if(event.values.length==0)return;
-            screensaver.lux(Math.round(event.values[0]));
+            int lux=Math.round(event.values[0]);
+            screensaver.lux(lux);
+            if(service!=null)service.setLux(lux); // the room's light level is worth having in HA on its own
             applyScreensaver(); // a lamp switched on must not wait for the next second
         }
         public void onAccuracyChanged(android.hardware.Sensor sensor,int accuracy){}

@@ -8,9 +8,9 @@ final class Telemetry {
     final int versionCode;
     final long uptimeSeconds;
     final Boolean dockConnected,charging,ledOn;
-    final Integer ledBrightness,volumePercent;
-    Telemetry(String appVersion,int versionCode,String voiceState,Boolean dockConnected,Boolean charging,Boolean ledOn,Integer ledBrightness,String padVersion,Integer volumePercent,long uptimeSeconds,String musicState){
-        this.musicState=musicState;this.appVersion=appVersion;this.versionCode=versionCode;this.voiceState=voiceState;this.dockConnected=dockConnected;this.charging=charging;this.ledOn=ledOn;this.ledBrightness=ledBrightness;this.padVersion=padVersion;this.volumePercent=volumePercent;this.uptimeSeconds=uptimeSeconds;
+    final Integer ledBrightness,volumePercent,lux;
+    Telemetry(String appVersion,int versionCode,String voiceState,Boolean dockConnected,Boolean charging,Boolean ledOn,Integer ledBrightness,String padVersion,Integer volumePercent,long uptimeSeconds,String musicState,Integer lux){
+        this.musicState=musicState;this.appVersion=appVersion;this.versionCode=versionCode;this.voiceState=voiceState;this.dockConnected=dockConnected;this.charging=charging;this.ledOn=ledOn;this.ledBrightness=ledBrightness;this.padVersion=padVersion;this.volumePercent=volumePercent;this.uptimeSeconds=uptimeSeconds;this.lux=lux;
     }
     JSONObject toJson(){
         try{return fingerprint().put("uptime_seconds",uptimeSeconds);}catch(Exception e){throw new IllegalStateException(e);}
@@ -20,7 +20,8 @@ final class Telemetry {
         try{
             return new JSONObject().put("app_version",appVersion).put("version_code",versionCode).put("voice_state",voiceState)
                 .put("dock_connected",nul(dockConnected)).put("charging",nul(charging)).put("led_on",nul(ledOn)).put("led_brightness",nul(ledBrightness))
-                .put("pad_version",nul(padVersion)).put("volume_percent",nul(volumePercent)).put("music_state",musicState);
+                .put("pad_version",nul(padVersion)).put("volume_percent",nul(volumePercent)).put("music_state",musicState)
+                .put("lux",nul(lux)); // the clock's own light sensor; null until it reports for the first time
         }catch(Exception e){throw new IllegalStateException(e);}
     }
     private static Object nul(Object value){return value==null?JSONObject.NULL:value;}
