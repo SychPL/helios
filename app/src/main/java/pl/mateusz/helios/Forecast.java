@@ -33,6 +33,8 @@ final class Forecast {
     /** "maks. 18°C" / "min. -3°C": whole degrees, unit from HA. */
     String max(){return "maks. "+degrees(temperature);}
     String min(){return templow==null?null:"min. "+degrees(templow);}
+    /** "18°C / 9°C" for the detail row, where there is no room for words; just the high when HA sends no low. */
+    String range(){return templow==null?degrees(temperature):degrees(temperature)+" / "+degrees(templow);}
     private String degrees(double value){return String.format(Locale.ROOT,"%.0f",value).replace("-0","0")+unit;}
     private static Double number(String raw){
         if(raw==null)return null;

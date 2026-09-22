@@ -128,7 +128,8 @@ public class HaDashboardClientTest {
             assertNotNull(sessions.poll(5,TimeUnit.SECONDS));
             Dashboard first=dashboard();
             assertNull(first.issue);assertEquals("light.first",first.spec.item("light").entity);
-            assertEquals("off",first.states.get("light.first").state);assertEquals("12",first.states.get("weather.dom").attribute("temperature"));assertNull(first.states.get("weather.dom").attribute("humidity"));
+            assertEquals("off",first.states.get("light.first").state);assertEquals("12",first.states.get("weather.dom").attribute("temperature"));
+            assertEquals("50",first.states.get("weather.dom").attribute("humidity")); // the detail column reads humidity, so the subscription asks for it
             server.sendEntityChange("{\"c\":{\"light.first\":{\"+\":{\"s\":\"on\"}}}}");
             assertEquals("on",states.poll(5,TimeUnit.SECONDS).get("light.first").state);
             server.entity="light.second";

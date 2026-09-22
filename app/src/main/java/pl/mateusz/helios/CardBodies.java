@@ -6,13 +6,31 @@ import java.util.*;
 final class CardBodies {
     /** Local facts the entity snapshot does not carry. */
     interface Env {String time();String weekday();String date();String musicInfo();long now();}
+    /** One line of the detail column: an icon, what it is and what it reads. `separated` draws a rule above it. */
+    static final class Row {
+        final String icon,label,value;final boolean separated;
+        Row(String icon,String label,String value,boolean separated){this.icon=icon;this.label=label;this.value=value;this.separated=separated;}
+        Row(String icon,String label,String value){this(icon,label,value,false);}
+    }
     /** One rendering: value line, up to two detail lines, optional label and icon overrides, the full content description, accent tint and an expiry for self-refreshing content. */
     static final class CardContent {
         final String value,detail,detail2,label,icon,description;final boolean accent;final long expiresAt;
-        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.icon=icon;this.description=description;this.accent=accent;this.expiresAt=expiresAt;}
+        /** Extra readings for a tile wide enough to carry a second column; empty for every tile that has none. */
+        final List<Row> rows;
+        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this(value,detail,detail2,label,icon,description,accent,expiresAt,Collections.<Row>emptyList());}
+        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt,List<Row> rows){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.icon=icon;this.description=description;this.accent=accent;this.expiresAt=expiresAt;this.rows=Collections.unmodifiableList(rows);}
         CardContent(String value,String detail,String label,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){this(value,detail,label,null,accent,expiresAt,item,live);}
         CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){
             this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+(live?"":", dane nieaktualne"),accent,expiresAt);
+        }
+        CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live,List<Row> rows){
+            this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+describe(rows)+(live?"":", dane nieaktualne"),accent,expiresAt,rows);
+        }
+        /** The extra readings belong in the spoken description too, in the order they are drawn. */
+        private static String describe(List<Row> rows){
+            StringBuilder b=new StringBuilder();
+            for(Row r:rows)b.append(", ").append(r.label).append(" ").append(r.value);
+            return b.toString();
         }
     }
     interface Body {CardContent render(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env);}
@@ -66,9 +84,27 @@ final class CardBodies {
         if(item.temperatureEntity!=null){EntityStates.Entity t=states.get(item.temperatureEntity);if(t!=null&&t.known()){temperature=t.state;if(t.attribute("unit_of_measurement")!=null)unit=t.attribute("unit_of_measurement");}}
         else if(known){temperature=e.attribute("temperature");if(e.attribute("temperature_unit")!=null)unit=e.attribute("temperature_unit");}
         String text=number(temperature,unit),extra; // no unit in HA means no unit on screen (SPEC 0.8a pkt 3.3)
-        if(known){extra=WeatherLabels.polish(e.state);String wind=e.attribute("wind_speed");if(wind!=null)extra+=" · Wiatr "+number(wind,e.attribute("wind_speed_unit")==null?"":" "+e.attribute("wind_speed_unit"));}
+        List<Row> rows=new ArrayList<>();long expires=0;
+        String wind=known?e.attribute("wind_speed"):null,windUnit=known&&e.attribute("wind_speed_unit")!=null?" "+e.attribute("wind_speed_unit"):"";
+        boolean column=item.width>1; // a wide tile carries the readings beside the value, a one-cell tile has only the line under it
+        if(known)extra=WeatherLabels.polish(e.state)+(wind==null||column?"":" · Wiatr "+number(wind,windUnit));
         else extra="Brak danych";
-        return new CardContent(text,extra,null,false,0,item,live);
+        if(known&&column){
+            // Only what this entity actually reports: met.no gives no apparent temperature, so a missing reading is a missing row, never a guess.
+            add(rows,"mdi:weather-windy","Wiatr",wind,windUnit);
+            add(rows,"mdi:weather-cloudy","Zachmurzenie",e.attribute("cloud_coverage"),"%");
+            add(rows,"mdi:water-percent","Wilgotność",e.attribute("humidity"),"%");
+            add(rows,"mdi:gauge","Ciśnienie",e.attribute("pressure"),e.attribute("pressure_unit")==null?"":" "+e.attribute("pressure_unit"));
+        }
+        if(item.forecastRow()&&column){
+            Forecast f=Forecast.parse(states.get(item.forecastEntity),env.now());
+            if(f!=null){rows.add(new Row(WeatherLabels.icon(f.condition),"Jutro",f.range(),true));expires=f.validUntilMs;}
+        }
+        return new CardContent(text,extra,null,known?WeatherLabels.icon(e.state):null,false,expires,item,live,rows);
+    }
+    /** A reading the entity does not carry adds no row; "—" would claim the clock knows something it does not. */
+    private static void add(List<Row> rows,String icon,String label,String raw,String unit){
+        if(raw!=null&&!raw.trim().isEmpty())rows.add(new Row(icon,label,number(raw,unit)));
     }
     private static final List<String> ACTIVE=Arrays.asList("on","open","opening","closing","unlocked","unlocking","playing","heating","cooling","cleaning","running");
     /** One entity of any domain: the state in Polish where the word is fixed, a number with its unit, or the configured attribute; the entity's own name and icon unless the config says otherwise. */

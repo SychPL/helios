@@ -56,6 +56,16 @@ Przykład całego dokumentu: [ha/helios-clock-v6.yaml](../ha/helios-clock-v6.yam
   `details` otwiera na zegarze okno z wartością encji i przyciskami dozwolonych intencji. `none` czyni kafelek nieklikalnym. Intencja spoza listy domeny odrzuca dokument (`Encja light.x nie obsługuje akcji open`). Zamek (`lock`, `unlock`) zawsze pyta przed wykonaniem; `confirmation.enabled: false` jest dla niego odrzucane.
 - Ikony: `icon: mdi:<nazwa>` z katalogu Material Design Icons 7.4.47 wbudowanego w aplikację (te same nazwy, które podpowiada HA). Sześć starych nazw (`information`, `weather-rainy`, `lightbulb`, `window-shutter`, `garage-open`, `music`) nadal działa i oznacza tę samą ikonę `mdi:`. Kafelek `tile` bez `icon` dostaje ikonę domeny (żarówka, roleta, kłódka, oko...), a jeśli encja ma własny atrybut `icon`, pokazuje ten. Nieznana nazwa odrzuca dokument.
 - Typy 2-5 (`clock`, `weather`, `entity`, `light`, `cover`, `garage`, `music`, `cover_group`) działają w dokumencie 6 bez zmian; `light`, `cover` i `garage` da się zapisać jako `tile` z intencją `toggle`, `controls` i `close`.
+
+## Kolumna szczegółów w kafelku pogody (Helios 0.13)
+
+Kafelek `weather` szerszy niż jedna komórka pokazuje z prawej strony kolumnę z odczytami, które encja pogodowa faktycznie podaje: **Zachmurzenie** (`cloud_coverage`), **Wilgotność** (`humidity`) i **Ciśnienie** (`pressure` z `pressure_unit`). Czego encja nie podaje, tego nie ma - brakujący odczyt znika, zamiast pokazać kreskę. Kafelek dostaje też ikonę warunku pogodowego, tę samą, której używa Home Assistant.
+
+Wiersz **Jutro** (`14°C / 8°C`) pojawia się, gdy wpiszesz samo `forecast_entity`, bez `forecast_when`. Sensor prognozy musi wyglądać tak, jak opisuje [SPEC 0.9](SPEC-0.9-bedroom-dashboard.md) punkt 6.2 - gotowy szablon jest w [ha/packages/helios_bedroom.yaml](../ha/packages/helios_bedroom.yaml), bo zwykły szablon HA nie sięgnie prognozy (trzeba `weather.get_forecasts` z wyzwalaczem).
+
+Stare zachowanie zostaje bez zmian: `forecast_entity` **razem z** `forecast_when` nadal zamienia całą zawartość kafelka na prognozę, gdy encja trybu jest w podanym stanie. Samo `forecast_when` bez `forecast_entity` odrzuca dokument.
+
+Kolumna nie wymaga podniesienia wersji dokumentu - działa w każdym dokumencie od `version: 2`, bo nie ma w niej niczego do skonfigurowania poza `forecast_entity`.
 - Każdy błąd (nieznane pole, literówka w ikonie, zła domena, nakładanie) odrzuca cały zapis: zegar zachowuje poprzedni układ i pokazuje komunikat w pasku. Bez żadnej poprawnej konfiguracji `version: 2` zegar pokazuje układ awaryjny (sam zegar) i komunikat `Wymagana konfiguracja Helios version: 2`.
 
 Format `version: 1` z wersji 0.4 nie jest migrowany automatycznie. Po instalacji 0.5 zaktualizuj YAML w HA albo uruchom `python tools/publish_ha_dashboard.py --replace` (Python: `websocket-client`, `PyYAML`; kopia poprzedniej konfiguracji trafia do `.local/`). Zakładka `menu-zegara` z 0.4 nie jest już używana i można ją usunąć.

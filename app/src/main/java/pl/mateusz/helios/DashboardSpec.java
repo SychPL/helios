@@ -10,7 +10,7 @@ final class DashboardSpec {
     static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2, 3, 4, 5 lub 6";
     /** The six bare icon names of versions 2-5; at version 6 they are aliases of the same `mdi:` names. */
     static final List<String> ICONS=Arrays.asList("information","weather-rainy","lightbulb","window-shutter","garage-open","music");
-    static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit");
+    static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit","humidity","pressure","pressure_unit","cloud_coverage");
     static final List<String> COVER_ATTRIBUTES=Arrays.asList("current_position","supported_features");
     static final List<String> FORECAST_ATTRIBUTES=Arrays.asList("forecast_date","condition","temperature","templow","temperature_unit","fetched_at","valid_until");
     static final List<String> TILE_ATTRIBUTES=Arrays.asList("friendly_name","icon","unit_of_measurement","device_class");
@@ -52,8 +52,10 @@ final class DashboardSpec {
             this.ownIcon=ownIcon;this.id=id;this.type=type;this.column=column;this.row=row;this.width=width;this.height=height;this.title=title;this.icon=icon;this.entity=entity;this.temperatureEntity=temperatureEntity;this.attribute=attribute;this.action=action;this.visibleEntity=visibleEntity;this.visibleState=visibleState;this.confirm=confirm;this.confirmText=confirmText;
             this.covers=Collections.unmodifiableList(covers);this.forecastEntity=forecastEntity;this.forecastWhenEntity=forecastWhenEntity;this.forecastWhenState=forecastWhenState;this.offEntity=offEntity;
         }
-        /** Tomorrow's forecast is shown when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
-        boolean forecast(){return forecastEntity!=null;}
+        /** The whole tile swaps to tomorrow when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
+        boolean forecast(){return forecastEntity!=null&&forecastWhenEntity!=null;}
+        /** A forecast entity without a mode entity: tomorrow is one row in the detail column, never a swap. */
+        boolean forecastRow(){return forecastEntity!=null&&forecastWhenEntity==null;}
         boolean interactive(){return action!=null;}
         boolean conditional(){return visibleEntity!=null;}
         /** Visibility is decided only from a live state; unknown, unavailable and missing never satisfy the condition. */
@@ -158,10 +160,11 @@ final class DashboardSpec {
         }
         String forecastEntity=null,forecastWhenEntity=null,forecastWhenState=null;
         if(o.has("forecast_entity")||o.has("forecast_when")){
-            if(!(o.has("forecast_entity")&&o.has("forecast_when")))throw new IllegalArgumentException("weather: forecast_entity i forecast_when występują razem");
+            if(!o.has("forecast_entity"))throw new IllegalArgumentException("weather: forecast_when wymaga forecast_entity");
             forecastEntity=string(o,"forecast_entity",true,128);
             if(!forecastEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("forecast_entity wymaga encji sensor");
-            String[] when=when(o,"forecast_when");forecastWhenEntity=when[0];forecastWhenState=when[1];
+            // With forecast_when the tile swaps to tomorrow for that mode (SPEC 0.9); alone, tomorrow is one more row in the detail column.
+            if(o.has("forecast_when")){String[] when=when(o,"forecast_when");forecastWhenEntity=when[0];forecastWhenState=when[1];}
         }
         String title=o.has("title")?string(o,"title",true,40):null;
         // The action: a fixed word per legacy type, or for a tile an intent the entity's domain allows (ActionPolicy).
@@ -243,9 +246,11 @@ final class DashboardSpec {
         LinkedHashSet<String> out=new LinkedHashSet<>();
         for(Page p:pages)for(Item i:p.items){
             if(i.entity!=null)out.add(i.entity);for(Cover c:i.covers)out.add(c.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);
-            if(i.forecastEntity!=null){out.add(i.forecastWhenEntity);out.add(i.forecastEntity);}
+            if(i.forecastWhenEntity!=null)out.add(i.forecastWhenEntity); // a forecast entity may stand without a mode entity; a null here would be sent to HA and take the whole subscription down
+            if(i.forecastEntity!=null)out.add(i.forecastEntity);
             if(i.visibleEntity!=null)out.add(i.visibleEntity);
         }
+        out.remove(null);
         return new ArrayList<>(out);
     }
     /** Attributes worth retaining per entity; everything else is dropped at decode time. */

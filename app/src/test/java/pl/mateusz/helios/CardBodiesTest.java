@@ -46,7 +46,10 @@ public class CardBodiesTest {
     @Test public void weatherCurrentTomorrowAndUnknownMode(){
         DashboardSpec.Item w=new DashboardSpec.Item("w","weather",1,1,2,1,null,null,"weather.dom",null,null,null,null,null,false,null);
         Map<String,EntityStates.Entity> s=states("weather.dom",state("rainy","temperature","12.6","temperature_unit","°C","wind_speed","14","wind_speed_unit","km/h"));
-        CardBodies.CardContent c=render(w,s,true);assertEquals("13°C",c.value);assertEquals("Deszcz · Wiatr 14 km/h",c.detail);assertNull(c.label);assertEquals(0,c.expiresAt);
+        CardBodies.CardContent c=render(w,s,true);assertEquals("13°C",c.value);assertEquals("Deszcz",c.detail);assertNull(c.label);assertEquals(0,c.expiresAt);
+        assertEquals("Wiatr",c.rows.get(0).label);assertEquals("14 km/h",c.rows.get(0).value); // a wide tile moves the wind into the detail column
+        DashboardSpec.Item narrow=new DashboardSpec.Item("w","weather",1,1,1,1,null,null,"weather.dom",null,null,null,null,null,false,null);
+        CardBodies.CardContent n=render(narrow,s,true);assertEquals("Deszcz · Wiatr 14 km/h",n.detail);assertTrue(n.rows.isEmpty()); // one cell has no room for a column, so the line keeps the wind
         assertEquals("—",render(w,Collections.emptyMap(),true).value);assertEquals("Brak danych",render(w,Collections.emptyMap(),true).detail);
         DashboardSpec.Item t=new DashboardSpec.Item("w","weather",1,1,2,1,null,null,"weather.dom","sensor.temp",null,null,null,null,false,null);
         s.put("sensor.temp",state("21.4","unit_of_measurement","°C"));assertEquals("21°C",render(t,s,true).value);
@@ -98,5 +101,35 @@ public class CardBodiesTest {
         assertEquals("Brak danych",render(item("tile","scene.noc",null,null),states("scene.noc",state("unavailable")),true).value);
         assertEquals("Brak danych",render(item("tile","light.x",null,null),states("light.x",state("unknown")),true).value);
         assertEquals("abc °C",CardBodies.decimal("abc","°C"));
+    }
+    @Test public void weatherDetailRowsComeOnlyFromWhatTheEntityReports(){
+        DashboardSpec.Item w=new DashboardSpec.Item("w","weather",1,1,2,1,null,null,"weather.dom",null,null,null,null,null,false,null);
+        Map<String,EntityStates.Entity> s=states("weather.dom",state("rainy","temperature","11.8","temperature_unit","°C","humidity","90","pressure","1018.9","pressure_unit","hPa","cloud_coverage","100"));
+        CardBodies.CardContent c=render(w,s,true);
+        assertEquals(3,c.rows.size());
+        assertEquals("Zachmurzenie",c.rows.get(0).label);assertEquals("100%",c.rows.get(0).value);
+        assertEquals("Wilgotność",c.rows.get(1).label);assertEquals("90%",c.rows.get(1).value);
+        assertEquals("Ciśnienie",c.rows.get(2).label);assertEquals("1019 hPa",c.rows.get(2).value);
+        assertFalse(c.rows.get(0).separated);
+        assertEquals("mdi:weather-rainy",c.icon);
+        assertTrue(c.description.contains("Wilgotność 90%"));
+        s=states("weather.dom",state("sunny","temperature","20","temperature_unit","°C","humidity","40"));
+        c=render(w,s,true); // what the entity does not report is left out, never shown as a dash
+        assertEquals(1,c.rows.size());assertEquals("Wilgotność",c.rows.get(0).label);
+        assertEquals("mdi:weather-sunny",c.icon);
+        c=render(w,Collections.emptyMap(),true);
+        assertTrue(c.rows.isEmpty());assertNull(c.icon);
+    }
+    @Test public void tomorrowIsARowWhenNoModeEntityIsConfigured(){
+        DashboardSpec.Item f=new DashboardSpec.Item("w","weather",1,1,2,1,null,null,"weather.dom",null,null,null,null,null,false,null,Collections.emptyList(),"sensor.jutro",null,null,null);
+        Map<String,EntityStates.Entity> s=states("weather.dom",state("rainy","temperature","11.8","temperature_unit","°C","humidity","90"));
+        CardBodies.CardContent c=render(f,s,true);
+        assertEquals(1,c.rows.size());assertEquals(0,c.expiresAt); // no forecast yet, and the tile still belongs to today
+        s.put("sensor.jutro",state("ready","condition","partlycloudy","temperature","14","templow","8","temperature_unit","°C","forecast_date","2026-09-23","fetched_at","1970-01-01T00:00:00Z","valid_until","1970-01-01T00:00:05Z"));
+        c=render(f,s,true);
+        CardBodies.Row tomorrow=c.rows.get(c.rows.size()-1);
+        assertEquals("Jutro",tomorrow.label);assertEquals("14°C / 8°C",tomorrow.value);assertTrue(tomorrow.separated);assertEquals("mdi:weather-partly-cloudy",tomorrow.icon);
+        assertEquals(5_000L,c.expiresAt);
+        assertEquals("12°C",c.value);assertEquals("Deszcz",c.detail); // tomorrow never takes the tile over without a mode entity
     }
 }
