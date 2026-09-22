@@ -215,7 +215,7 @@ public final class DashboardView extends FrameLayout {
             if(def.feed==CardDefinition.Feed.CLOCK)return;
             boolean shown=def.feed==CardDefinition.Feed.MUSIC||live; // the music tile answers to the player, not to HA
             EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
-            known=e!=null&&e.known();
+            known=ActionPolicy.usable(item.action,e);
             CardBodies.CardContent c=body.render(item,states,shown,env);
             boolean changed=!c.value.equals(value.getText().toString());
             apply(c);

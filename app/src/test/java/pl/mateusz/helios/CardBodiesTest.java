@@ -80,6 +80,8 @@ public class CardBodiesTest {
         c=render(l,states("light.salon",state("off","icon","mdi:no-such-glyph")),true);assertEquals("Wyłączone",c.value);assertFalse(c.accent);assertNull(c.label);assertNull(c.icon);
         c=render(l,Collections.emptyMap(),false);assertEquals("Brak danych",c.value);assertEquals("Salon: Brak danych, dane nieaktualne",c.description);
         assertEquals("Dom",render(item("tile","light.salon","Dom",null),states("light.salon",state("on","friendly_name","Inna")),true).label);
+        DashboardSpec.Item own=new DashboardSpec.Item("id","tile",1,1,1,1,null,"mdi:lamp","light.salon",null,null,null,null,null,false,null,Collections.emptyList(),null,null,null,null,true);
+        assertNull("a configured icon is never replaced by the entity's",render(own,states("light.salon",state("on","icon","mdi:ceiling-light")),true).icon);
         assertEquals("21,4 °C",render(item("tile","sensor.t",null,null),states("sensor.t",state("21.4","unit_of_measurement","°C")),true).value);
         assertEquals("21 °C",render(item("tile","sensor.t",null,null),states("sensor.t",state("21.0","unit_of_measurement","°C")),true).value);
         assertEquals("ready",render(item("tile","sensor.t",null,null),states("sensor.t",state("ready")),true).value);

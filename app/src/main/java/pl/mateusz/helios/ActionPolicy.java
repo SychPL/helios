@@ -89,6 +89,11 @@ final class ActionPolicy {
         if(service==null)return null;
         return new Call(domain,service,item.entity,i==Intent.CLOSE&&item.type.equals("garage")?"Zamknąć bramę?":question(i,label));
     }
+    /** The state an action can work on: a known one, except that a button, scene or script reads `unknown` until first used and may still be activated (never a missing or unavailable entity). */
+    static boolean usable(String action,EntityStates.Entity e){
+        if(e==null)return false;
+        return "activate".equals(action)?!e.state.equals("unavailable"):e.known();
+    }
     /** unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5); panels without an own entity and the details dialog are exempt. */
     static boolean needsKnown(String action){
         if(action==null)return false;

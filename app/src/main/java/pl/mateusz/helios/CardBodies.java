@@ -80,7 +80,7 @@ final class CardBodies {
         else if(item.attribute!=null){String a=e.attribute(item.attribute);text=a==null?"Brak danych":a;}
         else text=stateText(domain,e);
         String label=item.title!=null?item.title:known&&e.attribute("friendly_name")!=null?e.attribute("friendly_name"):null;
-        String icon=known?e.attribute("icon"):null;
+        String icon=known&&!item.ownIcon?e.attribute("icon"):null; // the entity's icon only fills in for a config that named none
         if(icon!=null&&(MdiIcons.installed()==null||MdiIcons.name(icon)==null||!MdiIcons.installed().has(MdiIcons.name(icon))))icon=null; // an icon the font lacks falls back to the configured one
         return new CardContent(text,"",label,icon,known&&ACTIVE.contains(e.state),0,item,live);
     }

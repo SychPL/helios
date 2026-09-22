@@ -50,6 +50,7 @@ public class DashboardSpecV6Test {
         // intents: explicit, default per domain, forced confirmation on locks
         assertEquals("toggle",spec.item("salon").action);assertEquals("mdi:ceiling-light",spec.item("salon").icon);assertFalse(spec.item("salon").confirm);
         assertEquals("controls",spec.item("roleta").action);assertEquals("mdi:window-shutter",spec.item("roleta").icon);
+        assertTrue(spec.item("salon").ownIcon);assertFalse(spec.item("roleta").ownIcon);assertFalse(spec.item("music").ownIcon);
         assertEquals("details",spec.item("temp").action);assertEquals("mdi:eye",spec.item("temp").icon);assertTrue(spec.item("temp").interactive());
         assertEquals("lock",spec.item("zamek").action);assertTrue(spec.item("zamek").confirm);assertEquals("Zamknąć drzwi?",spec.item("zamek").confirmText);
         assertEquals("activate",spec.item("noc").action);assertEquals("mdi:weather-night",spec.item("noc").icon);

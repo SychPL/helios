@@ -317,7 +317,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(panel==ActionPolicy.Panel.MUSIC_LIBRARY){openMusicLibrary();return;} // library and remote control depend on MA, not on HA
         if(!live||ha()==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
         EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
-        if(ActionPolicy.needsKnown(item.action)&&!(e!=null&&e.known()))return; // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
+        if(ActionPolicy.needsKnown(item.action)&&!ActionPolicy.usable(item.action,e))return; // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
         if(panel==ActionPolicy.Panel.COVER){coverPanel(item);return;}
         if(panel==ActionPolicy.Panel.COVER_GROUP){coverGroupPanel(item);return;}
         if(panel==ActionPolicy.Panel.DETAILS){detailsPanel(item);return;}

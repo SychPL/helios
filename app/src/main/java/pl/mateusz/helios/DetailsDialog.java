@@ -11,7 +11,7 @@ final class DetailsDialog {
     final Dialog dialog;
     private final DashboardSpec.Item item;
     private final TextView state;
-    private final List<Button> actions=new ArrayList<>();
+    private final List<Button> actions=new ArrayList<>();private final List<ActionPolicy.Intent> intents=new ArrayList<>();
     DetailsDialog(Activity a,DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Runner runner){
         this.item=item;
         String domain=item.entity.substring(0,item.entity.indexOf('.'));
@@ -26,7 +26,7 @@ final class DetailsDialog {
             String verb=ActionPolicy.verb(i);if(verb==null)continue;
             Button b=Theme.button(a,verb,i!=ActionPolicy.Intent.CONTROLS,Theme.dp(a,16),Theme.dp(a,Theme.RADIUS));
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Theme.dp(a,56),1);p.rightMargin=Theme.dp(a,8);row.addView(b,p);
-            b.setOnClickListener(v->runner.run(i));actions.add(b);
+            b.setOnClickListener(v->runner.run(i));actions.add(b);intents.add(i);
         }
         Button close=Theme.button(a,"Zamknij",false,Theme.dp(a,17),Theme.dp(a,Theme.RADIUS));close.setOnClickListener(v->dialog.cancel());
         LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Theme.dp(a,56));c.topMargin=Theme.dp(a,actions.isEmpty()?0:12);column.addView(close,c);
@@ -39,6 +39,6 @@ final class DetailsDialog {
         CardBodies.CardContent c=CardBodies.FOR.get("tile").render(item,states,live,null); // the tile body never touches the environment
         state.setText(c.value+(live?"":" (offline)"));
         EntityStates.Entity e=states.get(item.entity);
-        for(Button b:actions)b.setEnabled(live&&e!=null&&e.known());
+        for(int n=0;n<actions.size();n++)actions.get(n).setEnabled(live&&ActionPolicy.usable(ActionPolicy.name(intents.get(n)),e));
     }
 }

@@ -40,13 +40,16 @@ final class DashboardSpec {
     static final class Item {
         final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity;
         final int column,row,width,height;
-        final boolean confirm;
+        final boolean confirm,ownIcon; // ownIcon: the icon was named in the config, so the entity's own icon never replaces it
         final List<Cover> covers;
         Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText){
             this(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,Collections.emptyList(),null,null,null,null);
         }
         Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText,List<Cover> covers,String forecastEntity,String forecastWhenEntity,String forecastWhenState,String offEntity){
-            this.id=id;this.type=type;this.column=column;this.row=row;this.width=width;this.height=height;this.title=title;this.icon=icon;this.entity=entity;this.temperatureEntity=temperatureEntity;this.attribute=attribute;this.action=action;this.visibleEntity=visibleEntity;this.visibleState=visibleState;this.confirm=confirm;this.confirmText=confirmText;
+            this(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity,false);
+        }
+        Item(String id,String type,int column,int row,int width,int height,String title,String icon,String entity,String temperatureEntity,String attribute,String action,String visibleEntity,String visibleState,boolean confirm,String confirmText,List<Cover> covers,String forecastEntity,String forecastWhenEntity,String forecastWhenState,String offEntity,boolean ownIcon){
+            this.ownIcon=ownIcon;this.id=id;this.type=type;this.column=column;this.row=row;this.width=width;this.height=height;this.title=title;this.icon=icon;this.entity=entity;this.temperatureEntity=temperatureEntity;this.attribute=attribute;this.action=action;this.visibleEntity=visibleEntity;this.visibleState=visibleState;this.confirm=confirm;this.confirmText=confirmText;
             this.covers=Collections.unmodifiableList(covers);this.forecastEntity=forecastEntity;this.forecastWhenEntity=forecastWhenEntity;this.forecastWhenState=forecastWhenState;this.offEntity=offEntity;
         }
         /** Tomorrow's forecast is shown when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
@@ -181,7 +184,8 @@ final class DashboardSpec {
                 if(!string(tap,"action",true,16).equals(action))throw new IllegalArgumentException("Typ "+type+" dopuszcza wyłącznie tap_action.action: "+action);
             }
         }
-        String icon=icon(o.has("icon")?string(o,"icon",true,40):def.intentDriven?TILE_ICONS.getOrDefault(entity.substring(0,entity.indexOf('.')),"mdi:information"):def.defaultIcon,version);
+        boolean ownIcon=o.has("icon");
+        String icon=icon(ownIcon?string(o,"icon",true,40):def.intentDriven?TILE_ICONS.getOrDefault(entity.substring(0,entity.indexOf('.')),"mdi:information"):def.defaultIcon,version);
         String visibleEntity=null,visibleState=null;
         if(o.has("visible_when")){String[] when=when(o,"visible_when");visibleEntity=when[0];visibleState=when[1];}
         boolean forced=intent!=null&&ActionPolicy.forcedConfirm(intent);
@@ -194,7 +198,7 @@ final class DashboardSpec {
             if(forced&&!confirm)throw new IllegalArgumentException("Akcja "+action+" wymaga potwierdzenia");
             if(c.has("text"))confirmText=string(c,"text",true,80);
         }
-        return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity);
+        return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity,ownIcon);
     }
     /** Versions 2-5: one of six drawn names. Version 6: `mdi:<name>` from the bundled catalogue, the six old names normalised to it. */
     private static String icon(String icon,int version){

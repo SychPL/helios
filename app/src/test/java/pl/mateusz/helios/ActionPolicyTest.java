@@ -45,6 +45,10 @@ public class ActionPolicyTest {
             assertEquals(i.name(),i==NONE||i==DETAILS,ActionPolicy.verb(i)==null);
         }
         assertNull(ActionPolicy.intent("light.turn_on"));assertNull(ActionPolicy.intent("TOGGLE"));
+        // a button or scene reads unknown until first used: still activatable, unavailable or missing never
+        EntityStates.Entity unknown=new EntityStates.Entity("unknown",new HashMap<>()),unavailable=new EntityStates.Entity("unavailable",new HashMap<>()),on=new EntityStates.Entity("on",new HashMap<>());
+        assertTrue(ActionPolicy.usable("activate",unknown));assertFalse(ActionPolicy.usable("activate",unavailable));assertFalse(ActionPolicy.usable("activate",null));
+        assertFalse(ActionPolicy.usable("toggle",unknown));assertTrue(ActionPolicy.usable("toggle",on));assertTrue(ActionPolicy.usable(null,on));assertFalse(ActionPolicy.usable(null,unknown));
         assertTrue(ActionPolicy.forcedConfirm(LOCK));assertTrue(ActionPolicy.forcedConfirm(UNLOCK));assertFalse(ActionPolicy.forcedConfirm(TURN_OFF));
     }
     @Test public void tileIntentsCallTheEntitysOwnDomain(){
