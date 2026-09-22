@@ -5,32 +5,28 @@ import java.util.*;
 /** What each card type shows, as pure text and flags; DashboardView owns the Views and only applies the result. Testable on the JVM. */
 final class CardBodies {
     /** Local facts the entity snapshot does not carry. */
-    interface Env {String time();String weekday();String date();String musicInfo();long now();}
-    /** One line of the detail column: an icon, what it is and what it reads. `separated` draws a rule above it. */
-    static final class Row {
-        final String icon,label,value;final boolean separated;
-        Row(String icon,String label,String value,boolean separated){this.icon=icon;this.label=label;this.value=value;this.separated=separated;}
-        Row(String icon,String label,String value){this(icon,label,value,false);}
+    interface Env {String time();String weekday();String date();String musicInfo();long now();
+        /** Tomorrow from HA's daily forecast feed, or null while the clock has none. */
+        default Tomorrow tomorrow(){return null;}}
+    /** The right half of a wide tile: the same shape as the left one - an icon, a big value and a small line under it. */
+    static final class Side {
+        final String icon,value,detail;
+        Side(String icon,String value,String detail){this.icon=icon;this.value=value;this.detail=detail;}
     }
     /** One rendering: value line, up to two detail lines, optional label and icon overrides, the full content description, accent tint and an expiry for self-refreshing content. */
     static final class CardContent {
         final String value,detail,detail2,label,icon,description;final boolean accent;final long expiresAt;
-        /** Extra readings for a tile wide enough to carry a second column; empty for every tile that has none. */
-        final List<Row> rows;
-        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this(value,detail,detail2,label,icon,description,accent,expiresAt,Collections.<Row>emptyList());}
-        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt,List<Row> rows){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.icon=icon;this.description=description;this.accent=accent;this.expiresAt=expiresAt;this.rows=Collections.unmodifiableList(rows);}
+        /** The second half, or null for every tile that has only one. */
+        final Side side;
+        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this(value,detail,detail2,label,icon,description,accent,expiresAt,null);}
+        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt,Side side){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.icon=icon;this.description=description;this.accent=accent;this.expiresAt=expiresAt;this.side=side;}
         CardContent(String value,String detail,String label,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){this(value,detail,label,null,accent,expiresAt,item,live);}
         CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){
             this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+(live?"":", dane nieaktualne"),accent,expiresAt);
         }
-        CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live,List<Row> rows){
-            this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+describe(rows)+(live?"":", dane nieaktualne"),accent,expiresAt,rows);
-        }
-        /** The extra readings belong in the spoken description too, in the order they are drawn. */
-        private static String describe(List<Row> rows){
-            StringBuilder b=new StringBuilder();
-            for(Row r:rows)b.append(", ").append(r.label).append(" ").append(r.value);
-            return b.toString();
+        CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live,Side side){
+            this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)
+                +(side==null?"":", jutro "+side.value+(side.detail.isEmpty()?"":" "+side.detail))+(live?"":", dane nieaktualne"),accent,expiresAt,side);
         }
     }
     interface Body {CardContent render(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env);}
@@ -83,28 +79,19 @@ final class CardBodies {
         String temperature=null,unit="";
         if(item.temperatureEntity!=null){EntityStates.Entity t=states.get(item.temperatureEntity);if(t!=null&&t.known()){temperature=t.state;if(t.attribute("unit_of_measurement")!=null)unit=t.attribute("unit_of_measurement");}}
         else if(known){temperature=e.attribute("temperature");if(e.attribute("temperature_unit")!=null)unit=e.attribute("temperature_unit");}
-        String text=number(temperature,unit),extra; // no unit in HA means no unit on screen (SPEC 0.8a pkt 3.3)
-        List<Row> rows=new ArrayList<>();long expires=0;
-        String wind=known?e.attribute("wind_speed"):null,windUnit=known&&e.attribute("wind_speed_unit")!=null?" "+e.attribute("wind_speed_unit"):"";
-        boolean column=item.width>1; // a wide tile carries the readings beside the value, a one-cell tile has only the line under it
-        if(known)extra=WeatherLabels.polish(e.state)+(wind==null||column?"":" · Wiatr "+number(wind,windUnit));
-        else extra="Brak danych";
-        if(known&&column){
-            // Only what this entity actually reports: met.no gives no apparent temperature, so a missing reading is a missing row, never a guess.
-            add(rows,"mdi:weather-windy","Wiatr",wind,windUnit);
-            add(rows,"mdi:weather-cloudy","Zachmurzenie",e.attribute("cloud_coverage"),"%");
-            add(rows,"mdi:water-percent","Wilgotność",e.attribute("humidity"),"%");
-            add(rows,"mdi:gauge","Ciśnienie",e.attribute("pressure"),e.attribute("pressure_unit")==null?"":" "+e.attribute("pressure_unit"));
-        }
-        if(item.forecastRow()&&column){
-            Forecast f=Forecast.parse(states.get(item.forecastEntity),env.now());
-            if(f!=null){rows.add(new Row(WeatherLabels.icon(f.condition),"Jutro",f.range(),true));expires=f.validUntilMs;}
-        }
-        return new CardContent(text,extra,null,known?WeatherLabels.icon(e.state):null,false,expires,item,live,rows);
-    }
-    /** A reading the entity does not carry adds no row; "—" would claim the clock knows something it does not. */
-    private static void add(List<Row> rows,String icon,String label,String raw,String unit){
-        if(raw!=null&&!raw.trim().isEmpty())rows.add(new Row(icon,label,number(raw,unit)));
+        String text=number(temperature,unit); // no unit in HA means no unit on screen (SPEC 0.8a pkt 3.3)
+        String wind=known?e.attribute("wind_speed"):null;
+        String windText=wind==null?"":number(wind,e.attribute("wind_speed_unit")==null?"":" "+e.attribute("wind_speed_unit"));
+        String condition=known?WeatherLabels.polish(e.state):"Brak danych";
+        // A wide tile puts tomorrow beside today; the forecast comes from HA's own daily feed, so nothing has to be configured.
+        Tomorrow t=item.width>1?env.tomorrow():null;
+        Side side=t==null?null:new Side(t.icon(),t.value(),t.detail());
+        // Half a tile is no room for the condition in words - the icon already says it, so only the wind stays
+        // under the temperature. The description keeps the word, because a screen reader has no icon to read.
+        String extra=side!=null?windText:condition+(windText.isEmpty()?"":" · "+windText);
+        String spoken=defaultLabel(item)+": "+text+", "+condition+(windText.isEmpty()?"":", "+windText)
+            +(side==null?"":", jutro "+side.value+(side.detail.isEmpty()?"":" "+side.detail))+(live?"":", dane nieaktualne");
+        return new CardContent(text,extra,"",item.title,known?WeatherLabels.icon(e.state):null,spoken,false,0,side);
     }
     private static final List<String> ACTIVE=Arrays.asList("on","open","opening","closing","unlocked","unlocking","playing","heating","cooling","cleaning","running");
     /** One entity of any domain: the state in Polish where the word is fixed, a number with its unit, or the configured attribute; the entity's own name and icon unless the config says otherwise. */

@@ -57,16 +57,15 @@ Przykład całego dokumentu: [ha/helios-clock-v6.yaml](../ha/helios-clock-v6.yam
 - Ikony: `icon: mdi:<nazwa>` z katalogu Material Design Icons 7.4.47 wbudowanego w aplikację (te same nazwy, które podpowiada HA). Sześć starych nazw (`information`, `weather-rainy`, `lightbulb`, `window-shutter`, `garage-open`, `music`) nadal działa i oznacza tę samą ikonę `mdi:`. Kafelek `tile` bez `icon` dostaje ikonę domeny (żarówka, roleta, kłódka, oko...), a jeśli encja ma własny atrybut `icon`, pokazuje ten. Nieznana nazwa odrzuca dokument.
 - Typy 2-5 (`clock`, `weather`, `entity`, `light`, `cover`, `garage`, `music`, `cover_group`) działają w dokumencie 6 bez zmian; `light`, `cover` i `garage` da się zapisać jako `tile` z intencją `toggle`, `controls` i `close`.
 
-## Kolumna szczegółów w kafelku pogody (Helios 0.13)
+## Dziś i jutro w kafelku pogody (Helios 0.13)
 
-Kafelek `weather` szerszy niż jedna komórka pokazuje z prawej strony kolumnę z odczytami, które encja pogodowa faktycznie podaje: **Zachmurzenie** (`cloud_coverage`), **Wilgotność** (`humidity`) i **Ciśnienie** (`pressure` z `pressure_unit`). Czego encja nie podaje, tego nie ma - brakujący odczyt znika, zamiast pokazać kreskę. Kafelek dostaje też ikonę warunku pogodowego, tę samą, której używa Home Assistant.
+Kafelek `weather` szerszy niż jedna komórka dzieli się na dwie połowy: po lewej dziś, po prawej jutro. Każda połowa to ikona warunku i temperatura; pod dzisiejszą jest prędkość wiatru, pod jutrzejszą nocne minimum (`↓ 8°`). Warunek pogodowy niesie ikona - ta sama, której używa Home Assistant - więc nie zajmuje już linii tekstu. Opis dla czytnika ekranu zachowuje warunek słowami.
 
-Wiersz **Jutro** (`14°C / 8°C`) pojawia się, gdy wpiszesz samo `forecast_entity`, bez `forecast_when`. Sensor prognozy musi wyglądać tak, jak opisuje [SPEC 0.9](SPEC-0.9-bedroom-dashboard.md) punkt 6.2 - gotowy szablon jest w [ha/packages/helios_bedroom.yaml](../ha/packages/helios_bedroom.yaml), bo zwykły szablon HA nie sięgnie prognozy (trzeba `weather.get_forecasts` z wyzwalaczem).
+Prognozy **nie trzeba konfigurować**: zegar sam prosi Home Assistanta o dobową prognozę encji z kafelka (`weather/subscribe_forecast`, typ `daily`) i wybiera rekord po dacie jutra, nie po pozycji na liście. Nie jest do tego potrzebna żadna encja pomocnicza ani pakiet YAML. Gdy HA odmówi albo nie ma prognozy, prawa połowa po prostu nie powstaje, a kafelek pokazuje samo dziś - wtedy pod temperaturą wraca też warunek słowami.
 
-Stare zachowanie zostaje bez zmian: `forecast_entity` **razem z** `forecast_when` nadal zamienia całą zawartość kafelka na prognozę, gdy encja trybu jest w podanym stanie. Samo `forecast_when` bez `forecast_entity` odrzuca dokument.
+Kafelek jednokomórkowy zostaje bez zmian: ikona, temperatura i linia z warunkiem oraz wiatrem.
 
-Kolumna nie wymaga podniesienia wersji dokumentu - działa w każdym dokumencie od `version: 2`, bo nie ma w niej niczego do skonfigurowania poza `forecast_entity`.
-- Każdy błąd (nieznane pole, literówka w ikonie, zła domena, nakładanie) odrzuca cały zapis: zegar zachowuje poprzedni układ i pokazuje komunikat w pasku. Bez żadnej poprawnej konfiguracji `version: 2` zegar pokazuje układ awaryjny (sam zegar) i komunikat `Wymagana konfiguracja Helios version: 2`.
+Pola `forecast_entity` i `forecast_when` działają jak dotąd, czyli nadal **razem** (SPEC 0.9): ustawione, zamieniają całą zawartość kafelka na prognozę, gdy encja trybu jest w podanym stanie. To osobne zachowanie od prawej połowy i nie jest potrzebne, żeby zobaczyć jutro.
 
 Format `version: 1` z wersji 0.4 nie jest migrowany automatycznie. Po instalacji 0.5 zaktualizuj YAML w HA albo uruchom `python tools/publish_ha_dashboard.py --replace` (Python: `websocket-client`, `PyYAML`; kopia poprzedniej konfiguracji trafia do `.local/`). Zakładka `menu-zegara` z 0.4 nie jest już używana i można ją usunąć.
 

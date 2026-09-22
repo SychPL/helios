@@ -68,7 +68,6 @@ public class DashboardSpecTest {
         assertEquals(3,spec.version);assertEquals(7,spec.items.size());
         DashboardSpec.Item music=spec.item("music");
         assertNull(music.entity);assertTrue(music.interactive());assertEquals("music",music.icon);assertEquals("library",music.action);
-        assertFalse(spec.entities().contains(null));
         JSONObject two=new JSONObject().put("version",3).put("grid",new JSONObject().put("columns",4).put("rows",3)).put("items",new JSONArray().put(item("m1","music",1,1,1,1)).put(item("m2","music",2,1,1,1)));rejects(two,"two music tiles");
         rejects(example().put("version",2).put("items",new JSONArray().put(item("music","music",1,1,1,1))),"music at version 2");
         rejects(new JSONObject(c.toString()).put("music_layout",new JSONObject()),"music_layout");
@@ -108,6 +107,8 @@ public class DashboardSpecTest {
         DashboardSpec.Item weather=spec.item("weather");
         assertEquals("sensor.helios_pogoda_jutro",weather.forecastEntity);assertEquals("binary_sensor.helios_pogoda_jutro_tryb",weather.forecastWhenEntity);assertEquals("on",weather.forecastWhenState);
         List<String> entities=spec.entities();
+        // A null here would reach HA as a malformed subscribe_entities and cost the clock its whole session.
+        assertFalse(entities.contains(null));
         for(String e:new String[]{"cover.bedroom_main_cover_a","cover.bedroom_main_cover_b","light.bedroom_a_all","binary_sensor.helios_sypialnia_swiatlo_pokaz","binary_sensor.helios_pogoda_jutro_tryb","sensor.helios_pogoda_jutro","weather.forecast_dom"})assertTrue(e,entities.contains(e));
         Map<String,Set<String>> attributes=spec.attributes();
         assertEquals(new HashSet<>(Arrays.asList("current_position","supported_features")),attributes.get("cover.bedroom_main_cover_a"));
@@ -117,24 +118,6 @@ public class DashboardSpecTest {
         // the old single cover keeps the same attribute list (one contract per domain)
         assertEquals(new HashSet<>(Arrays.asList("current_position","supported_features")),DashboardSpec.parse(example()).attributes().get("cover.roleta_salon"));
         DashboardSpec plain=DashboardSpec.parse(exampleV4().put("version",4));assertNull(plain.item("bedroom-light").forecastEntity);assertTrue(plain.item("bedroom-light").covers.isEmpty());
-    }
-    /** A forecast entity on its own asks for the tomorrow row; a mode entity on its own has nothing to show. */
-    @Test public void forecastEntityStandsAloneButForecastWhenDoesNot() throws Exception {
-        JSONObject alone=exampleV4();JSONArray items=alone.getJSONArray("items");
-        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("weather"))items.getJSONObject(i).remove("forecast_when");
-        DashboardSpec spec=DashboardSpec.parse(alone);
-        DashboardSpec.Item weather=spec.item("weather");
-        assertEquals("sensor.helios_pogoda_jutro",weather.forecastEntity);assertNull(weather.forecastWhenEntity);
-        assertTrue(weather.forecastRow());assertFalse(weather.forecast());
-        assertTrue(spec.entities().contains("sensor.helios_pogoda_jutro"));
-        // A null in this list reaches HA as a malformed subscribe_entities, HA refuses the whole subscription
-        // and the clock loses Home Assistant until the document changes back.
-        assertFalse(spec.entities().contains(null));
-        for(String e:spec.entities())assertNotNull(e);
-        assertEquals(new HashSet<>(DashboardSpec.FORECAST_ATTRIBUTES),spec.attributes().get("sensor.helios_pogoda_jutro"));
-        JSONObject orphan=exampleV4();items=orphan.getJSONArray("items");
-        for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("weather"))items.getJSONObject(i).remove("forecast_entity");
-        rejects(orphan,"forecast_when without forecast_entity");
     }
     /** SPEC 0.12: the "Światła" tile stays a read-only sensor tile but may turn a light group off, always after a question. */
     private static JSONObject exampleV5() throws Exception {
@@ -189,7 +172,8 @@ public class DashboardSpecTest {
         rejects(v4with("bedroom-covers","entity","cover.a"),"entity on cover_group");
         rejects(v4with("bedroom-covers","confirmation",new JSONObject().put("enabled",false)),"confirmation on cover_group");
         rejects(v4with("bedroom-covers","tap_action",new JSONObject().put("action","covers")),"tap_action on cover_group");
-        rejects(v4with("weather","forecast_entity",null),"forecast_when without forecast_entity"); // forecast_entity alone is allowed: it asks for the tomorrow row
+        rejects(v4with("weather","forecast_when",null),"forecast_entity without forecast_when");
+        rejects(v4with("weather","forecast_entity",null),"forecast_when without forecast_entity");
         rejects(v4with("weather","forecast_entity","binary_sensor.x"),"forecast_entity domain");
         rejects(v4with("weather","forecast_when",new JSONObject().put("entity","binary_sensor.x").put("state","unavailable")),"forecast_when unavailable");
         rejects(v4with("weather","forecast_when",new JSONObject().put("entity","binary_sensor.x").put("state","on").put("extra",1)),"forecast_when extra field");

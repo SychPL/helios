@@ -140,8 +140,17 @@ public final class DashboardView extends FrameLayout {
         }
     }
 
+    /** Tomorrow's forecast from HA's daily feed; null until it arrives and again whenever the session drops. */
+    public void tomorrow(Tomorrow t){
+        String key=t==null?"":t.value()+"|"+t.detail()+"|"+t.icon();
+        if(key.equals(tomorrowKey))return;
+        tomorrowKey=key;tomorrow=t;
+        if(lastStates!=null)render(lastStates,lastVisibility,lastLive);
+    }
+    private Tomorrow tomorrow;private String tomorrowKey="";
     private final CardBodies.Env env=new CardBodies.Env(){
         public String time(){return time;}public String weekday(){return weekday;}public String date(){return date;}public String musicInfo(){return musicInfo;}public long now(){return System.currentTimeMillis();}
+        public Tomorrow tomorrow(){return tomorrow;}
     };
     /** The frame every card shares: grid box, theme, pending spinner, accessibility. What it shows comes from CardBodies, how it taps from CardDefinition. */
     private final class Tile extends FrameLayout {
@@ -156,8 +165,8 @@ public final class DashboardView extends FrameLayout {
         final boolean clock;
         float unitW,unitH;
         boolean live=true,accent,known=true;long forecastExpiresAt;
-        String rowsKey=""; // the detail column is rebuilt only when its readings actually change
-        List<CardBodies.Row> lastRows=Collections.emptyList();
+        String rowsKey=""; // the second half is rebuilt only when what it shows actually changes
+        CardBodies.Side lastSide;
         String shownIcon; // the config icon, or the entity's own when the body prefers it
         Tile(DashboardSpec.Item item){
             super(DashboardView.this.getContext());this.item=item;def=CardDefinition.of(item.type);body=CardBodies.FOR.get(item.type);clock=def.layout==CardDefinition.Layout.CLOCK;shownIcon=item.icon;
@@ -235,7 +244,7 @@ public final class DashboardView extends FrameLayout {
             }
             int spin=Math.round(28*s);LayoutParams sp=new LayoutParams(spin,spin,Gravity.TOP|Gravity.END);sp.topMargin=sp.rightMargin=Math.round(10*s);spinner.setLayoutParams(sp);
             LinearLayout.LayoutParams rl=new LinearLayout.LayoutParams(1,-1);rl.topMargin=rl.bottomMargin=Math.round(14*s);rule.setLayoutParams(rl);
-            rowsKey="";details(lastRows); // text sizes follow the tile, so the column is rebuilt after every resize
+            rowsKey="";details(lastSide); // text sizes follow the tile, so the half is rebuilt after every resize
             theme();
         }
         void clock(){apply(body.render(item,Collections.emptyMap(),true,env));}
@@ -259,43 +268,31 @@ public final class DashboardView extends FrameLayout {
         private void apply(CardBodies.CardContent c){
             value.setText(c.value);detail.setText(c.detail);detail2.setText(c.detail2);shownIcon=c.icon!=null?c.icon:item.icon;
             if(!clock)detail.setVisibility(c.detail.isEmpty()?GONE:VISIBLE);
-            lastRows=c.rows;details(c.rows);
+            lastSide=c.side;details(c.side);
             setContentDescription(c.description);
         }
-        /** The detail column: one line per reading, and only where there is width for it - a one-cell tile keeps its single value. */
-        private void details(List<CardBodies.Row> rows){
-            StringBuilder k=new StringBuilder();
-            for(CardBodies.Row r:rows)k.append(r.icon).append('\u0000').append(r.label).append('\u0000').append(r.value).append(r.separated?'|':';');
-            String key=k.toString();
+        /** The second half of a wide tile: built like the first one - big icon, big value, a small line under it. */
+        private void details(CardBodies.Side s){
+            String key=s==null?"":s.icon+" "+s.value+" "+s.detail;
             if(key.equals(rowsKey))return;
             rowsKey=key;
             side.removeAllViews();
-            boolean any=!rows.isEmpty();
-            side.setVisibility(any?VISIBLE:GONE);rule.setVisibility(any?VISIBLE:GONE);
-            if(!any)return;
+            side.setVisibility(s==null?GONE:VISIBLE);rule.setVisibility(s==null?GONE:VISIBLE);
+            if(s==null)return;
             Theme t=Theme.current();
-            float text=rows.size()>=5?14:17; // five readings only fit in one cell of height when the type gives way a little
-            side.setPadding(Math.round(12*scale),0,0,0);
-            for(CardBodies.Row r:rows){
-                if(r.separated){
-                    View split=new View(getContext());split.setBackgroundColor((0x33<<24)|(t.muted&0xFFFFFF));
-                    LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,1);sp.topMargin=sp.bottomMargin=Math.round(5*scale);
-                    side.addView(split,sp);
-                }
-                LinearLayout row=new LinearLayout(getContext());row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);
-                if(r.icon!=null){
-                    IconView ic=new IconView(getContext());ic.set(r.icon,t.accent);
-                    int px=Math.round(18*scale);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(px,px);ip.rightMargin=Math.round(8*scale);
-                    row.addView(ic,ip);
-                }
-                TextView label=line(sans,1);label.setText(r.label);label.setTextColor(t.muted);size(label,text,scale);
-                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
-                row.addView(label,lp);
-                TextView reading=line(sans,1);reading.setText(r.value);reading.setTextColor(t.text);size(reading,text,scale);
-                LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,-2);rp.leftMargin=Math.round(12*scale);
-                row.addView(reading,rp);
-                LinearLayout.LayoutParams wrap=new LinearLayout.LayoutParams(-1,-2);wrap.topMargin=wrap.bottomMargin=Math.round(3*scale);
-                side.addView(row,wrap);
+            side.setPadding(Math.round(16*scale),0,0,0);
+            LinearLayout top=new LinearLayout(getContext());top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);
+            if(s.icon!=null){
+                IconView ic=new IconView(getContext());ic.set(s.icon,t.muted);
+                int px=Math.round(52*scale);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(px,px);ip.rightMargin=Math.round(10*scale);
+                top.addView(ic,ip);
+            }
+            TextView reading=line(sans,1);reading.setText(s.value);reading.setTextColor(t.text);size(reading,44,scale);
+            top.addView(reading,new LinearLayout.LayoutParams(-2,-2));
+            side.addView(top,new LinearLayout.LayoutParams(-2,-2));
+            if(!s.detail.isEmpty()){
+                TextView under=line(sans,1);under.setText(s.detail);under.setTextColor(t.muted);size(under,18,scale);
+                side.addView(under,new LinearLayout.LayoutParams(-2,-2));
             }
         }
         /** Visible but inactive while HA reports no usable state; a call in flight blocks only tiles whose tap is that call. */

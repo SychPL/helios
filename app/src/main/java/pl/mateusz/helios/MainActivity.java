@@ -24,6 +24,7 @@ import org.json.JSONObject;
 import java.io.*;
 import java.net.*;
 import java.text.SimpleDateFormat;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -108,10 +109,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 }
                 if(received==null&&specRaw==null){spec=DashboardSpec.fallback();dashboard.setSpec(spec,MainActivity.this::tap);}
                 configIssue=issue;connectionIssue=null;states=snapshot;live=true;decideVisibility();dashboard.connected(true);renderDashboard();
+                subscribeForecast(); // the layout names the weather entity, so the forecast can only be asked for once it is here
             });
         }
         @Override public void onStates(Map<String,EntityStates.Entity> snapshot){update(()->{states=snapshot;live=true;decideVisibility();renderDashboard();});}
         @Override public void onUnavailable(String reason){update(()->{live=false;connectionIssue=reason;dashboard.connected(false);closePanel();renderDashboard();});}
+        @Override public void onSessionStarted(){main.post(()->{forecastFor=null;dashboard.tomorrow(null);});} // subscriptions die with the session, so the next layout asks again
     };
     private Dialog panel;
     private MusicLibraryDialog library;
@@ -290,6 +293,34 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         }finally{c.disconnect();}
     }
     private void connect(){onboarding(false);}
+    /**
+     * Asks HA for the daily forecast of every wide weather tile, so tomorrow needs no helper entity in HA.
+     * A session carries its own subscriptions, so this runs again on every reconnect; a refusal simply leaves
+     * the tile showing today.
+     */
+    private void subscribeForecast(){
+        HaDashboardClient client=ha();
+        if(client==null||spec==null)return;
+        String entity=null;
+        for(DashboardSpec.Item item:spec.items)if("weather".equals(item.type)&&item.entity!=null&&item.width>1){entity=item.entity;break;} // one forecast is all the layout has room for
+        if(entity==null){forecastFor=null;dashboard.tomorrow(null);return;}
+        if(entity.equals(forecastFor))return; // already subscribed on this session for this entity
+        forecastFor=entity;
+        final String subscribed=entity;
+        client.subscribe(Tomorrow.subscribe(subscribed),
+            event->{
+                Tomorrow t=Tomorrow.parse(event,unitOf(subscribed),System.currentTimeMillis(),ZoneId.systemDefault());
+                main.post(()->{if(resumed)dashboard.tomorrow(t);});
+            },
+            code->main.post(()->{if(resumed){if(subscribed.equals(forecastFor))forecastFor=null;dashboard.tomorrow(null);}}));
+    }
+    private String forecastFor; // the weather entity whose forecast this session already asked for
+    /** The unit the weather entity itself reports, so tomorrow is written the same way as today. */
+    private String unitOf(String entity){
+        EntityStates.Entity e=states==null?null:states.get(entity);
+        String unit=e==null?null:e.attribute("temperature_unit");
+        return unit==null?"":unit;
+    }
     private HaDashboardClient ha(){return service==null?null:service.ha();}
     private void attachHa(){
         HaDashboardClient client=ha();

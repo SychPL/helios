@@ -53,9 +53,7 @@ final class DashboardSpec {
             this.covers=Collections.unmodifiableList(covers);this.forecastEntity=forecastEntity;this.forecastWhenEntity=forecastWhenEntity;this.forecastWhenState=forecastWhenState;this.offEntity=offEntity;
         }
         /** The whole tile swaps to tomorrow when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
-        boolean forecast(){return forecastEntity!=null&&forecastWhenEntity!=null;}
-        /** A forecast entity without a mode entity: tomorrow is one row in the detail column, never a swap. */
-        boolean forecastRow(){return forecastEntity!=null&&forecastWhenEntity==null;}
+        boolean forecast(){return forecastEntity!=null;}
         boolean interactive(){return action!=null;}
         boolean conditional(){return visibleEntity!=null;}
         /** Visibility is decided only from a live state; unknown, unavailable and missing never satisfy the condition. */
@@ -160,11 +158,10 @@ final class DashboardSpec {
         }
         String forecastEntity=null,forecastWhenEntity=null,forecastWhenState=null;
         if(o.has("forecast_entity")||o.has("forecast_when")){
-            if(!o.has("forecast_entity"))throw new IllegalArgumentException("weather: forecast_when wymaga forecast_entity");
+            if(!(o.has("forecast_entity")&&o.has("forecast_when")))throw new IllegalArgumentException("weather: forecast_entity i forecast_when występują razem");
             forecastEntity=string(o,"forecast_entity",true,128);
             if(!forecastEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("forecast_entity wymaga encji sensor");
-            // With forecast_when the tile swaps to tomorrow for that mode (SPEC 0.9); alone, tomorrow is one more row in the detail column.
-            if(o.has("forecast_when")){String[] when=when(o,"forecast_when");forecastWhenEntity=when[0];forecastWhenState=when[1];}
+            String[] when=when(o,"forecast_when");forecastWhenEntity=when[0];forecastWhenState=when[1];
         }
         String title=o.has("title")?string(o,"title",true,40):null;
         // The action: a fixed word per legacy type, or for a tile an intent the entity's domain allows (ActionPolicy).
