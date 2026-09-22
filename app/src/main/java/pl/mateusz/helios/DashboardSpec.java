@@ -4,22 +4,37 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.*;
 
-/** Helios 0.5 grid dashboard contract (helios.version 2). Pure data, validated atomically; no device entity IDs. */
+/** Helios grid dashboard contract (helios.version 2-6). Pure data, validated atomically; no device entity IDs. */
 final class DashboardSpec {
-    static final int COLUMNS=4,ROWS=3,MAX_ITEMS=12,MAX_BYTES=65536;
-    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2, 3, 4 lub 5";
+    static final int COLUMNS=4,ROWS=3,MAX_ITEMS=12,MAX_PAGES=8,MAX_BYTES=65536,MAX_VERSION=6;
+    static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2, 3, 4, 5 lub 6";
+    /** The six bare icon names of versions 2-5; at version 6 they are aliases of the same `mdi:` names. */
     static final List<String> ICONS=Arrays.asList("information","weather-rainy","lightbulb","window-shutter","garage-open","music");
     static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit");
     static final List<String> COVER_ATTRIBUTES=Arrays.asList("current_position","supported_features");
     static final List<String> FORECAST_ATTRIBUTES=Arrays.asList("forecast_date","condition","temperature","templow","temperature_unit","fetched_at","valid_until");
+    static final List<String> TILE_ATTRIBUTES=Arrays.asList("friendly_name","icon","unit_of_measurement","device_class");
     private static final List<String> COMMON=Arrays.asList("id","type","column","row","width","height","title","icon","visible_when","tap_action","confirmation");
     /** Keys every type takes; icon, tap_action and confirmation come from the CardDefinition. */
     private static final List<String> BASE=Arrays.asList("id","type","column","row","width","height","title","visible_when");
-    private static final String ENTITY="[a-z0-9_]+\\.[a-z0-9_]+";
+    private static final String ENTITY="[a-z0-9_]+\\.[a-z0-9_]+",ID="[a-z0-9_-]{1,40}";
+    /** Default `mdi:` icon of a tile by domain (version 6). */
+    private static final Map<String,String> TILE_ICONS=new HashMap<>();
+    static {
+        String[][] rows={{"light","lightbulb"},{"switch","toggle-switch"},{"input_boolean","toggle-switch"},{"fan","fan"},{"cover","window-shutter"},{"lock","lock"},{"sensor","eye"},{"binary_sensor","radiobox-blank"},{"climate","thermostat"},{"script","script-text"},{"scene","palette"},{"input_button","gesture-tap-button"},{"button","gesture-tap-button"},{"media_player","cast"},{"weather","weather-partly-cloudy"}};
+        for(String[] r:rows)TILE_ICONS.put(r[0],"mdi:"+r[1]);
+    }
+    final List<Page> pages;
+    /** The first page: what the clock renders in this increment (swiping between pages is a later step). */
     final List<Item> items;
     final int version;
-    private DashboardSpec(int version,List<Item> items){this.version=version;this.items=Collections.unmodifiableList(items);}
+    private DashboardSpec(int version,List<Page> pages){this.version=version;this.pages=Collections.unmodifiableList(pages);this.items=pages.get(0).items;}
 
+    /** One screen of the 4x3 grid (version 6); versions 2-5 are a single implicit page `main`. */
+    static final class Page {
+        final String id,title;final List<Item> items;
+        Page(String id,String title,List<Item> items){this.id=id;this.title=title;this.items=Collections.unmodifiableList(items);}
+    }
     /** One roller shutter inside a cover_group: entity for the services, title for the panel row. */
     static final class Cover {final String entity,title;Cover(String entity,String title){this.entity=entity;this.title=title;}}
     static final class Item {
@@ -52,18 +67,39 @@ final class DashboardSpec {
     }
 
     static DashboardSpec parse(JSONObject root) throws Exception {
-        if(!(root.opt("version") instanceof Integer)||root.getInt("version")<2||root.getInt("version")>5)throw new IllegalArgumentException(VERSION_ERROR);
+        if(!(root.opt("version") instanceof Integer)||root.getInt("version")<2||root.getInt("version")>MAX_VERSION)throw new IllegalArgumentException(VERSION_ERROR);
         int version=root.getInt("version");
         if(root.toString().length()>MAX_BYTES)throw new IllegalArgumentException("Sekcja helios przekracza 64 KiB");
-        keys(root,Arrays.asList("version","grid","items"),"konfiguracji");
-        JSONObject grid=root.optJSONObject("grid");
-        if(grid==null)throw new IllegalArgumentException("Wymagane pole grid");
-        keys(grid,Arrays.asList("columns","rows"),"grid");
-        if(integer(grid,"columns",1,COLUMNS)!=COLUMNS||integer(grid,"rows",1,ROWS)!=ROWS)throw new IllegalArgumentException("W 0.5 siatka ma dokładnie 4 kolumny i 3 wiersze");
-        JSONArray rows=root.optJSONArray("items");
+        List<Page> pages=new ArrayList<>();Set<String> ids=new HashSet<>();
+        if(version>=6){
+            keys(root,Arrays.asList("version","pages"),"konfiguracji");
+            JSONArray list=root.optJSONArray("pages");
+            if(list==null||list.length()==0)throw new IllegalArgumentException("Wymagane pole pages");
+            if(list.length()>MAX_PAGES)throw new IllegalArgumentException("pages: najwyżej "+MAX_PAGES+" stron");
+            Set<String> pageIds=new HashSet<>();
+            for(int i=0;i<list.length();i++){
+                JSONObject p=list.optJSONObject(i);if(p==null)throw new IllegalArgumentException("pages: pozycja musi być obiektem");
+                keys(p,Arrays.asList("id","title","items"),"strony");
+                String id=string(p,"id",true,40);
+                if(!id.matches(ID))throw new IllegalArgumentException("Nieprawidłowy id strony: "+id);
+                if(!pageIds.add(id))throw new IllegalArgumentException("Powtórzony id strony: "+id);
+                pages.add(new Page(id,p.has("title")?string(p,"title",true,40):null,items(p.optJSONArray("items"),version,ids)));
+            }
+        }else{
+            keys(root,Arrays.asList("version","grid","items"),"konfiguracji");
+            JSONObject grid=root.optJSONObject("grid");
+            if(grid==null)throw new IllegalArgumentException("Wymagane pole grid");
+            keys(grid,Arrays.asList("columns","rows"),"grid");
+            if(integer(grid,"columns",1,COLUMNS)!=COLUMNS||integer(grid,"rows",1,ROWS)!=ROWS)throw new IllegalArgumentException("W 0.5 siatka ma dokładnie 4 kolumny i 3 wiersze");
+            pages.add(new Page("main",null,items(root.optJSONArray("items"),version,ids)));
+        }
+        return new DashboardSpec(version,pages);
+    }
+    /** One page's items: at most 12, no overlap, one of each singleton type; ids unique across the whole document (pending calls and visibility are keyed by id). */
+    private static List<Item> items(JSONArray rows,int version,Set<String> ids) throws Exception {
         if(rows==null)throw new IllegalArgumentException("Wymagane pole items");
         if(rows.length()>MAX_ITEMS)throw new IllegalArgumentException("items: najwyżej "+MAX_ITEMS+" elementów");
-        List<Item> result=new ArrayList<>();Set<String> ids=new HashSet<>(),singles=new HashSet<>();boolean[][] used=new boolean[ROWS][COLUMNS];
+        List<Item> result=new ArrayList<>();Set<String> singles=new HashSet<>();boolean[][] used=new boolean[ROWS][COLUMNS];
         for(int i=0;i<rows.length();i++){
             Item item=item(rows.getJSONObject(i),version);
             if(CardDefinition.of(item.type).singleton&&!singles.add(item.type))throw new IllegalArgumentException("Dozwolony jest jeden kafelek "+item.type);
@@ -74,7 +110,7 @@ final class DashboardSpec {
             }
             result.add(item);
         }
-        return new DashboardSpec(version,result);
+        return result;
     }
 
     private static Item item(JSONObject o,int version) throws Exception {
@@ -83,15 +119,14 @@ final class DashboardSpec {
         if(def==null)throw new IllegalArgumentException("Nieobsługiwany typ elementu: "+type);
         if(version<def.minVersion)throw new IllegalArgumentException("Typ "+type+" wymaga version: "+def.minVersion);
         Set<String> allowed=new LinkedHashSet<>(BASE);allowed.addAll(def.fieldsAt(version));
-        boolean tappable=def.action!=null&&(def.actionRequires==null||o.has(def.actionRequires));
-        String action=tappable?def.action:null;
+        boolean tappable=def.intentDriven||(def.action!=null&&(def.actionRequires==null||o.has(def.actionRequires)));
         if(tappable&&def.tapConfigurable)allowed.addAll(Arrays.asList("tap_action","confirmation"));
         for(Iterator<String> k=o.keys();k.hasNext();){
             String key=k.next();
             if(!allowed.contains(key))throw new IllegalArgumentException((COMMON.contains(key)||CardDefinition.KNOWN_FIELDS.contains(key)?"Pole niedozwolone dla typu "+type+": ":"Nieznane pole elementu: ")+key);
         }
         String id=string(o,"id",true,40);
-        if(!id.matches("[a-z0-9_-]{1,40}"))throw new IllegalArgumentException("Nieprawidłowy id: "+id);
+        if(!id.matches(ID))throw new IllegalArgumentException("Nieprawidłowy id: "+id);
         int column=integer(o,"column",1,COLUMNS),row=integer(o,"row",1,ROWS),width=integer(o,"width",1,COLUMNS),height=integer(o,"height",1,ROWS);
         if(column+width-1>COLUMNS||row+height-1>ROWS)throw new IllegalArgumentException("Element "+id+" wychodzi poza siatkę");
         String entity=null,temperatureEntity=null,attribute=null,offEntity=null;
@@ -126,25 +161,51 @@ final class DashboardSpec {
             String[] when=when(o,"forecast_when");forecastWhenEntity=when[0];forecastWhenState=when[1];
         }
         String title=o.has("title")?string(o,"title",true,40):null;
-        String icon=null;
-        if(o.has("icon")){icon=string(o,"icon",true,40);if(!ICONS.contains(icon))throw new IllegalArgumentException("Nieznana ikona: "+icon);}
-        else icon=def.defaultIcon;
+        // The action: a fixed word per legacy type, or for a tile an intent the entity's domain allows (ActionPolicy).
+        String action;ActionPolicy.Intent intent=null;
+        if(def.intentDriven){
+            String domain=entity.substring(0,entity.indexOf('.'));
+            intent=ActionPolicy.defaultIntent(domain);
+            if(o.has("tap_action")){
+                JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException("tap_action musi być obiektem");
+                keys(tap,Collections.singletonList("action"),"tap_action");
+                String name=string(tap,"action",true,16);intent=ActionPolicy.intent(name);
+                if(intent==null||!ActionPolicy.allowed(domain).contains(intent))throw new IllegalArgumentException("Encja "+entity+" nie obsługuje akcji "+name);
+            }
+            action=intent==ActionPolicy.Intent.NONE?null:ActionPolicy.name(intent);
+        }else{
+            action=tappable?def.action:null;
+            if(o.has("tap_action")){
+                JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException("tap_action musi być obiektem");
+                keys(tap,Collections.singletonList("action"),"tap_action");
+                if(!string(tap,"action",true,16).equals(action))throw new IllegalArgumentException("Typ "+type+" dopuszcza wyłącznie tap_action.action: "+action);
+            }
+        }
+        String icon=icon(o.has("icon")?string(o,"icon",true,40):def.intentDriven?TILE_ICONS.getOrDefault(entity.substring(0,entity.indexOf('.')),"mdi:information"):def.defaultIcon,version);
         String visibleEntity=null,visibleState=null;
         if(o.has("visible_when")){String[] when=when(o,"visible_when");visibleEntity=when[0];visibleState=when[1];}
-        if(o.has("tap_action")){
-            JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException("tap_action musi być obiektem");
-            keys(tap,Collections.singletonList("action"),"tap_action");
-            if(!string(tap,"action",true,16).equals(action))throw new IllegalArgumentException("Typ "+type+" dopuszcza wyłącznie tap_action.action: "+action);
-        }
-        boolean confirm=tappable&&def.confirmByDefault;String confirmText=null;
+        boolean forced=intent!=null&&ActionPolicy.forcedConfirm(intent);
+        boolean confirm=forced||(tappable&&def.confirmByDefault);String confirmText=null;
         if(o.has("confirmation")){
             JSONObject c=o.optJSONObject("confirmation");if(c==null)throw new IllegalArgumentException("confirmation musi być obiektem");
             keys(c,Arrays.asList("enabled","text"),"confirmation");
             if(!(c.opt("enabled") instanceof Boolean))throw new IllegalArgumentException("confirmation.enabled musi być boolean");
             confirm=c.getBoolean("enabled");
+            if(forced&&!confirm)throw new IllegalArgumentException("Akcja "+action+" wymaga potwierdzenia");
             if(c.has("text"))confirmText=string(c,"text",true,80);
         }
         return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity);
+    }
+    /** Versions 2-5: one of six drawn names. Version 6: `mdi:<name>` from the bundled catalogue, the six old names normalised to it. */
+    private static String icon(String icon,int version){
+        if(icon==null)return null;
+        if(version<6){if(!ICONS.contains(icon))throw new IllegalArgumentException("Nieznana ikona: "+icon);return icon;}
+        String name=icon.startsWith("mdi:")?icon.substring(4):ICONS.contains(icon)?icon:null;
+        if(name==null)throw new IllegalArgumentException("Nieznana ikona: "+icon);
+        MdiIcons mdi=MdiIcons.installed();
+        if(mdi==null)throw new IllegalArgumentException("Ikony mdi niezaładowane");
+        if(!mdi.has(name))throw new IllegalArgumentException("Nieznana ikona: "+icon);
+        return "mdi:"+name;
     }
     /** {entity, state} condition shared by visible_when and forecast_when: a live state only, never unknown/unavailable. */
     private static String[] when(JSONObject o,String key) throws Exception {
@@ -171,11 +232,12 @@ final class DashboardSpec {
         return (Integer)value;
     }
 
-    Item item(String id){for(Item i:items)if(i.id.equals(id))return i;return null;}
-    /** Every entity the renderer or visibility needs, in first-use order, without duplicates. */
+    /** Any page's item by id; ids are unique across the document. */
+    Item item(String id){for(Page p:pages)for(Item i:p.items)if(i.id.equals(id))return i;return null;}
+    /** Every entity the renderer or visibility needs on any page, in first-use order, without duplicates. */
     List<String> entities(){
         LinkedHashSet<String> out=new LinkedHashSet<>();
-        for(Item i:items){
+        for(Page p:pages)for(Item i:p.items){
             if(i.entity!=null)out.add(i.entity);for(Cover c:i.covers)out.add(c.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);
             if(i.forecastEntity!=null){out.add(i.forecastWhenEntity);out.add(i.forecastEntity);}
             if(i.visibleEntity!=null)out.add(i.visibleEntity);
@@ -185,7 +247,7 @@ final class DashboardSpec {
     /** Attributes worth retaining per entity; everything else is dropped at decode time. */
     Map<String,Set<String>> attributes(){
         Map<String,Set<String>> out=new HashMap<>();
-        for(Item i:items){
+        for(Page p:pages)for(Item i:p.items){
             CardDefinition def=CardDefinition.of(i.type);
             if(i.entity!=null&&!def.attributes.isEmpty())out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(def.attributes);
             for(Cover c:i.covers)out.computeIfAbsent(c.entity,k->new HashSet<>()).addAll(COVER_ATTRIBUTES);

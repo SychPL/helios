@@ -1,0 +1,68 @@
+# Example version-6 document for tools/publish_ha_dashboard.py (Helios 0.12+).
+# Pages, the generic `tile` for any entity, intents instead of service names, mdi: icons.
+# The entity ids are placeholders - use your own, or keep a private copy in
+# .local/ha/helios-clock-v6.yaml, which the publisher prefers when it exists.
+title: Helios
+helios:
+  version: 6
+  pages:
+    - id: main
+      title: Dom
+      items:
+        - { id: clock, type: clock, column: 1, row: 1, width: 2, height: 2, title: Dom }
+        - { id: weather, type: weather, entity: weather.home, column: 3, row: 1, width: 2, height: 1 }
+
+        # A light: tap toggles it (tap_action is optional; without it a tile opens its details).
+        - id: living-room-light
+          type: tile
+          entity: light.living_room
+          column: 3
+          row: 2
+          width: 1
+          height: 1
+          icon: mdi:ceiling-light
+          tap_action: { action: toggle }
+
+        # A cover: without tap_action the tile opens the open/stop/close panel.
+        - { id: living-room-cover, type: tile, entity: cover.living_room, column: 4, row: 2, width: 1, height: 1 }
+
+        # Read-only sensors: state with its unit, or one attribute.
+        - { id: temperature, type: tile, entity: sensor.living_room_temperature, column: 1, row: 3, width: 1, height: 1, title: Salon }
+        - { id: humidity, type: tile, entity: sensor.living_room_climate, attribute: humidity, column: 2, row: 3, width: 1, height: 1, icon: mdi:water-percent }
+
+        # A lock always asks before it moves; `confirmation.enabled: false` is refused here.
+        - id: front-door
+          type: tile
+          entity: lock.front_door
+          column: 3
+          row: 3
+          width: 1
+          height: 1
+          tap_action: { action: lock }
+          confirmation: { enabled: true, text: Zamknąć drzwi? }
+
+        - { id: music, type: music, column: 4, row: 3, width: 1, height: 1 }
+
+    # The clock shows page 1 for now; further pages are parsed and their entities subscribed, ready for swiping.
+    - id: bedroom
+      title: Sypialnia
+      items:
+        - id: bedroom-covers
+          type: cover_group
+          column: 1
+          row: 1
+          width: 1
+          height: 1
+          covers:
+            - { entity: cover.bedroom_a, title: Roleta A }
+            - { entity: cover.bedroom_b, title: Roleta B }
+        - { id: good-night, type: tile, entity: scene.good_night, column: 2, row: 1, width: 1, height: 1, title: Dobranoc, icon: mdi:weather-night }
+views:
+  - title: Zegar
+    path: zegar
+    cards:
+      - type: markdown
+        title: Konfiguracja zegara Helios
+        content: |
+          **Edytuj pulpit → menu ⋮ → Edytor konfiguracji tekstowej.**
+          Zmieniaj sekcję `helios` na początku YAML. Zapis odświeża zegar.

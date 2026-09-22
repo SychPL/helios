@@ -1,0 +1,13 @@
+{
+  "version": "7.4.47",
+  "license": "MDI-LICENSE",
+  "materialdesignicons-webfont.ttf": {
+    "source": "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf",
+    "sha256": "61e8aba5a4e981fe22cf7c8e8bcdbea00476e75c62c37f01bf7ee33361d68428"
+  },
+  "meta.json": {
+    "source": "https://cdn.jsdelivr.net/npm/@mdi/svg@7.4.47/meta.json",
+    "sha256": "ed9d7c7a5ca3ce7dee023fb6c1d62715dbec5b27503d268cbc10b9c8894ef3e8"
+  },
+  "icons": 13659
+}

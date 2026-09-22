@@ -6,12 +6,13 @@ import java.util.*;
 final class CardBodies {
     /** Local facts the entity snapshot does not carry. */
     interface Env {String time();String weekday();String date();String musicInfo();long now();}
-    /** One rendering: value line, up to two detail lines, an optional label override, the full content description, accent tint and an expiry for self-refreshing content. */
+    /** One rendering: value line, up to two detail lines, optional label and icon overrides, the full content description, accent tint and an expiry for self-refreshing content. */
     static final class CardContent {
-        final String value,detail,detail2,label,description;final boolean accent;final long expiresAt;
-        CardContent(String value,String detail,String detail2,String label,String description,boolean accent,long expiresAt){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.description=description;this.accent=accent;this.expiresAt=expiresAt;}
-        CardContent(String value,String detail,String label,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){
-            this(value,detail,"",label,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+(live?"":", dane nieaktualne"),accent,expiresAt);
+        final String value,detail,detail2,label,icon,description;final boolean accent;final long expiresAt;
+        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.icon=icon;this.description=description;this.accent=accent;this.expiresAt=expiresAt;}
+        CardContent(String value,String detail,String label,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){this(value,detail,label,null,accent,expiresAt,item,live);}
+        CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){
+            this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+(live?"":", dane nieaktualne"),accent,expiresAt);
         }
     }
     interface Body {CardContent render(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env);}
@@ -20,7 +21,7 @@ final class CardBodies {
     static final Map<String,Body> FOR;
     static {
         LinkedHashMap<String,Body> m=new LinkedHashMap<>();
-        m.put("clock",(item,states,live,env)->new CardContent(env.time(),env.date(),env.weekday(),null,env.time()+", "+env.weekday()+", "+env.date(),false,0));
+        m.put("clock",(item,states,live,env)->new CardContent(env.time(),env.date(),env.weekday(),null,null,env.time()+", "+env.weekday()+", "+env.date(),false,0));
         m.put("weather",CardBodies::weather);
         m.put("entity",(item,states,live,env)->{
             EntityStates.Entity e=states.get(item.entity);
@@ -34,13 +35,14 @@ final class CardBodies {
         });
         m.put("cover",CardBodies::cover);
         m.put("garage",CardBodies::cover);
-        m.put("music",(item,states,live,env)->new CardContent(env.musicInfo(),"","",null,"Muzyka: "+env.musicInfo(),false,0)); // the player, not HA, says whether this is live
+        m.put("music",(item,states,live,env)->new CardContent(env.musicInfo(),"","",null,null,"Muzyka: "+env.musicInfo(),false,0)); // the player, not HA, says whether this is live
         m.put("cover_group",(item,states,live,env)->{
             DashboardSpec.Cover ca=item.covers.get(0),cb=item.covers.get(1);
             EntityStates.Entity a=states.get(ca.entity),b=states.get(cb.entity);
             String label=defaultLabel(item);
-            return new CardContent(CoverText.line("A",a),CoverText.line("B",b),"",null,label+": "+ca.title+": "+CoverText.state(a)+", "+cb.title+": "+CoverText.state(b)+(live?"":", dane nieaktualne"),CoverText.attention(a)||CoverText.attention(b),0);
+            return new CardContent(CoverText.line("A",a),CoverText.line("B",b),"",null,null,label+": "+ca.title+": "+CoverText.state(a)+", "+cb.title+": "+CoverText.state(b)+(live?"":", dane nieaktualne"),CoverText.attention(a)||CoverText.attention(b),0);
         });
+        m.put("tile",CardBodies::tile);
         FOR=Collections.unmodifiableMap(m);
     }
     private static CardContent cover(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
@@ -68,6 +70,36 @@ final class CardBodies {
         else extra="Brak danych";
         return new CardContent(text,extra,null,false,0,item,live);
     }
+    private static final List<String> ACTIVE=Arrays.asList("on","open","opening","closing","unlocked","unlocking","playing","heating","cooling","cleaning","running");
+    /** One entity of any domain: the state in Polish where the word is fixed, a number with its unit, or the configured attribute; the entity's own name and icon unless the config says otherwise. */
+    private static CardContent tile(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
+        EntityStates.Entity e=states.get(item.entity);boolean known=e!=null&&e.known();
+        String domain=item.entity.substring(0,item.entity.indexOf('.'));
+        String text;
+        if(!known)text="Brak danych";
+        else if(item.attribute!=null){String a=e.attribute(item.attribute);text=a==null?"Brak danych":a;}
+        else text=stateText(domain,e);
+        String label=item.title!=null?item.title:known&&e.attribute("friendly_name")!=null?e.attribute("friendly_name"):null;
+        String icon=known?e.attribute("icon"):null;
+        if(icon!=null&&(MdiIcons.installed()==null||MdiIcons.name(icon)==null||!MdiIcons.installed().has(MdiIcons.name(icon))))icon=null; // an icon the font lacks falls back to the configured one
+        return new CardContent(text,"",label,icon,known&&ACTIVE.contains(e.state),0,item,live);
+    }
+    private static final List<String> OPENINGS=Arrays.asList("door","window","garage_door","opening","gate"),PRESENCE=Arrays.asList("motion","occupancy","presence","moving");
+    static String stateText(String domain,EntityStates.Entity e){
+        String s=e.state,cls=e.attribute("device_class");
+        switch(domain){
+            case "cover":return coverState(s);
+            case "lock":switch(s){case "locked":return "Zamknięty";case "unlocked":return "Otwarty";case "locking":return "Zamykanie…";case "unlocking":return "Otwieranie…";case "jammed":return "Zablokowany";default:return s;}
+            case "binary_sensor":
+                if(OPENINGS.contains(cls))return s.equals("on")?"Otwarte":s.equals("off")?"Zamknięte":s;
+                if(PRESENCE.contains(cls))return s.equals("on")?"Wykryto":s.equals("off")?"Brak":s;
+                return s.equals("on")?"Tak":s.equals("off")?"Nie":s;
+            default:
+                if(s.equals("on"))return "Włączone";if(s.equals("off"))return "Wyłączone";
+                String unit=e.attribute("unit_of_measurement");
+                return unit!=null?decimal(s,unit):s;
+        }
+    }
     /** Title from the config, else the type's fixed word, else the entity id humanised. */
     static String defaultLabel(DashboardSpec.Item item){
         if(item.title!=null)return item.title;
@@ -79,6 +111,11 @@ final class CardBodies {
     static String number(String raw,String unit){
         if(raw==null)return "—";
         try{return String.format(new Locale("pl"),"%.0f%s",Double.parseDouble(raw),unit);}catch(NumberFormatException e){return raw+unit;}
+    }
+    /** Up to one decimal, none when whole: "21,4 °C", "21 °C"; a non-number keeps its text and unit. */
+    static String decimal(String raw,String unit){
+        try{double v=Double.parseDouble(raw);String s=String.format(new Locale("pl"),"%.1f",v);if(s.endsWith(",0"))s=s.substring(0,s.length()-2);return s+" "+unit;}
+        catch(NumberFormatException e){return raw+" "+unit;}
     }
     static String coverState(String state){
         switch(state){case "open":return "Otwarta";case "closed":return "Zamknięta";case "opening":return "Otwieranie…";case "closing":return "Zamykanie…";default:return state;}

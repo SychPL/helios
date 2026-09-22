@@ -10,8 +10,9 @@
       "weather-rainy",
       "lightbulb",
       "window-shutter",
-      "garage-open"
+      "garage-open",
+      "music"
     ],
-    "source": "original line drawings in IconView.java (no external assets); registry of names lives in DashboardSpec.ICONS"
+    "source": "original line drawings in IconView.java for schema 2-5 documents; from schema 6 every icon is an mdi: glyph from the bundled webfont (see mdi-provenance.json)"
   }
 }

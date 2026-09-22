@@ -154,8 +154,9 @@ public final class DashboardView extends FrameLayout {
         final boolean clock;
         float unitW,unitH;
         boolean live=true,accent,known=true;long forecastExpiresAt;
+        String shownIcon; // the config icon, or the entity's own when the body prefers it
         Tile(DashboardSpec.Item item){
-            super(DashboardView.this.getContext());this.item=item;def=CardDefinition.of(item.type);body=CardBodies.FOR.get(item.type);clock=def.layout==CardDefinition.Layout.CLOCK;
+            super(DashboardView.this.getContext());this.item=item;def=CardDefinition.of(item.type);body=CardBodies.FOR.get(item.type);clock=def.layout==CardDefinition.Layout.CLOCK;shownIcon=item.icon;
             column=new LinearLayout(getContext());column.setOrientation(LinearLayout.VERTICAL);column.setGravity(Gravity.CENTER_VERTICAL);addView(column,new LayoutParams(-1,-1));
             head=new LinearLayout(getContext());head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);column.addView(head);
             icon=new IconView(getContext());head.addView(icon);if(item.icon==null)icon.setVisibility(GONE);
@@ -181,7 +182,7 @@ public final class DashboardView extends FrameLayout {
             else setBackground(Theme.card(surface(t),r));
             title.setTextColor(attention?Theme.ATTENTION:t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
             value.setTextColor(!live?t.muted:attention?Theme.ATTENTION:t.text);
-            if(item.icon!=null)icon.set(item.icon,attention?Theme.ATTENTION:accent?t.accent:t.muted);
+            if(item.icon!=null)icon.set(shownIcon,attention?Theme.ATTENTION:accent?t.accent:t.muted);
         }
         /** Sizes in 800x480 units; w/h are the tile's own size in those units, so the clock fits its hour by measurement. */
         void scale(float s,float w,float h){
@@ -209,7 +210,7 @@ public final class DashboardView extends FrameLayout {
         }
         void clock(){apply(body.render(item,Collections.emptyMap(),true,env));}
         /** A pending call blocks only tiles whose tap is the action; cover tiles open a panel and stay reachable (SPEC 0.9 pkt 4.2). */
-        void pending(boolean on){spinner.setVisibility(on?VISIBLE:GONE);if(def.gate==CardDefinition.Gate.KNOWN_NOT_PENDING)setEnabled(!on&&live&&known);}
+        void pending(boolean on){spinner.setVisibility(on?VISIBLE:GONE);if(def.gate(item)==CardDefinition.Gate.KNOWN_NOT_PENDING)setEnabled(!on&&live&&known);}
         void render(Map<String,EntityStates.Entity> states,boolean live){
             if(def.feed==CardDefinition.Feed.CLOCK)return;
             boolean shown=def.feed==CardDefinition.Feed.MUSIC||live; // the music tile answers to the player, not to HA
@@ -226,13 +227,13 @@ public final class DashboardView extends FrameLayout {
             gate();
         }
         private void apply(CardBodies.CardContent c){
-            value.setText(c.value);detail.setText(c.detail);detail2.setText(c.detail2);
+            value.setText(c.value);detail.setText(c.detail);detail2.setText(c.detail2);shownIcon=c.icon!=null?c.icon:item.icon;
             if(!clock)detail.setVisibility(c.detail.isEmpty()?GONE:VISIBLE);
             setContentDescription(c.description);
         }
         /** Visible but inactive while HA reports no usable state; a call in flight blocks only tiles whose tap is that call. */
         private void gate(){
-            switch(def.gate){
+            switch(def.gate(item)){
                 case KNOWN_NOT_PENDING:setEnabled(live&&known&&spinner.getVisibility()!=VISIBLE);break;
                 case KNOWN:setEnabled(live&&known);break;
                 default:break;

@@ -237,6 +237,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         dashboard.onBrandHold(()->navigation.show());
         String saved=getSharedPreferences("helios",MODE_PRIVATE).getString("connection",null);
         if(saved!=null)try{config=new JSONObject(saved);}catch(Exception ignored){}
+        MdiIcons.install(this); // before the cache parse: a version-6 layout names its icons by mdi: catalogue
         String cached=getSharedPreferences("helios",MODE_PRIVATE).getString("dashboard_v2",null);
         if(cached!=null)try{specRaw=new JSONObject(cached);spec=DashboardSpec.parse(specRaw);}catch(Exception ignored){specRaw=null;}
         if(spec==null){spec=DashboardSpec.fallback();configIssue=DashboardSpec.VERSION_ERROR;}
@@ -319,8 +320,23 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(ActionPolicy.needsKnown(item.action)&&!(e!=null&&e.known()))return; // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
         if(panel==ActionPolicy.Panel.COVER){coverPanel(item);return;}
         if(panel==ActionPolicy.Panel.COVER_GROUP){coverGroupPanel(item);return;}
+        if(panel==ActionPolicy.Panel.DETAILS){detailsPanel(item);return;}
         ActionPolicy.Call c=ActionPolicy.call(item,dashboardLabel(item));
         if(c!=null)confirm(item,c.question,()->callEntity(item,c.entity,c.domain,c.service,null));
+    }
+    /** A tile's details: value plus the intents its domain allows; each button goes through the same confirmation gate as a tap would, locks always. */
+    private void detailsPanel(DashboardSpec.Item item){
+        closePanel();
+        DetailsDialog details=new DetailsDialog(this,item,states,live,intent->{
+            if(intent==ActionPolicy.Intent.CONTROLS){coverPanel(item);return;}
+            ActionPolicy.Call c=ActionPolicy.call(item,intent,dashboardLabel(item));
+            if(c==null)return;
+            closePanel();
+            confirm(item.confirm||ActionPolicy.forcedConfirm(intent),item,c.question,()->callEntity(item,c.entity,c.domain,c.service,null));
+        });
+        panel=details.dialog;panelItem=item;panelRefresh=()->details.refresh(states,live);
+        details.dialog.setOnCancelListener(d->{panel=null;panelItem=null;panelRefresh=null;});
+        details.dialog.show();
     }
     private void openMusicLibrary(){
         if(service==null||!service.musicConfigured()){Toast.makeText(this,"Music Assistant nie jest skonfigurowany (Odśwież parowanie)",Toast.LENGTH_LONG).show();return;}
@@ -329,8 +345,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     private String dashboardLabel(DashboardSpec.Item item){return item.title!=null?item.title:item.entity;}
     /** Confirmation is only ever a gate; cancel, outside touch and connection loss all close it without sending. */
-    private void confirm(DashboardSpec.Item item,String fallbackText,Runnable action){
-        if(!item.confirm){action.run();return;}
+    private void confirm(DashboardSpec.Item item,String fallbackText,Runnable action){confirm(item.confirm,item,fallbackText,action);}
+    private void confirm(boolean gate,DashboardSpec.Item item,String fallbackText,Runnable action){
+        if(!gate){action.run();return;}
         closePanel();
         confirmDialog(item.confirmText!=null?item.confirmText:fallbackText,"Potwierdź",()->{if(live)action.run();else Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();},()->{});
     }

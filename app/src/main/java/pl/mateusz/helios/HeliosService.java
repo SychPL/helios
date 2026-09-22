@@ -92,6 +92,7 @@ public final class HeliosService extends Service {
 
     @Override public void onCreate(){
         super.onCreate();
+        MdiIcons.install(this); // before any dashboard parse: a version-6 layout names its icons by mdi: catalogue
         NotificationManager manager=(NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL,"Helios",NotificationManager.IMPORTANCE_MIN));
         Notification notification=new Notification.Builder(this,CHANNEL).setContentTitle("Helios działa").setSmallIcon(R.drawable.ic_helios).setOngoing(true).build();

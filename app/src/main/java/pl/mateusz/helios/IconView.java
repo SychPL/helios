@@ -4,16 +4,28 @@ import android.content.Context;
 import android.graphics.*;
 import android.view.View;
 
-/** Line icons for the closed registry in DashboardSpec.ICONS plus the overlay's transport glyphs, drawn in code on a 32-unit grid. */
+/** `mdi:*` glyphs from the bundled webfont, the six drawn icons of schema 2-5 and the overlay's transport glyphs, all on a 32-unit grid. */
 final class IconView extends View {
-    private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static Typeface mdi;
+    private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG),fill=new Paint(Paint.ANTI_ALIAS_FLAG),glyph=new Paint(Paint.ANTI_ALIAS_FLAG);
     private String icon="information";
     private final Path path=new Path();
-    IconView(Context context){super(context);paint.setStrokeWidth(1.8f);paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);fill.setStyle(Paint.Style.FILL);}
-    void set(String icon,int color){this.icon=icon;paint.setColor(color);fill.setColor(color);invalidate();}
+    IconView(Context context){
+        super(context);paint.setStrokeWidth(1.8f);paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);fill.setStyle(Paint.Style.FILL);
+        glyph.setTextAlign(Paint.Align.CENTER);glyph.setTextSize(30); // MDI glyphs fill their em box; 30 of 32 units matches the drawn icons' reach
+    }
+    void set(String icon,int color){this.icon=icon;paint.setColor(color);fill.setColor(color);glyph.setColor(color);invalidate();}
     String icon(){return icon;}
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);canvas.save();canvas.scale(getWidth()/32f,getHeight()/32f);
+        String name=MdiIcons.name(icon);
+        Integer codepoint=name==null||MdiIcons.installed()==null?null:MdiIcons.installed().codepoint(name);
+        if(codepoint!=null){
+            if(mdi==null)mdi=Typeface.createFromAsset(getContext().getAssets(),MdiIcons.FONT);
+            glyph.setTypeface(mdi);Paint.FontMetrics m=glyph.getFontMetrics();
+            canvas.drawText(new String(Character.toChars(codepoint)),16,16-(m.ascent+m.descent)/2,glyph);
+            canvas.restore();return;
+        }
         switch(icon){
             case "garage-open":
                 canvas.drawLine(3,12,16,3,paint);canvas.drawLine(16,3,29,12,paint);canvas.drawLine(5,12,5,29,paint);canvas.drawLine(27,12,27,29,paint);

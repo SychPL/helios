@@ -156,7 +156,7 @@ public class DashboardSpecTest {
         JSONObject plainEntityTap=exampleV4().put("version",5);items=plainEntityTap.getJSONArray("items");
         for(int i=0;i<items.length();i++)if(items.getJSONObject(i).getString("id").equals("courier"))items.getJSONObject(i).put("confirmation",new JSONObject().put("enabled",true));
         rejects(plainEntityTap,"confirmation on an entity tile without off_entity");
-        rejects(exampleV5().put("version",6),"version 6");
+        rejects(exampleV5().put("version",7),"version 7");
     }
     @Test public void schemaFourRejectsMalformedCoverGroupsAndForecastFields() throws Exception {
         rejects(exampleV4().put("version",3),"cover_group and forecast fields at version 3");
@@ -181,7 +181,7 @@ public class DashboardSpecTest {
         JSONObject overlap=exampleV4();overlap.getJSONArray("items").put(item("other","light",3,2,1,1).put("entity","light.x"));rejects(overlap,"cell (3,2) used twice");
     }
     @Test public void rejectsWrongVersionAndGrid() throws Exception {
-        rejects(example().put("version",1),"version 1");rejects(example().put("version",6),"version 6");
+        rejects(example().put("version",1),"version 1");rejects(example().put("version",7),"version 7");
         rejects(example().put("version","2"),"version as text");
         rejects(example().put("grid",new JSONObject().put("columns",3).put("rows",3)),"3 columns");
         rejects(example().put("extra",1),"unknown root field");

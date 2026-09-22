@@ -72,4 +72,26 @@ public class CardBodiesTest {
         assertEquals("",CardBodies.defaultLabel(item("clock",null,null,null)));assertEquals("Pogoda",CardBodies.defaultLabel(item("weather","weather.x",null,null)));
         assertEquals("—",CardBodies.number(null,"%"));assertEquals("13°C",CardBodies.number("12.6","°C"));assertEquals("abc%",CardBodies.number("abc","%"));
     }
+    @Test public void tileSpeaksTheDomainsLanguageAndPrefersTheEntitysOwnNameAndIcon() throws Exception {
+        MdiIconsTest.install();
+        DashboardSpec.Item l=item("tile","light.salon",null,null);
+        CardBodies.CardContent c=render(l,states("light.salon",state("on","friendly_name","Lampa w salonie","icon","mdi:ceiling-light")),true);
+        assertEquals("Włączone",c.value);assertTrue(c.accent);assertEquals("Lampa w salonie",c.label);assertEquals("mdi:ceiling-light",c.icon);assertEquals("Lampa w salonie: Włączone",c.description);
+        c=render(l,states("light.salon",state("off","icon","mdi:no-such-glyph")),true);assertEquals("Wyłączone",c.value);assertFalse(c.accent);assertNull(c.label);assertNull(c.icon);
+        c=render(l,Collections.emptyMap(),false);assertEquals("Brak danych",c.value);assertEquals("Salon: Brak danych, dane nieaktualne",c.description);
+        assertEquals("Dom",render(item("tile","light.salon","Dom",null),states("light.salon",state("on","friendly_name","Inna")),true).label);
+        assertEquals("21,4 °C",render(item("tile","sensor.t",null,null),states("sensor.t",state("21.4","unit_of_measurement","°C")),true).value);
+        assertEquals("21 °C",render(item("tile","sensor.t",null,null),states("sensor.t",state("21.0","unit_of_measurement","°C")),true).value);
+        assertEquals("ready",render(item("tile","sensor.t",null,null),states("sensor.t",state("ready")),true).value);
+        assertEquals("55",render(item("tile","sensor.t",null,"humidity"),states("sensor.t",state("21","humidity","55")),true).value);
+        assertEquals("Brak danych",render(item("tile","sensor.t",null,"humidity"),states("sensor.t",state("21")),true).value);
+        assertEquals("Otwarta",render(item("tile","cover.r",null,null),states("cover.r",state("open")),true).value);
+        assertEquals("Zamknięty",render(item("tile","lock.d",null,null),states("lock.d",state("locked")),true).value);
+        assertTrue(render(item("tile","lock.d",null,null),states("lock.d",state("unlocked")),true).accent);
+        assertEquals("Otwarte",render(item("tile","binary_sensor.d",null,null),states("binary_sensor.d",state("on","device_class","door")),true).value);
+        assertEquals("Brak",render(item("tile","binary_sensor.m",null,null),states("binary_sensor.m",state("off","device_class","motion")),true).value);
+        assertEquals("Tak",render(item("tile","binary_sensor.x",null,null),states("binary_sensor.x",state("on")),true).value);
+        assertEquals("Włączone",CardBodies.stateText("script",state("on"))); // a running script reads as on; good enough for a tile
+        assertEquals("abc °C",CardBodies.decimal("abc","°C"));
+    }
 }
