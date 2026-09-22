@@ -147,7 +147,8 @@ public final class DashboardView extends FrameLayout {
     private final class Tile extends FrameLayout {
         final DashboardSpec.Item item;
         final CardDefinition def;final CardBodies.Body body;
-        final LinearLayout split,column,head,side;
+        final LinearLayout split,column,head,side,valueLine;
+        final boolean inlineIcon;
         final View rule;
         final IconView icon;
         final TextView title,value,detail,detail2;
@@ -165,14 +166,30 @@ public final class DashboardView extends FrameLayout {
             rule=new View(getContext());rule.setVisibility(GONE);split.addView(rule,new LinearLayout.LayoutParams(1,-1));
             side=new LinearLayout(getContext());side.setOrientation(LinearLayout.VERTICAL);side.setGravity(Gravity.CENTER_VERTICAL);side.setVisibility(GONE);split.addView(side,new LinearLayout.LayoutParams(-2,-1));
             head=new LinearLayout(getContext());head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);column.addView(head);
-            icon=new IconView(getContext());head.addView(icon);if(item.icon==null)icon.setVisibility(GONE);
-            title=line(sans,1);head.addView(title);
-            value=line(clock?mono:sans,clock?1:2);column.addView(value);
+            icon=new IconView(getContext());
+            title=line(sans,1);
+            // A big-value tile reads better with the icon beside the number and no word above it; everything else keeps the icon in the header.
+            inlineIcon=def.layout==CardDefinition.Layout.LARGE_VALUE;
+            if(inlineIcon){
+                head.addView(title);
+                valueLine=new LinearLayout(getContext());valueLine.setOrientation(LinearLayout.HORIZONTAL);valueLine.setGravity(Gravity.CENTER_VERTICAL);
+                valueLine.addView(icon);
+                value=line(sans,1);valueLine.addView(value);
+                column.addView(valueLine);
+            }else{
+                head.addView(icon);head.addView(title);
+                valueLine=null;
+                value=line(clock?mono:sans,clock?1:2);column.addView(value);
+            }
+            if(shownIcon==null)icon.setVisibility(GONE);
             detail=line(sans,1);column.addView(detail);
             detail2=line(sans,1);column.addView(detail2);detail2.setVisibility(GONE);
             spinner=new ProgressBar(getContext());spinner.setIndeterminate(true);spinner.setVisibility(GONE);addView(spinner,new LayoutParams(-2,-2,Gravity.TOP|Gravity.END));
-            String label=CardBodies.defaultLabel(item);title.setText(label);if(label.isEmpty())title.setVisibility(GONE);
-            head.setVisibility(item.icon==null&&label.isEmpty()?GONE:VISIBLE);
+            // The type's own word ("Pogoda") is not worth a line above a tile that already shows a weather icon;
+            // a title someone wrote in the YAML still shows. The description keeps the word either way.
+            String label=inlineIcon&&item.title==null?"":CardBodies.defaultLabel(item);
+            title.setText(label);if(label.isEmpty())title.setVisibility(GONE);
+            head.setVisibility(label.isEmpty()&&(inlineIcon||shownIcon==null)?GONE:VISIBLE);
             if(item.interactive()){setClickable(true);setFocusable(true);setOnClickListener(v->{if(actions!=null)actions.onTap(item);});}
             theme();
             if(clock)clock();
@@ -189,7 +206,7 @@ public final class DashboardView extends FrameLayout {
             title.setTextColor(attention?Theme.ATTENTION:t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
             value.setTextColor(!live?t.muted:attention?Theme.ATTENTION:t.text);
             icon.setVisibility(shownIcon==null?GONE:VISIBLE);
-            head.setVisibility(shownIcon==null&&title.getText().length()==0?GONE:VISIBLE);
+            head.setVisibility(title.getText().length()==0&&(inlineIcon||shownIcon==null)?GONE:VISIBLE);
             if(shownIcon!=null)icon.set(shownIcon,attention?Theme.ATTENTION:accent?t.accent:t.muted);
             rule.setBackgroundColor((0x33<<24)|(t.muted&0xFFFFFF));
         }
@@ -197,8 +214,10 @@ public final class DashboardView extends FrameLayout {
         void scale(float s,float w,float h){
             unitW=w;unitH=h;
             int pad=Math.round((clock?ClockLayout.PAD:14)*s);column.setPadding(pad,pad,pad,pad);
-            int iconPx=Math.round(26*s);icon.setLayoutParams(new LinearLayout.LayoutParams(iconPx,iconPx));
-            LinearLayout.LayoutParams t=new LinearLayout.LayoutParams(0,-2,1);t.leftMargin=item.icon==null?0:Math.round(8*s);title.setLayoutParams(t);
+            int iconPx=Math.round((inlineIcon?52:26)*s);
+            LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(iconPx,iconPx);if(inlineIcon)ip.rightMargin=Math.round(10*s);
+            icon.setLayoutParams(ip);
+            LinearLayout.LayoutParams t=new LinearLayout.LayoutParams(0,-2,1);t.leftMargin=inlineIcon||item.icon==null?0:Math.round(8*s);title.setLayoutParams(t);
             size(title,clock?ClockLayout.TITLE:17,s);
             switch(def.layout){
                 case CLOCK:{
@@ -255,7 +274,7 @@ public final class DashboardView extends FrameLayout {
             side.setVisibility(any?VISIBLE:GONE);rule.setVisibility(any?VISIBLE:GONE);
             if(!any)return;
             Theme t=Theme.current();
-            float text=rows.size()>=5?13:15; // five readings only fit in one cell of height when the type gives way a little
+            float text=rows.size()>=5?14:17; // five readings only fit in one cell of height when the type gives way a little
             side.setPadding(Math.round(12*scale),0,0,0);
             for(CardBodies.Row r:rows){
                 if(r.separated){
