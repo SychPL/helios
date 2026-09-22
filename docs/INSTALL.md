@@ -145,6 +145,18 @@ never revokes it.
 - **Updates.** The clock's hidden menu (long-press the HELIOS label) can check
   GitHub releases and install a newer APK through the Android package installer.
   Sideloaded updates also work: `adb install -r` keeps the pairing and settings.
+- **Clock tools (optional).** The same hidden menu has an entry *Narzędzia
+  zegara*. It talks to a separate app,
+  [smartclock2tool](https://github.com/SychPL/smartclock2tool), which does the things
+  Helios itself is not allowed to do: turn ADB on or off, grant a permission,
+  set the home screen app, free the microphone from the factory Google shell,
+  and install an APK without the installer dialog. Helios never gets root or a
+  shell - it asks over an explicit intent and the tool decides. Both sides pin
+  each other's signing certificate the first time and re-check it on every call,
+  so a rebuilt tool with a different key has to be accepted again. Without the
+  tool installed, the menu shows a single entry that offers to install it. The
+  operations, the codes and the guarantees are described in
+  [SPEC-0.12-tools-bridge.md](SPEC-0.12-tools-bridge.md).
 - **Nothing is persisted outside the app.** Helios does not change your default
   launcher, does not touch Google settings and does not start itself on boot
   unless you make it the home screen app.

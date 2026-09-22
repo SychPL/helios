@@ -12,14 +12,24 @@ ask it to, and talks to nothing but your own Home Assistant.
 
 ## What it does
 
-- **Dashboard from Home Assistant.** A 4x3 grid of tiles - clock, weather,
-  entity readouts, lights, covers, a garage door, a music tile - described in
-  the `helios` section of a Lovelace dashboard. Saving the YAML re-renders the
-  clock; no new APK. Tiles can be conditional on any HA entity state. Tapping a
-  light toggles it, a cover opens a panel, a lights tile can turn a whole group
-  off after a confirmation. The clock only ever calls `light.toggle`,
-  `light.turn_off` and the three `cover.*` services, never a service name that
-  came out of the YAML. See [docs/ha-dashboard.md](docs/ha-dashboard.md).
+- **Dashboard from Home Assistant.** A 4x3 grid of tiles - a clock, weather, a
+  music tile and a generic `tile` for an entity of any domain - described in the
+  `helios` section of a Lovelace dashboard. Saving the YAML re-renders the clock;
+  no new APK. Tiles can be conditional on any HA entity state, carry any icon
+  from the bundled Material Design Icons set, and a document can hold several
+  pages. A tap is an *intent* (`toggle`, `close`, `lock`, `activate`, `details`,
+  ...), not a service name: the clock picks the service itself from a fixed table
+  and always targets the entity written in that same tile, so no YAML can name a
+  service, a URL or a foreign target. Unknown fields, a bad icon or a wrong
+  domain reject the whole document and the previous layout stays on screen. See
+  [docs/ha-dashboard.md](docs/ha-dashboard.md) and
+  [docs/SPEC-0.15-dashboard-cards.md](docs/SPEC-0.15-dashboard-cards.md).
+- **Screensaver.** After a quiet minute the clock can fall back to a dim clock
+  face - always, only in a dark room, or never. The mode, the timings and the
+  light thresholds come from Home Assistant, the darkness from the built-in
+  light sensor, and a tile that wants attention keeps the panel awake. The
+  background can be a slideshow from your own photo storage. See
+  [docs/SPEC-0.14-wygaszacz-zdjecia.md](docs/SPEC-0.14-wygaszacz-zdjecia.md).
 - **Voice.** Always-on local wake word detection ("Okay Nabu", microWakeWord
   ARMv7 engine with a pinned model). Nothing is recorded or sent before the
   wake word fires; then the microphone streams to the HA Assist pipeline over

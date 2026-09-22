@@ -39,7 +39,7 @@ helios:
 
 ## `version: 6` - strony, kafelek `tile`, intencje, ikony `mdi:`
 
-Przykład całego dokumentu: [ha/helios-clock-v6.yaml](../ha/helios-clock-v6.yaml). Wymaga Heliosa 0.12; starszy zegar odrzuca dokument i zachowuje poprzedni układ.
+Przykład całego dokumentu: [ha/helios-clock-v6.yaml](../ha/helios-clock-v6.yaml). Wymaga Heliosa 0.12; starszy zegar odrzuca dokument i zachowuje poprzedni układ. Skąd się wziął ten schemat i co świadomie zostało poza nim, opisuje [SPEC 0.15](SPEC-0.15-dashboard-cards.md).
 
 - Korzeń to `version: 6` i `pages` (1-8 stron `{ id, title?, items }`), bez `grid` (siatka jest zawsze 4×3) i bez `items` w korzeniu. Każda strona ma własne 12 pól, własne nakładanie i własny jeden `music`; `id` elementów są unikalne w całym dokumencie. Zegar pokazuje na razie stronę 1, ale czyta i subskrybuje wszystkie strony. Dokument 2-5 to jedna niejawna strona `main`.
 - `tile` - jeden kafelek dla encji dowolnej domeny: `entity`, opcjonalnie `title` (domyślnie `friendly_name` encji), `icon`, `attribute` (pokazuje atrybut zamiast stanu), `tap_action.action`, `confirmation`, `visible_when`. Stan w słowach po polsku (światła, rolety, zamki, czujniki binarne wg `device_class`), liczby z jednostką (`21,4 °C`).

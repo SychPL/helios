@@ -358,6 +358,11 @@ Konfiguracja połączenia na urządzeniu powinna używać dedykowanego użytkown
 - Elementy światła i rolety wywołują wyłącznie usługi dozwolone dla ich typu.
 - Konfiguracja nie umożliwia uruchomienia dowolnej usługi, URL-a ani kodu.
 
+> **Od schematu 6** ([SPEC 0.15](SPEC-0.15-dashboard-cards.md)) gwarancja brzmi precyzyjniej, bo doszły
+> intencje: konfiguracja nie może wskazać dowolnej usługi, adresu, kodu ani obcego celu; może natomiast
+> aktywować jawnie wybrany `script` albo `scene`, których skutki należą już do Home Assistanta. Usługę
+> wybiera zegar z zamkniętej tabeli, a celem jest zawsze encja wpisana w tym samym kafelku.
+
 ## 12. Droga do edytora wizualnego
 
 Przyszły edytor w HA ma operować na tym samym modelu: stabilnych `id`, typach elementów, współrzędnych i rozmiarach siatki, właściwościach prezentacji, warunku widoczności, akcji oraz potwierdzeniu. Edytor może generować sekcję `helios.version: 2` albo jej zgodną następną wersję. Nie wymaga to renderowania kart Lovelace na zegarze; Lovelace może jedynie hostować interfejs edycji i przechowywać dokument.
