@@ -94,6 +94,9 @@ public class CardBodiesTest {
         assertEquals("Brak",render(item("tile","binary_sensor.m",null,null),states("binary_sensor.m",state("off","device_class","motion")),true).value);
         assertEquals("Tak",render(item("tile","binary_sensor.x",null,null),states("binary_sensor.x",state("on")),true).value);
         assertEquals("Włączone",CardBodies.stateText("script",state("on"))); // a running script reads as on; good enough for a tile
+        assertEquals("—",render(item("tile","scene.noc",null,null),states("scene.noc",state("unknown")),true).value); // never used yet, still activatable
+        assertEquals("Brak danych",render(item("tile","scene.noc",null,null),states("scene.noc",state("unavailable")),true).value);
+        assertEquals("Brak danych",render(item("tile","light.x",null,null),states("light.x",state("unknown")),true).value);
         assertEquals("abc °C",CardBodies.decimal("abc","°C"));
     }
 }

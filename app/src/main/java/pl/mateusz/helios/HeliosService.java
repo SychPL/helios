@@ -560,8 +560,10 @@ public final class HeliosService extends Service {
             public boolean clear(){boolean ok=getSharedPreferences("helios",MODE_PRIVATE).edit().remove("connection").commit();if(ok){connection=null;main.post(HeliosService.this::notifyConnection);}return ok;}},
         MusicAssistantClient::probe,
         new ConnectionController.Transports(){
-            public void restartAll(){main.post(()->{resetAppearance();stopHa();stopMusic();startHa();startMusic();});} // pairing: everything from scratch
-            public void restartHa(){main.post(()->{stopHa();startHa();});} // pipeline/dashboard changed: the HA session only, music untouched
+            // The activity re-attaches on notifyConnection; Store.save() already posted one, but that runs before this
+            // restart and binds it to the client about to be stopped - so it is told again once the new client exists.
+            public void restartAll(){main.post(()->{resetAppearance();stopHa();stopMusic();startHa();startMusic();notifyConnection();});} // pairing: everything from scratch
+            public void restartHa(){main.post(()->{stopHa();startHa();notifyConnection();});} // pipeline/dashboard changed: the HA session only, music untouched
             public void restartMusic(){main.post(()->{stopMusic();startMusic();});}
             public void stopAll(){main.post(()->{stopHa();stopMusic();});} // transports only: the in-memory connection (with its auth_invalid flag) stays for authInvalid(); Store.clear() is what forgets it
             public void issue(String text){main.post(()->{musicIssue=text;publishMusic();});}});

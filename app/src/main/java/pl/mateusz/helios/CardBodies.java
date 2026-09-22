@@ -76,7 +76,7 @@ final class CardBodies {
         EntityStates.Entity e=states.get(item.entity);boolean known=e!=null&&e.known();
         String domain=item.entity.substring(0,item.entity.indexOf('.'));
         String text;
-        if(!known)text="Brak danych";
+        if(!known)text=ActionPolicy.usable("activate",e)&&ActionPolicy.defaultIntent(domain)==ActionPolicy.Intent.ACTIVATE?"—":"Brak danych"; // a scene or button reads unknown until first used, and still works
         else if(item.attribute!=null){String a=e.attribute(item.attribute);text=a==null?"Brak danych":a;}
         else text=stateText(domain,e);
         String label=item.title!=null?item.title:known&&e.attribute("friendly_name")!=null?e.attribute("friendly_name"):null;

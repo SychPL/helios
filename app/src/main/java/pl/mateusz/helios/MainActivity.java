@@ -343,7 +343,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         closePanel();dashboard.musicOverlay().closePanel();
         library=new MusicLibraryDialog(this,service);library.show();
     }
-    private String dashboardLabel(DashboardSpec.Item item){return item.title!=null?item.title:item.entity;}
+    /** The word a question uses for the tile: its title, else the entity's own name, else the entity id. */
+    private String dashboardLabel(DashboardSpec.Item item){
+        if(item.title!=null)return item.title;
+        EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
+        return e!=null&&e.attribute("friendly_name")!=null?e.attribute("friendly_name"):item.entity;
+    }
     /** Confirmation is only ever a gate; cancel, outside touch and connection loss all close it without sending. */
     private void confirm(DashboardSpec.Item item,String fallbackText,Runnable action){confirm(item.confirm,item,fallbackText,action);}
     private void confirm(boolean gate,DashboardSpec.Item item,String fallbackText,Runnable action){
