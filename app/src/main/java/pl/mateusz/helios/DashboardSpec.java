@@ -13,6 +13,8 @@ final class DashboardSpec {
     static final List<String> COVER_ATTRIBUTES=Arrays.asList("current_position","supported_features");
     static final List<String> FORECAST_ATTRIBUTES=Arrays.asList("forecast_date","condition","temperature","templow","temperature_unit","fetched_at","valid_until");
     private static final List<String> COMMON=Arrays.asList("id","type","column","row","width","height","title","icon","visible_when","tap_action","confirmation");
+    /** Keys every type takes; icon, tap_action and confirmation come from the CardDefinition. */
+    private static final List<String> BASE=Arrays.asList("id","type","column","row","width","height","title","visible_when");
     private static final String ENTITY="[a-z0-9_]+\\.[a-z0-9_]+";
     final List<Item> items;
     final int version;
@@ -61,10 +63,10 @@ final class DashboardSpec {
         JSONArray rows=root.optJSONArray("items");
         if(rows==null)throw new IllegalArgumentException("Wymagane pole items");
         if(rows.length()>MAX_ITEMS)throw new IllegalArgumentException("items: najwyżej "+MAX_ITEMS+" elementów");
-        List<Item> result=new ArrayList<>();Set<String> ids=new HashSet<>();boolean[][] used=new boolean[ROWS][COLUMNS];int music=0;
+        List<Item> result=new ArrayList<>();Set<String> ids=new HashSet<>(),singles=new HashSet<>();boolean[][] used=new boolean[ROWS][COLUMNS];
         for(int i=0;i<rows.length();i++){
             Item item=item(rows.getJSONObject(i),version);
-            if(item.type.equals("music")&&++music>1)throw new IllegalArgumentException("Dozwolony jest jeden kafelek music");
+            if(CardDefinition.of(item.type).singleton&&!singles.add(item.type))throw new IllegalArgumentException("Dozwolony jest jeden kafelek "+item.type);
             if(!ids.add(item.id))throw new IllegalArgumentException("Powtórzony id: "+item.id);
             for(int r=item.row;r<item.row+item.height;r++)for(int c=item.column;c<item.column+item.width;c++){
                 if(used[r-1][c-1])throw new IllegalArgumentException("Element "+item.id+" nakłada się na inny element");
@@ -77,31 +79,16 @@ final class DashboardSpec {
 
     private static Item item(JSONObject o,int version) throws Exception {
         String type=string(o,"type",true,16);
-        List<String> allowed=new ArrayList<>(COMMON);
-        String action;
-        switch(type){
-            case "clock":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));action=null;break;
-            case "weather":allowed.removeAll(Arrays.asList("icon","tap_action","confirmation"));allowed.addAll(Arrays.asList("entity","temperature_entity"));if(version>=4)allowed.addAll(Arrays.asList("forecast_entity","forecast_when"));action=null;break;
-            case "entity":
-                allowed.addAll(Arrays.asList("entity","attribute"));
-                if(version>=5&&o.has("off_entity"))action="lights_off";  // schema 5 (docs/ha-dashboard.md): a read-only tile that can turn its lights off
-                else{allowed.removeAll(Arrays.asList("tap_action","confirmation"));action=null;}
-                if(version>=5)allowed.add("off_entity");
-                break;
-            case "light":allowed.add("entity");action="toggle";break;
-            case "cover":allowed.add("entity");action="controls";break;
-            case "garage":allowed.add("entity");action="close";break;
-            case "music":
-                if(version<3)throw new IllegalArgumentException("Typ music wymaga version: 3");
-                allowed.removeAll(Arrays.asList("tap_action","confirmation"));action="library";break;
-            case "cover_group":
-                if(version<4)throw new IllegalArgumentException("Typ cover_group wymaga version: 4");
-                allowed.removeAll(Arrays.asList("tap_action","confirmation"));allowed.add("covers");action="covers";break;
-            default:throw new IllegalArgumentException("Nieobsługiwany typ elementu: "+type);
-        }
+        CardDefinition def=CardDefinition.of(type);
+        if(def==null)throw new IllegalArgumentException("Nieobsługiwany typ elementu: "+type);
+        if(version<def.minVersion)throw new IllegalArgumentException("Typ "+type+" wymaga version: "+def.minVersion);
+        Set<String> allowed=new LinkedHashSet<>(BASE);allowed.addAll(def.fieldsAt(version));
+        boolean tappable=def.action!=null&&(def.actionRequires==null||o.has(def.actionRequires));
+        String action=tappable?def.action:null;
+        if(tappable&&def.tapConfigurable)allowed.addAll(Arrays.asList("tap_action","confirmation"));
         for(Iterator<String> k=o.keys();k.hasNext();){
             String key=k.next();
-            if(!allowed.contains(key))throw new IllegalArgumentException((COMMON.contains(key)||Arrays.asList("entity","temperature_entity","attribute","covers","forecast_entity","forecast_when").contains(key)?"Pole niedozwolone dla typu "+type+": ":"Nieznane pole elementu: ")+key);
+            if(!allowed.contains(key))throw new IllegalArgumentException((COMMON.contains(key)||CardDefinition.KNOWN_FIELDS.contains(key)?"Pole niedozwolone dla typu "+type+": ":"Nieznane pole elementu: ")+key);
         }
         String id=string(o,"id",true,40);
         if(!id.matches("[a-z0-9_-]{1,40}"))throw new IllegalArgumentException("Nieprawidłowy id: "+id);
@@ -114,13 +101,12 @@ final class DashboardSpec {
         }
         if(allowed.contains("entity")){
             entity=string(o,"entity",true,128);
-            String domain=type.equals("garage")?"cover":type;
-            if(!entity.matches(ENTITY)||(!type.equals("entity")&&!entity.startsWith(domain+".")))throw new IllegalArgumentException("Element "+id+" wymaga encji z domeny "+domain);
+            if(!entity.matches(ENTITY)||(!def.entityDomain.isEmpty()&&!entity.startsWith(def.entityDomain+".")))throw new IllegalArgumentException("Element "+id+" wymaga encji z domeny "+def.domainLabel());
         }
         if(o.has("temperature_entity")){temperatureEntity=string(o,"temperature_entity",true,128);if(!temperatureEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("temperature_entity wymaga encji sensor");}
         if(o.has("attribute")){attribute=string(o,"attribute",true,64);if(!attribute.matches("[a-z0-9_]{1,64}"))throw new IllegalArgumentException("Nieprawidłowy attribute");}
         List<Cover> covers=new ArrayList<>();
-        if(type.equals("cover_group")){
+        if(allowed.contains("covers")){
             JSONArray list=o.optJSONArray("covers");
             if(list==null||list.length()!=2)throw new IllegalArgumentException("cover_group wymaga dokładnie dwóch pozycji covers");
             for(int n=0;n<2;n++){
@@ -142,7 +128,7 @@ final class DashboardSpec {
         String title=o.has("title")?string(o,"title",true,40):null;
         String icon=null;
         if(o.has("icon")){icon=string(o,"icon",true,40);if(!ICONS.contains(icon))throw new IllegalArgumentException("Nieznana ikona: "+icon);}
-        else switch(type){case "entity":icon="information";break;case "light":icon="lightbulb";break;case "cover":case "cover_group":icon="window-shutter";break;case "garage":icon="garage-open";break;case "music":icon="music";break;default:break;}
+        else icon=def.defaultIcon;
         String visibleEntity=null,visibleState=null;
         if(o.has("visible_when")){String[] when=when(o,"visible_when");visibleEntity=when[0];visibleState=when[1];}
         if(o.has("tap_action")){
@@ -150,7 +136,7 @@ final class DashboardSpec {
             keys(tap,Collections.singletonList("action"),"tap_action");
             if(!string(tap,"action",true,16).equals(action))throw new IllegalArgumentException("Typ "+type+" dopuszcza wyłącznie tap_action.action: "+action);
         }
-        boolean confirm=type.equals("garage")||offEntity!=null;String confirmText=null;
+        boolean confirm=tappable&&def.confirmByDefault;String confirmText=null;
         if(o.has("confirmation")){
             JSONObject c=o.optJSONObject("confirmation");if(c==null)throw new IllegalArgumentException("confirmation musi być obiektem");
             keys(c,Arrays.asList("enabled","text"),"confirmation");
@@ -200,8 +186,8 @@ final class DashboardSpec {
     Map<String,Set<String>> attributes(){
         Map<String,Set<String>> out=new HashMap<>();
         for(Item i:items){
-            if(i.type.equals("weather"))out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(WEATHER_ATTRIBUTES);
-            if(i.type.equals("cover")||i.type.equals("garage"))out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(COVER_ATTRIBUTES);
+            CardDefinition def=CardDefinition.of(i.type);
+            if(i.entity!=null&&!def.attributes.isEmpty())out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(def.attributes);
             for(Cover c:i.covers)out.computeIfAbsent(c.entity,k->new HashSet<>()).addAll(COVER_ATTRIBUTES);
             if(i.forecastEntity!=null)out.computeIfAbsent(i.forecastEntity,k->new HashSet<>()).addAll(FORECAST_ATTRIBUTES);
             if(i.attribute!=null)out.computeIfAbsent(i.entity,k->new HashSet<>()).add(i.attribute);

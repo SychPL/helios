@@ -312,18 +312,15 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         for(DashboardSpec.Item item:spec.items)if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
     }
     private void tap(DashboardSpec.Item item){
-        if(item.type.equals("music")){openMusicLibrary();return;} // library and remote control depend on MA, not on HA
+        ActionPolicy.Panel panel=ActionPolicy.panel(item.action);
+        if(panel==ActionPolicy.Panel.MUSIC_LIBRARY){openMusicLibrary();return;} // library and remote control depend on MA, not on HA
         if(!live||ha()==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
         EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
-        boolean known=e!=null&&e.known(); // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
-        switch(item.type){
-            case "light":if(known)confirm(item,"Przełączyć: "+dashboardLabel(item)+"?",()->call(item,"light","toggle"));break;
-            case "garage":if(known)confirm(item,"Zamknąć bramę?",()->call(item,"cover","close_cover"));break;
-            case "cover":if(known)coverPanel(item);break;
-            case "cover_group":coverGroupPanel(item);break;
-            case "entity":if(item.offEntity!=null&&known)confirm(item,"Zgasić światła?",()->callEntity(item,item.offEntity,"light","turn_off",null));break;
-            default:break;
-        }
+        if(ActionPolicy.needsKnown(item.action)&&!(e!=null&&e.known()))return; // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
+        if(panel==ActionPolicy.Panel.COVER){coverPanel(item);return;}
+        if(panel==ActionPolicy.Panel.COVER_GROUP){coverGroupPanel(item);return;}
+        ActionPolicy.Call c=ActionPolicy.call(item,dashboardLabel(item));
+        if(c!=null)confirm(item,c.question,()->callEntity(item,c.entity,c.domain,c.service,null));
     }
     private void openMusicLibrary(){
         if(service==null||!service.musicConfigured()){Toast.makeText(this,"Music Assistant nie jest skonfigurowany (Odśwież parowanie)",Toast.LENGTH_LONG).show();return;}
@@ -378,7 +375,6 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             if(!call(item,"cover",service,()->b.setEnabled(true)))b.setEnabled(true);
         });
     }
-    private void call(DashboardSpec.Item item,String domain,String service){call(item,domain,service,null);}
     private boolean anyPending(String id){for(String key:pendingActions)if(key.startsWith(id+":"))return true;return false;}
     private boolean call(DashboardSpec.Item item,String domain,String service,Runnable done){return callEntity(item,item.entity,domain,service,done);}
     /** One service call per entity; open/close are tracked per `id:entity:service` (A never blocks B), stop is never blocked and never queued (SPEC 0.9 pkt 4.2). */

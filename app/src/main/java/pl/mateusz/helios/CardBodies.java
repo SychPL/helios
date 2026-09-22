@@ -1,0 +1,86 @@
+package pl.mateusz.helios;
+
+import java.util.*;
+
+/** What each card type shows, as pure text and flags; DashboardView owns the Views and only applies the result. Testable on the JVM. */
+final class CardBodies {
+    /** Local facts the entity snapshot does not carry. */
+    interface Env {String time();String weekday();String date();String musicInfo();long now();}
+    /** One rendering: value line, up to two detail lines, an optional label override, the full content description, accent tint and an expiry for self-refreshing content. */
+    static final class CardContent {
+        final String value,detail,detail2,label,description;final boolean accent;final long expiresAt;
+        CardContent(String value,String detail,String detail2,String label,String description,boolean accent,long expiresAt){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.description=description;this.accent=accent;this.expiresAt=expiresAt;}
+        CardContent(String value,String detail,String label,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){
+            this(value,detail,"",label,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+(live?"":", dane nieaktualne"),accent,expiresAt);
+        }
+    }
+    interface Body {CardContent render(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env);}
+    private CardBodies(){}
+
+    static final Map<String,Body> FOR;
+    static {
+        LinkedHashMap<String,Body> m=new LinkedHashMap<>();
+        m.put("clock",(item,states,live,env)->new CardContent(env.time(),env.date(),env.weekday(),null,env.time()+", "+env.weekday()+", "+env.date(),false,0));
+        m.put("weather",CardBodies::weather);
+        m.put("entity",(item,states,live,env)->{
+            EntityStates.Entity e=states.get(item.entity);
+            String v=e==null||!e.known()?null:item.attribute==null?e.state:e.attribute(item.attribute);
+            return new CardContent(v==null?"Brak danych":v,"",null,false,0,item,live);
+        });
+        m.put("light",(item,states,live,env)->{
+            EntityStates.Entity e=states.get(item.entity);boolean known=e!=null&&e.known();
+            String text=!known?"Brak danych":e.state.equals("on")?"Włączone":e.state.equals("off")?"Wyłączone":e.state;
+            return new CardContent(text,"",null,known&&e.state.equals("on"),0,item,live);
+        });
+        m.put("cover",CardBodies::cover);
+        m.put("garage",CardBodies::cover);
+        m.put("music",(item,states,live,env)->new CardContent(env.musicInfo(),"","",null,"Muzyka: "+env.musicInfo(),false,0)); // the player, not HA, says whether this is live
+        m.put("cover_group",(item,states,live,env)->{
+            DashboardSpec.Cover ca=item.covers.get(0),cb=item.covers.get(1);
+            EntityStates.Entity a=states.get(ca.entity),b=states.get(cb.entity);
+            String label=defaultLabel(item);
+            return new CardContent(CoverText.line("A",a),CoverText.line("B",b),"",null,label+": "+ca.title+": "+CoverText.state(a)+", "+cb.title+": "+CoverText.state(b)+(live?"":", dane nieaktualne"),CoverText.attention(a)||CoverText.attention(b),0);
+        });
+        FOR=Collections.unmodifiableMap(m);
+    }
+    private static CardContent cover(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
+        EntityStates.Entity e=states.get(item.entity);boolean known=e!=null&&e.known();
+        String text=!known?"Brak danych":coverState(e.state),extra="";
+        if(known&&e.attribute("current_position")!=null)extra="Otwarcie "+number(e.attribute("current_position"),"%");
+        return new CardContent(text,extra,null,known&&!e.state.equals("closed"),0,item,live);
+    }
+    private static CardContent weather(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
+        if(item.forecast()){
+            Forecast.Mode mode=Forecast.mode(states.get(item.forecastWhenEntity),item.forecastWhenState);
+            if(mode==Forecast.Mode.UNKNOWN)return new CardContent("—","brak danych o trybie",null,false,0,item,live);
+            if(mode==Forecast.Mode.TOMORROW){
+                Forecast f=Forecast.parse(states.get(item.forecastEntity),env.now());
+                if(f==null)return new CardContent("—","brak prognozy","Jutro",false,0,item,live);
+                return new CardContent(f.max(),WeatherLabels.polish(f.condition)+(f.min()==null?"":" · "+f.min()),"Jutro",false,f.validUntilMs,item,live);
+            }
+        }
+        EntityStates.Entity e=states.get(item.entity);boolean known=e!=null&&e.known();
+        String temperature=null,unit="";
+        if(item.temperatureEntity!=null){EntityStates.Entity t=states.get(item.temperatureEntity);if(t!=null&&t.known()){temperature=t.state;if(t.attribute("unit_of_measurement")!=null)unit=t.attribute("unit_of_measurement");}}
+        else if(known){temperature=e.attribute("temperature");if(e.attribute("temperature_unit")!=null)unit=e.attribute("temperature_unit");}
+        String text=number(temperature,unit),extra; // no unit in HA means no unit on screen (SPEC 0.8a pkt 3.3)
+        if(known){extra=WeatherLabels.polish(e.state);String wind=e.attribute("wind_speed");if(wind!=null)extra+=" · Wiatr "+number(wind,e.attribute("wind_speed_unit")==null?"":" "+e.attribute("wind_speed_unit"));}
+        else extra="Brak danych";
+        return new CardContent(text,extra,null,false,0,item,live);
+    }
+    /** Title from the config, else the type's fixed word, else the entity id humanised. */
+    static String defaultLabel(DashboardSpec.Item item){
+        if(item.title!=null)return item.title;
+        CardDefinition def=CardDefinition.of(item.type);
+        if(def!=null&&def.defaultTitle!=null)return def.defaultTitle;
+        String name=item.entity.substring(item.entity.indexOf('.')+1).replace('_',' ');
+        return name.substring(0,1).toUpperCase(new Locale("pl"))+name.substring(1);
+    }
+    static String number(String raw,String unit){
+        if(raw==null)return "—";
+        try{return String.format(new Locale("pl"),"%.0f%s",Double.parseDouble(raw),unit);}catch(NumberFormatException e){return raw+unit;}
+    }
+    static String coverState(String state){
+        switch(state){case "open":return "Otwarta";case "closed":return "Zamknięta";case "opening":return "Otwieranie…";case "closing":return "Zamykanie…";default:return state;}
+    }
+}
