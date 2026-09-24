@@ -47,6 +47,7 @@ final class CardBodies {
             String text=!known?"Brak danych":e.state.equals("on")?"Włączone":e.state.equals("off")?"Wyłączone":e.state;
             return new CardContent(text,"",null,known&&e.state.equals("on"),0,item,live);
         });
+        m.put("energy",CardBodies::energy);
         m.put("cover",CardBodies::cover);
         m.put("garage",CardBodies::cover);
         m.put("music",(item,states,live,env)->new CardContent(env.musicInfo(),"","",null,null,"Muzyka: "+env.musicInfo(),false,0)); // the player, not HA, says whether this is live
@@ -140,6 +141,22 @@ final class CardBodies {
     static String decimal(String raw,String unit){
         try{double v=Double.parseDouble(raw);String s=String.format(new Locale("pl"),"%.1f",v);if(s.endsWith(",0"))s=s.substring(0,s.length()-2);return s+" "+unit;}
         catch(NumberFormatException e){return raw+" "+unit;}
+    }
+    /** "1302 / 742 W" (production / house) where the title goes, the battery charge big under it; without a battery the pair is the value. */
+    private static CardContent energy(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
+        EntityStates.Entity pv=states.get(item.entity),house=states.get(item.loadEntity);
+        String pvUnit=unit(pv),houseUnit=unit(house);
+        // one unit at the end when both sensors share it, each its own otherwise
+        String pair=pvUnit.equals(houseUnit)?number(pv,"")+" / "+number(house,"")+(pvUnit.isEmpty()?"":" "+pvUnit):number(pv,pvUnit)+" / "+number(house,houseUnit);
+        String battery=item.batteryEntity==null?null:number(states.get(item.batteryEntity),unit(states.get(item.batteryEntity)));
+        String spoken=defaultLabel(item)+": produkcja "+number(pv,pvUnit)+", dom "+number(house,houseUnit)+(battery==null?"":", bateria "+battery)+(live?"":", dane nieaktualne");
+        return battery==null?new CardContent(pair,"","",null,null,spoken,false,0):new CardContent(battery,"","",pair,null,spoken,false,0);
+    }
+    private static String unit(EntityStates.Entity e){String u=e==null?null:e.attribute("unit_of_measurement");return u==null?"":u;}
+    /** A known reading with up to one decimal and its unit after a space, a dash otherwise. */
+    private static String number(EntityStates.Entity e,String unit){
+        if(e==null||!e.known())return "—";
+        return unit.isEmpty()?decimal(e.state,"").trim():decimal(e.state,unit);
     }
     static String coverState(String state){
         switch(state){case "open":return "Otwarta";case "closed":return "Zamknięta";case "opening":return "Otwieranie…";case "closing":return "Zamykanie…";default:return state;}

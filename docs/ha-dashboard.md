@@ -69,6 +69,24 @@ Pola `forecast_entity` i `forecast_when` działają jak dotąd, czyli nadal **ra
 
 Format `version: 1` z wersji 0.4 nie jest migrowany automatycznie. Po instalacji 0.5 zaktualizuj YAML w HA albo uruchom `python tools/publish_ha_dashboard.py --replace` (Python: `websocket-client`, `PyYAML`; kopia poprzedniej konfiguracji trafia do `.local/`). Zakładka `menu-zegara` z 0.4 nie jest już używana i można ją usunąć.
 
+## Kafelek energii `energy` (Helios 0.14)
+
+Kafelek tylko do odczytu, pomyślany na jedną komórkę: w górnej linii `produkcja / pobór` (np. `1392 / 702 W`), a pod nią duży procent baterii. Bez `battery_entity` dużą wartością jest sama para `produkcja / pobór`. Każda liczba ma jednostkę swojej encji z Home Assistanta; brak odczytu to kreska.
+
+```yaml
+- id: energia
+  type: energy
+  column: 4
+  row: 2
+  width: 1
+  height: 1
+  entity: sensor.goodwe_pv_power                     # moc z PV (wymagane, sensor)
+  load_entity: sensor.goodwe_house_consumption       # zużycie domu (wymagane, sensor)
+  battery_entity: sensor.goodwe_battery_state_of_charge  # bateria w % (opcjonalnie, sensor)
+```
+
+Domyślny tytuł to `PV`, a ikona `mdi:solar-power`; obie da się zmienić polami `title` i `icon`. Typ wymaga `version: 6` i Heliosa 0.14 - starszy zegar odrzuci dokument z tym kafelkiem i zostanie przy ostatnim dobrym układzie, więc najpierw zaktualizuj zegary, które ten dokument czytają.
+
 ## Sterowanie i bezpieczeństwo
 
 Zegar wywołuje wyłącznie usługi przypisane w kodzie do intencji (`ActionPolicy`): `toggle`/`turn_on`/`turn_off` w domenach przełączalnych, `cover.open_cover`/`stop_cover`/`close_cover`, `lock.lock`/`unlock`, `script.turn_on`, `scene.turn_on`, `input_button.press`, `button.press` oraz `light.turn_off` dla `off_entity` - zawsze dla encji wpisanej w YAML. Nazwy usług, cele ani dane usług nie pochodzą z konfiguracji; konfiguracja może natomiast uruchomić jawnie wybrany `script`/`scene`, którego skutki należą do HA. Polecenie nie jest ponawiane ani kolejkowane offline; brak odpowiedzi HA w 10 s daje komunikat. Token na zegarze ma prawa użytkownika HA, więc użyj dedykowanego użytkownika bez uprawnień administratora.

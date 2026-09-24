@@ -238,7 +238,7 @@ public final class DashboardView extends FrameLayout {
                 case LARGE_VALUE:size(value,44,s);size(detail,18,s);break;
                 default:{
                     float inner=w-28;
-                    float fit=TextFit.size((text,size)->{sansPaint.setTextSize(size);return sansPaint.measureText(text);},value.getText().toString(),inner,24,28);
+                    float fit=TextFit.size((text,size)->{sansPaint.setTextSize(size);return sansPaint.measureText(text);},value.getText().toString(),inner,24,def.layout==CardDefinition.Layout.BIG_FIT?44:28);
                     size(value,fit,s);size(detail,17,s);
                 }
             }
@@ -261,7 +261,7 @@ public final class DashboardView extends FrameLayout {
             String label=c.label!=null?c.label:CardBodies.defaultLabel(item);
             title.setText(shown?label:label+" (offline)"); // stale values are muted text plus a word, never a faded tile (contrast)
             accent=c.accent;this.live=shown;forecastExpiresAt=c.expiresAt;theme();
-            if(changed&&def.layout==CardDefinition.Layout.FIT&&def.feed==CardDefinition.Feed.ENTITIES&&unitW>0)scale(scale,unitW,unitH);
+            if(changed&&(def.layout==CardDefinition.Layout.FIT||def.layout==CardDefinition.Layout.BIG_FIT)&&def.feed==CardDefinition.Feed.ENTITIES&&unitW>0)scale(scale,unitW,unitH);
             value.setContentDescription(c.value);
             gate();
         }

@@ -8,7 +8,7 @@ import static org.junit.Assert.*;
 public class CardRegistryTest {
     @Test public void everyDefinedTypeHasABodyAndNothingElseDoes(){
         assertEquals(CardDefinition.ALL.keySet(),CardBodies.FOR.keySet());
-        assertEquals(Arrays.asList("clock","weather","entity","light","cover","garage","music","cover_group","tile"),new ArrayList<>(CardDefinition.ALL.keySet()));
+        assertEquals(Arrays.asList("clock","weather","entity","light","cover","garage","music","cover_group","tile","energy"),new ArrayList<>(CardDefinition.ALL.keySet()));
     }
     @Test public void everyActionOpensAPanelOrCallsOneServiceNeverBoth(){
         for(CardDefinition def:CardDefinition.ALL.values()){
@@ -28,7 +28,8 @@ public class CardRegistryTest {
         assertTrue(CardDefinition.of("tile").intentDriven);for(String t:new String[]{"clock","weather","entity","light","cover","garage","music","cover_group"})assertFalse(t,CardDefinition.of(t).intentDriven);
     }
     @Test public void defaultIconsAreRegisteredIconsAndTitlesMatchTheOldWords(){
-        for(CardDefinition def:CardDefinition.ALL.values())if(def.defaultIcon!=null)assertTrue(def.type,DashboardSpec.ICONS.contains(def.defaultIcon));
+        // a type that exists before version 6 may only default to one of the six drawn names; a version-6 type takes any mdi: icon
+        for(CardDefinition def:CardDefinition.ALL.values())if(def.defaultIcon!=null)assertTrue(def.type,def.minVersion>=6?def.defaultIcon.startsWith("mdi:"):DashboardSpec.ICONS.contains(def.defaultIcon));
         assertEquals("",CardDefinition.of("clock").defaultTitle);assertEquals("Pogoda",CardDefinition.of("weather").defaultTitle);
         assertEquals("Muzyka",CardDefinition.of("music").defaultTitle);assertEquals("Rolety",CardDefinition.of("cover_group").defaultTitle);
         assertNull(CardDefinition.of("light").defaultTitle);assertNull(CardDefinition.of("tile").defaultTitle);
