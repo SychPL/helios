@@ -27,7 +27,7 @@ final class MusicSession {
     /** NONE means the output is already closed (SendspinClient closes it synchronously): lift ducking and the focus pause so the next stream starts clean. */
     void onTransport(SendspinClient.State next){
         state=next;
-        if(next==SendspinClient.State.NONE){voiceDucked=false;restore();permanentLoss=false;}
+        if(next==SendspinClient.State.NONE){liftVoiceDuck();restore();permanentLoss=false;} // the sink keeps its gain across streams, so both reasons go here
     }
     void onFocusChange(int change){
         switch(change){
@@ -43,7 +43,7 @@ final class MusicSession {
     void duckForVoice(){voiceDucked=true;sink.duck(true);} // idempotent on purpose: re-applies the level even after a stale restore
     /** Our own conversation ended; the speaker is free only if the system grants focus again. */
     void onVoiceReady(FocusRequester focus){
-        if(voiceDucked){voiceDucked=false;if(!ducked)sink.duck(false);} // the conversation is over whatever focus says; a focus duck stays
+        liftVoiceDuck(); // the conversation is over whatever focus says; a focus duck stays
         if(permanentLoss||(!pausedByFocus&&!ducked))return;
         if(focus.request())restore();
     }
@@ -52,6 +52,7 @@ final class MusicSession {
         if(!focus.request())return false;
         permanentLoss=false;restore();return true;
     }
+    private void liftVoiceDuck(){if(voiceDucked){voiceDucked=false;if(!ducked)sink.duck(false);}}
     private void restore(){
         if(ducked){ducked=false;if(!voiceDucked)sink.duck(false);} // regained focus must not lift the conversation's duck
         if(pausedByFocus){pausedByFocus=false;sink.resume();}

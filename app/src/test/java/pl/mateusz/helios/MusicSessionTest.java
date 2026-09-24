@@ -41,6 +41,15 @@ public class MusicSessionTest {
         session.onVoiceReady(()->true);
         assertEquals("[duck:true, duck:true, duck:false]",log.toString());
     }
+    @Test public void musicStoppedMidConversationDoesNotLeaveTheNextStreamQuiet(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.duckForVoice();
+        session.onTransport(SendspinClient.State.NONE); // "stop the music" in the same conversation
+        assertEquals("[duck:true, duck:false]",log.toString());
+        session.onVoiceReady(()->true);
+        session.onTransport(SendspinClient.State.PLAYING);
+        assertEquals("[duck:true, duck:false]",log.toString());
+    }
     @Test public void regainedFocusDoesNotLiftTheConversationDuck(){
         session.onTransport(SendspinClient.State.PLAYING);
         session.duckForVoice();
