@@ -245,6 +245,8 @@ final class DashboardSpec {
         return (Integer)value;
     }
 
+    /** Every page's items in order: visibility, warnings and the forecast look past the page on screen (SPEC 0.18). */
+    List<Item> allItems(){List<Item> out=new ArrayList<>();for(Page p:pages)out.addAll(p.items);return out;}
     /** Any page's item by id; ids are unique across the document. */
     Item item(String id){for(Page p:pages)for(Item i:p.items)if(i.id.equals(id))return i;return null;}
     /** Every entity the renderer or visibility needs on any page, in first-use order, without duplicates. */

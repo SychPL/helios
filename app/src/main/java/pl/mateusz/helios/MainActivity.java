@@ -35,6 +35,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private final Runnable unboost=()->{WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;getWindow().setAttributes(p);};
     @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){
         int action=event.getActionMasked();
+        if(action==android.view.MotionEvent.ACTION_DOWN&&dashboard!=null)dashboard.touched(); // before the night clock swallows the gesture
         // The touch that ends the night clock only wakes the panel (SPEC 0.13 pkt 5): the whole gesture is
         // swallowed, not just its first event, or the finger would still land on whatever tile is underneath.
         if(dashboard!=null&&dashboard.nightVisible()){
@@ -302,7 +303,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         HaDashboardClient client=ha();
         if(client==null||spec==null)return;
         String entity=null;
-        for(DashboardSpec.Item item:spec.items)if("weather".equals(item.type)&&item.entity!=null&&item.width>1){entity=item.entity;break;} // one forecast is all the layout has room for
+        for(DashboardSpec.Item item:spec.allItems())if("weather".equals(item.type)&&item.entity!=null&&item.width>1){entity=item.entity;break;} // one forecast is all the layout has room for
         if(entity==null){forecastFor=null;dashboard.tomorrow(null);return;}
         if(entity.equals(forecastFor))return; // already subscribed on this session for this entity
         forecastFor=entity;
@@ -310,6 +311,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         client.subscribe(Tomorrow.subscribe(subscribed),
             event->{
                 Tomorrow t=Tomorrow.parse(event,unitOf(subscribed),System.currentTimeMillis(),ZoneId.systemDefault());
+                if(t!=null)t.entity=subscribed;
                 main.post(()->{if(resumed)dashboard.tomorrow(t);});
             },
             code->main.post(()->{if(resumed){if(subscribed.equals(forecastFor))forecastFor=null;dashboard.tomorrow(null);}}));
@@ -341,7 +343,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         return dashboardLabel(item)+(position==null?"":" · "+position.replaceAll("\\.0+$","")+"%");
     }
     private void decideVisibility(){
-        for(DashboardSpec.Item item:spec.items)if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
+        for(DashboardSpec.Item item:spec.allItems())if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
     }
     private void tap(DashboardSpec.Item item){
         ActionPolicy.Panel panel=ActionPolicy.panel(item.action);

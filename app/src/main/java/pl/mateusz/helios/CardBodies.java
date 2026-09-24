@@ -88,6 +88,7 @@ final class CardBodies {
         String condition=known?WeatherLabels.polish(e.state):"Brak danych";
         // A wide tile puts tomorrow beside today; the forecast comes from HA's own daily feed, so nothing has to be configured.
         Tomorrow t=item.width>1?env.tomorrow():null;
+        if(t!=null&&t.entity!=null&&!t.entity.equals(item.entity))t=null; // one forecast feed, for one weather entity: another page's tile shows today only
         Side side=t==null?null:new Side(t.icon(),t.value(),t.detail());
         // Half a tile is no room for the condition in words - the icon already says it, so only the wind stays
         // under the temperature. The description keeps the word, because a screen reader has no icon to read.

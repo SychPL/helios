@@ -15,6 +15,8 @@ import java.util.Locale;
  */
 final class Tomorrow {
     final String condition,unit;final Double high,low;
+    /** The weather entity this forecast is for; set by whoever subscribed, null in tests that do not care. */
+    String entity;
     private Tomorrow(String condition,String unit,Double high,Double low){this.condition=condition;this.unit=unit;this.high=high;this.low=low;}
 
     /** The command that starts the feed; HA answers with one event now and another whenever the forecast changes. */

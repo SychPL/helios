@@ -69,6 +69,12 @@ Pola `forecast_entity` i `forecast_when` działają jak dotąd, czyli nadal **ra
 
 Format `version: 1` z wersji 0.4 nie jest migrowany automatycznie. Po instalacji 0.5 zaktualizuj YAML w HA albo uruchom `python tools/publish_ha_dashboard.py --replace` (Python: `websocket-client`, `PyYAML`; kopia poprzedniej konfiguracji trafia do `.local/`). Zakładka `menu-zegara` z 0.4 nie jest już używana i można ją usunąć.
 
+## Strony na zegarze (Helios 0.15)
+
+Dokument `version: 6` może mieć do 8 stron (`pages`). Zegar pokazuje jedną naraz: **przesunięcie palcem w lewo** przechodzi na następną, **w prawo** na poprzednią (bez zawijania). Nad kartami, w pasku pod napisem HELIOS, pojawiają się wtedy kropki stron - tylko na czas dotyku, gasną około 1,5 s po puszczeniu palca i niczego nie zasłaniają. Kropek nie da się kliknąć. Po 2 minutach bez dotyku zegar wraca na pierwszą stronę (otwarte okno panelu wstrzymuje ten licznik). Stuknięcie w kafelek działa jak dotąd; ruch wyraźnie w bok zabiera gest kafelkowi, więc nie wywoła jego akcji.
+
+Warunkowe kafelki (`visible_when`) i ostrzeżenia działają na wszystkich stronach, także tych niewidocznych. Prognoza jutra jest jedna: dla pierwszego szerokiego kafelka pogody w dokumencie; szeroki kafelek z inną encją pogody pokaże samo dziś.
+
 ## Kafelek energii `energy` (Helios 0.14)
 
 Kafelek tylko do odczytu, pomyślany na jedną komórkę: w górnej linii `produkcja / pobór` (np. `1392 / 702 W`), a pod nią duży procent baterii. Bez `battery_entity` dużą wartością jest sama para `produkcja / pobór`. Każda liczba ma jednostkę swojej encji z Home Assistanta; brak odczytu to kreska.
