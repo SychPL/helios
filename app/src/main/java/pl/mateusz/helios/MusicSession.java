@@ -14,7 +14,7 @@ final class MusicSession {
     private final Sink sink;
     private final Transport transport;
     private SendspinClient.State state=SendspinClient.State.NONE;
-    private boolean ducked,pausedByFocus,permanentLoss;
+    private boolean ducked,voiceDucked,pausedByFocus,permanentLoss; // two duck reasons: a focus loss, and a stream started mid-conversation
 
     MusicSession(Sink sink,Transport transport){this.sink=sink;this.transport=transport;}
     boolean pausedByFocus(){return pausedByFocus;}
@@ -27,7 +27,7 @@ final class MusicSession {
     /** NONE means the output is already closed (SendspinClient closes it synchronously): lift ducking and the focus pause so the next stream starts clean. */
     void onTransport(SendspinClient.State next){
         state=next;
-        if(next==SendspinClient.State.NONE){restore();permanentLoss=false;}
+        if(next==SendspinClient.State.NONE){voiceDucked=false;restore();permanentLoss=false;}
     }
     void onFocusChange(int change){
         switch(change){
@@ -40,9 +40,10 @@ final class MusicSession {
     }
     /** A stream that starts mid-conversation (the user just asked for music) took focus from the assistant with its GAIN
      *  request, so no transient loss will ever duck it: it starts ducked and onVoiceReady lifts it like any other duck. */
-    void duckForVoice(){if(!ducked){ducked=true;sink.duck(true);}}
+    void duckForVoice(){voiceDucked=true;sink.duck(true);} // idempotent on purpose: re-applies the level even after a stale restore
     /** Our own conversation ended; the speaker is free only if the system grants focus again. */
     void onVoiceReady(FocusRequester focus){
+        if(voiceDucked){voiceDucked=false;if(!ducked)sink.duck(false);} // the conversation is over whatever focus says; a focus duck stays
         if(permanentLoss||(!pausedByFocus&&!ducked))return;
         if(focus.request())restore();
     }
@@ -52,7 +53,7 @@ final class MusicSession {
         permanentLoss=false;restore();return true;
     }
     private void restore(){
-        if(ducked){ducked=false;sink.duck(false);}
+        if(ducked){ducked=false;if(!voiceDucked)sink.duck(false);} // regained focus must not lift the conversation's duck
         if(pausedByFocus){pausedByFocus=false;sink.resume();}
     }
 }
