@@ -8,8 +8,8 @@ android {
         applicationId 'pl.mateusz.helios'
         minSdk 29
         targetSdk 29
-        versionCode 34
-        versionName '0.13.1'
+        versionCode 35
+        versionName '0.13.2'
     }
     testOptions { unitTests.returnDefaultValues = true } // android.content.Intent in the JVM updater tests
     lint { disable 'ExpiredTargetSdkVersion' } // a sideloaded launcher for one Android 10 device, never Google Play; targetSdk stays 29 on purpose

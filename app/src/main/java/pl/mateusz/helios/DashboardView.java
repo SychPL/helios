@@ -173,7 +173,7 @@ public final class DashboardView extends FrameLayout {
             split=new LinearLayout(getContext());split.setOrientation(LinearLayout.HORIZONTAL);addView(split,new LayoutParams(-1,-1));
             column=new LinearLayout(getContext());column.setOrientation(LinearLayout.VERTICAL);column.setGravity(Gravity.CENTER_VERTICAL);split.addView(column,new LinearLayout.LayoutParams(0,-1,1));
             rule=new View(getContext());rule.setVisibility(GONE);split.addView(rule,new LinearLayout.LayoutParams(1,-1));
-            side=new LinearLayout(getContext());side.setOrientation(LinearLayout.VERTICAL);side.setGravity(Gravity.CENTER_VERTICAL);side.setVisibility(GONE);split.addView(side,new LinearLayout.LayoutParams(-2,-1));
+            side=new LinearLayout(getContext());side.setOrientation(LinearLayout.VERTICAL);side.setGravity(Gravity.CENTER_VERTICAL);side.setVisibility(GONE);split.addView(side,new LinearLayout.LayoutParams(0,-1,1)); // same weight as column: the rule sits in the middle, not wherever today's text ends
             head=new LinearLayout(getContext());head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);column.addView(head);
             icon=new IconView(getContext());
             title=line(sans,1);
@@ -280,7 +280,7 @@ public final class DashboardView extends FrameLayout {
             side.setVisibility(s==null?GONE:VISIBLE);rule.setVisibility(s==null?GONE:VISIBLE);
             if(s==null)return;
             Theme t=Theme.current();
-            side.setPadding(Math.round(16*scale),0,0,0);
+            int pad=Math.round(14*scale);side.setPadding(pad,pad,pad,pad); // the column's own padding, so both halves sit the same distance from the rule and the edge
             LinearLayout top=new LinearLayout(getContext());top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);
             if(s.icon!=null){
                 IconView ic=new IconView(getContext());ic.set(s.icon,t.muted);
