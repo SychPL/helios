@@ -38,6 +38,9 @@ final class MusicSession {
             default:break;
         }
     }
+    /** A stream that starts mid-conversation (the user just asked for music) took focus from the assistant with its GAIN
+     *  request, so no transient loss will ever duck it: it starts ducked and onVoiceReady lifts it like any other duck. */
+    void duckForVoice(){if(!ducked){ducked=true;sink.duck(true);}}
     /** Our own conversation ended; the speaker is free only if the system grants focus again. */
     void onVoiceReady(FocusRequester focus){
         if(permanentLoss||(!pausedByFocus&&!ducked))return;

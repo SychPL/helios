@@ -34,6 +34,13 @@ public class MusicSessionTest {
         session.onVoiceReady(()->true);
         assertEquals("[duck:true, duck:false, duck:true, duck:false]",log.toString());
     }
+    @Test public void aStreamStartedMidConversationStaysDuckedUntilTheConversationEnds(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.duckForVoice();session.duckForVoice(); // a second call must not stack
+        assertEquals("[duck:true]",log.toString());assertEquals(MusicSession.Ui.PLAYING,session.ui());
+        session.onVoiceReady(()->true);
+        assertEquals("[duck:true, duck:false]",log.toString());
+    }
     @Test public void permanentLossPausesThroughTheTransportAndNeverResumesByItself(){
         session.onTransport(SendspinClient.State.PLAYING);
         session.onFocusChange(MusicSession.FOCUS_LOSS);
