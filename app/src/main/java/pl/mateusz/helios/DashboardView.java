@@ -160,6 +160,7 @@ public final class DashboardView extends FrameLayout {
         final boolean inlineIcon;
         final View rule;
         final IconView icon;
+        final IconView valueIcon; // BIG_FIT only: the icon in front of the big value, null for every other layout
         final TextView title,value,detail,detail2;
         final ProgressBar spinner;
         final boolean clock;
@@ -182,12 +183,18 @@ public final class DashboardView extends FrameLayout {
             if(inlineIcon){
                 head.addView(title);
                 valueLine=new LinearLayout(getContext());valueLine.setOrientation(LinearLayout.HORIZONTAL);valueLine.setGravity(Gravity.CENTER_VERTICAL);
-                valueLine.addView(icon);
+                valueLine.addView(icon);valueIcon=null;
+                value=line(sans,1);valueLine.addView(value);
+                column.addView(valueLine);
+            }else if(def.layout==CardDefinition.Layout.BIG_FIT){
+                head.addView(icon);head.addView(title);
+                valueLine=new LinearLayout(getContext());valueLine.setOrientation(LinearLayout.HORIZONTAL);valueLine.setGravity(Gravity.CENTER_VERTICAL);
+                valueIcon=new IconView(getContext());valueIcon.setVisibility(GONE);valueLine.addView(valueIcon);
                 value=line(sans,1);valueLine.addView(value);
                 column.addView(valueLine);
             }else{
                 head.addView(icon);head.addView(title);
-                valueLine=null;
+                valueLine=null;valueIcon=null;
                 value=line(clock?mono:sans,clock?1:2);column.addView(value);
             }
             if(shownIcon==null)icon.setVisibility(GONE);
@@ -238,6 +245,10 @@ public final class DashboardView extends FrameLayout {
                 case LARGE_VALUE:size(value,44,s);size(detail,18,s);break;
                 default:{
                     float inner=w-28;
+                    if(valueIcon!=null){ // a fixed-size icon in front; the value fits what is left
+                        int px=Math.round(40*s);LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(px,px);vp.rightMargin=Math.round(6*s);valueIcon.setLayoutParams(vp);
+                        if(valueIcon.getVisibility()==VISIBLE)inner-=46;
+                    }
                     float fit=TextFit.size((text,size)->{sansPaint.setTextSize(size);return sansPaint.measureText(text);},value.getText().toString(),inner,24,def.layout==CardDefinition.Layout.BIG_FIT?44:28);
                     size(value,fit,s);size(detail,17,s);
                 }
@@ -267,6 +278,7 @@ public final class DashboardView extends FrameLayout {
         }
         private void apply(CardBodies.CardContent c){
             value.setText(c.value);detail.setText(c.detail);detail2.setText(c.detail2);shownIcon=c.icon!=null?c.icon:item.icon;
+            if(valueIcon!=null){valueIcon.setVisibility(c.valueIcon==null?GONE:VISIBLE);if(c.valueIcon!=null)valueIcon.set(c.valueIcon,Theme.current().muted);}
             if(!clock)detail.setVisibility(c.detail.isEmpty()?GONE:VISIBLE);
             lastSide=c.side;details(c.side);
             setContentDescription(c.description);

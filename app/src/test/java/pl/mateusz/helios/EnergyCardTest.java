@@ -52,7 +52,7 @@ public class EnergyCardTest {
         Map<String,EntityStates.Entity> s=new HashMap<>();
         s.put("sensor.pv_power",state("1504","W"));s.put("sensor.house_load",state("698.4","W"));s.put("sensor.battery_soc",state("68","%"));
         CardBodies.CardContent c=CardBodies.FOR.get("energy").render(i,s,true,ENV);
-        assertEquals("1504 / 698,4 W",c.label);assertEquals("68 %",c.value);assertEquals("",c.detail);
+        assertEquals("1504 / 698,4 W",c.label);assertEquals("68 %",c.value);assertEquals("",c.detail);assertEquals("mdi:battery-70",c.valueIcon);
         assertEquals("PV: produkcja 1504 W, dom 698,4 W, bateria 68 %",c.description);
         s.put("sensor.house_load",state("0.7","kW"));
         assertEquals("1504 W / 0,7 kW",CardBodies.FOR.get("energy").render(i,s,true,ENV).label); // different units: each its own
@@ -63,5 +63,14 @@ public class EnergyCardTest {
         s.put("sensor.house_load",state("742","W"));
         c=CardBodies.FOR.get("energy").render(noBattery,s,true,ENV);
         assertNull("the title stays PV",c.label);assertEquals("1504 / 742 W",c.value); // no battery: the pair is the value
+        assertNull("no battery, no battery icon",c.valueIcon);
+    }
+    @Test public void theBatteryIconFollowsTheChargeInStepsOfTen(){
+        assertEquals("mdi:battery-0",CardBodies.batteryIcon(state("3","%")));assertEquals("mdi:battery-10",CardBodies.batteryIcon(state("5","%")));
+        assertEquals("mdi:battery-90",CardBodies.batteryIcon(state("94.9","%")));assertEquals("mdi:battery",CardBodies.batteryIcon(state("100","%")));
+        assertEquals("mdi:battery",CardBodies.batteryIcon(state("140","%")));assertEquals("mdi:battery-0",CardBodies.batteryIcon(state("-5","%")));
+        assertEquals("mdi:battery-unknown",CardBodies.batteryIcon(state("unavailable","%")));assertEquals("mdi:battery-unknown",CardBodies.batteryIcon(state("abc","%")));
+        assertEquals("mdi:battery-unknown",CardBodies.batteryIcon(null));
+        for(int v=0;v<=100;v+=10)assertTrue(v+"",MdiIcons.installed().has(CardBodies.batteryIcon(state(""+v,"%")).substring(4)));
     }
 }

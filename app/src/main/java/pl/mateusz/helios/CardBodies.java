@@ -16,6 +16,8 @@ final class CardBodies {
     /** One rendering: value line, up to two detail lines, optional label and icon overrides, the full content description, accent tint and an expiry for self-refreshing content. */
     static final class CardContent {
         final String value,detail,detail2,label,icon,description;final boolean accent;final long expiresAt;
+        /** An icon drawn in front of the big value (energy: the battery level); null everywhere else. */
+        String valueIcon;
         /** The second half, or null for every tile that has only one. */
         final Side side;
         CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this(value,detail,detail2,label,icon,description,accent,expiresAt,null);}
@@ -150,7 +152,17 @@ final class CardBodies {
         String pair=pvUnit.equals(houseUnit)?number(pv,"")+" / "+number(house,"")+(pvUnit.isEmpty()?"":" "+pvUnit):number(pv,pvUnit)+" / "+number(house,houseUnit);
         String battery=item.batteryEntity==null?null:number(states.get(item.batteryEntity),unit(states.get(item.batteryEntity)));
         String spoken=defaultLabel(item)+": produkcja "+number(pv,pvUnit)+", dom "+number(house,houseUnit)+(battery==null?"":", bateria "+battery)+(live?"":", dane nieaktualne");
-        return battery==null?new CardContent(pair,"","",null,null,spoken,false,0):new CardContent(battery,"","",pair,null,spoken,false,0);
+        if(item.batteryEntity==null)return new CardContent(pair,"","",null,null,spoken,false,0);
+        CardContent c=new CardContent(battery,"","",pair,null,spoken,false,0);
+        c.valueIcon=batteryIcon(states.get(item.batteryEntity));
+        return c;
+    }
+    /** HA's own battery glyphs in steps of ten: battery-0 .. battery-90, battery (full), battery-unknown without a number. */
+    static String batteryIcon(EntityStates.Entity e){
+        double v;
+        try{if(e==null||!e.known())return "mdi:battery-unknown";v=Double.parseDouble(e.state);}catch(NumberFormatException x){return "mdi:battery-unknown";}
+        int step=(int)Math.round(Math.max(0,Math.min(100,v))/10.0)*10;
+        return step>=100?"mdi:battery":"mdi:battery-"+step;
     }
     private static String unit(EntityStates.Entity e){String u=e==null?null:e.attribute("unit_of_measurement");return u==null?"":u;}
     /** A known reading with up to one decimal and its unit after a space, a dash otherwise. */
