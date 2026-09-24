@@ -50,6 +50,7 @@ final class CardBodies {
             return new CardContent(text,"",null,known&&e.state.equals("on"),0,item,live);
         });
         m.put("energy",CardBodies::energy);
+        m.put("climate",CardBodies::climate);
         m.put("cover",CardBodies::cover);
         m.put("garage",CardBodies::cover);
         m.put("music",(item,states,live,env)->new CardContent(env.musicInfo(),"","",null,null,"Muzyka: "+env.musicInfo(),false,0)); // the player, not HA, says whether this is live
@@ -144,6 +145,15 @@ final class CardBodies {
     static String decimal(String raw,String unit){
         try{double v=Double.parseDouble(raw);String s=String.format(new Locale("pl"),"%.1f",v);if(s.endsWith(",0"))s=s.substring(0,s.length()-2);return s+" "+unit;}
         catch(NumberFormatException e){return raw+" "+unit;}
+    }
+    /** Measured temperature big, "Zadana 20,5°" under it; the icon says what the device is doing, amber only while it works (SPEC 0.19 pkt 4). */
+    private static CardContent climate(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
+        EntityStates.Entity e=states.get(item.entity);ClimateModel m=new ClimateModel(e,false);
+        String name=item.title!=null?item.title:e!=null&&e.attribute("friendly_name")!=null?e.attribute("friendly_name"):defaultLabel(item);
+        String word=m.known?m.actionWord():null;
+        String spoken=name+": w pokoju "+(m.current==null||!m.known?"brak pomiaru":m.currentText().replace("°"," stopnia"))+", "+m.tileDetail().toLowerCase(new Locale("pl"))
+            +(word==null?"":", "+word.toLowerCase(new Locale("pl")))+(live?"":", dane nieaktualne");
+        return new CardContent(m.currentText(),m.tileDetail(),"",name,item.ownIcon?null:m.icon(),spoken,m.known&&m.working(),0);
     }
     /** "1302 / 742 W" (production / house) where the title goes, the battery charge big under it; without a battery the pair is the value. */
     private static CardContent energy(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){

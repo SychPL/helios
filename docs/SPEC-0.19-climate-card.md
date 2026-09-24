@@ -55,30 +55,46 @@ odczytu), wilgotność zadana, harmonogramy, atrybuty producenta (PID `kp/ki/kd`
 
 ## 4. Kafelek (`docs/mockups/climate-tile.png`)
 
-- Nagłówek: ikona + tytuł (tytuł z konfiguracji -> `friendly_name` -> id encji). Ikona z `hvac_action`, chyba że
-  podano `icon`: `heating`/`preheating` -> `mdi:fire`, `cooling` -> `mdi:snowflake`, `drying` -> `mdi:water-percent`,
-  `fan` -> `mdi:fan`, `defrosting` -> `mdi:snowflake-melt`, pozostałe i brak -> `mdi:thermostat`. Kolor akcentu,
-  gdy grzeje lub chłodzi, wyciszony w innych stanach.
-- Wartość (duża): `current_temperature`, jedno miejsce po przecinku, sam znak stopnia (`23,0°`); `—` bez pomiaru.
-- Linia pod spodem, w tej kolejności: stan `off` -> `Wyłączony`; nastawa pojedyncza (pkt 5.1) -> `Nastawa 20,5°`;
-  zakres -> `Nastawa 20–24°`; nic z tego -> nazwa trybu.
-- `unavailable`/`unknown`: `Brak danych`, stuknięcie nieaktywne.
-- Opis dla czytnika: `Salon: teraz 23,0 stopnia, nastawa 20,5, bezczynny` (słowo akcji tylko, gdy HA je podaje).
+Wygląd uzgodniony z Codexem (2026-09-24, dwie rundy rozmowy o makietach). Zasada: **kolor akcentu znaczy wyłącznie
+"urządzenie teraz grzeje albo chłodzi"** - nigdy "tryb wybrany" ani "opcja zaznaczona".
+
+- Nagłówek jak na innych kafelkach (17 px): ikona + tytuł (tytuł z konfiguracji -> `friendly_name` -> id encji).
+  Ikona, chyba że podano `icon`: niedostępny -> `mdi:thermostat`; `off` -> `mdi:power`; `hvac_action`
+  `heating`/`preheating` -> `mdi:fire`, `cooling` -> `mdi:snowflake`, `drying` -> `mdi:water-percent`, `fan` ->
+  `mdi:fan`, `defrosting` -> `mdi:snowflake-melt`; reszta (włączony, bezczynny, brak akcji) -> `mdi:thermostat`.
+  Akcent tylko przy `heating`/`preheating`/`cooling`.
+- Wartość (duża, zawsze temperatura zmierzona): `current_temperature`, jedno miejsce po przecinku, sam znak stopnia
+  (`23,0°`); `—` bez pomiaru. Nastawa nigdy nie zajmuje miejsca pomiaru.
+- Linia pod spodem, w tej kolejności: niedostępny -> `Brak połączenia` (i wartość `—`, nigdy stara liczba);
+  `off` -> `Wyłączony`; nastawa -> `Zadana 20,5°`; zakres -> `Zadana 20–24°`; nic z tego -> nazwa trybu.
+- Opis dla czytnika: `Salon: w pokoju 23,0 stopnia, zadana 20,5, grzeje` (słowo akcji tylko, gdy HA je podaje).
 
 ## 5. Panel pełnoekranowy (`docs/mockups/climate-panel-salon.png`, `climate-panel-gree.png`)
 
-Okno dialogowe nad całym ekranem jak pełny ekran muzyki. Geometria w `ClimatePanelGeometry` według konwencji
-`FullscreenGeometry`: obszar bezwzględny `AREA = (0, 52, 800, 428)`, pudełka poniżej względem niego, skalowane
-raz. Cele dotyku co najmniej 64 px wysokości.
+Okno dialogowe pod paskiem HELIOS (pasek zostaje widoczny). Geometria w `ClimatePanelGeometry`, współrzędne
+bezwzględne w jednostkach 800x480, skalowane raz; cele dotyku co najmniej 64 px.
 
-| Blok | Pudełko (x, y, w, h względem AREA) | Zawartość |
-|---|---|---|
-| Nagłówek | 0, 0, 720, 64 | ikona akcji, nazwa, status `tryb · preset` albo komunikat |
-| Zamknij | 720, 0, 72, 64 | `mdi:close` |
-| Teraz | 8, 72, 372, 176 | `Teraz`, obecna temperatura 84 px, akcja słowem (akcent przy pracy) |
-| Nastawa | 388, 72, 404, 176 | `Nastawa`, przyciski `−` i `+` 88x88, wartość 64 px |
-| Tryb | 8, 252, 784, 64 | etykieta + przyciski segmentowe (pkt 5.2) |
-| Listy | 8, 328, 784, 92 | do 4 przycisków-list (pkt 5.3) |
+| Element | x | y | w | h |
+|---|---:|---:|---:|---:|
+| Ikona aktywności + tytuł (sam tytuł, bez powtarzania trybu i profilu) | 16 | 52 | 696 | 64 |
+| Zamknij | 728 | 52 | 64 | 64 |
+| Karta `W pokoju` | 8 | 124 | 373 | 156 |
+| Karta `Zadana` | 389 | 124 | 403 | 156 |
+| Etykiety kart (18 px) | 28 / 409 | 136 | - | 20 |
+| Temperatura w pokoju (76 px) | 24 | 160 | 341 | 76 |
+| Aktywność słowem (20 px; akcent tylko przy grzaniu/chłodzeniu) | 28 | 248 | 337 | 24 |
+| `−` | 405 | 160 | 80 | 80 |
+| Nastawa (64 px) | 493 | 160 | 195 | 80 |
+| `+` | 696 | 160 | 80 | 80 |
+| Stan nastawy (18 px, neutralny) | 405 | 248 | 371 | 24 |
+| Etykieta `Tryb` (16 px) | 16 | 288 | 776 | 16 |
+| Przyciski trybów, odstęp 8 | 8 | 312 | 784 | 64 |
+| Listy, odstęp 8 | 8 | 384 | 784 | 88 |
+
+- Zaznaczenie (bieżący tryb, bieżąca pozycja listy) jest **neutralne**: jaśniejsza powierzchnia `#3A4352` i ramka
+  2 px w kolorze tekstu przy 60 % krycia, rysowana do środka (zaznaczenie niczego nie przesuwa).
+- Aktywność słowem: `Grzeje`, `Nagrzewa`, `Chłodzi`, `Osusza`, `Wentyluje`, `Odszrania`, `Bezczynny`,
+  `Wyłączony`; niedostępny - `Brak połączenia`. Bez `hvac_action` linii nie ma.
 
 Właścicielem panelu jest `MainActivity` (to samo pole `panel`, co dla rolet): `closePanel()` zamyka go przy
 zmianie dokumentu i utracie połączenia z HA - tymi samymi ścieżkami co dziś. `onPause()` dziś panelu nie zamyka,
@@ -98,7 +114,9 @@ anulowanie jego liczników.
   miejsc po przecinku kroku - a dopiero potem przycięcie do `min_temp`–`max_temp`, które zwraca granicę dokładnie
   taką, jaką podał HA (bez ponownego zaokrąglania). Przy granicy bliżej niż krok przycisk dociąga więc dokładnie do
   granicy (`max_temp` 30,5 z krokiem 1: 30 -> 30,5). Przycisk na granicy nieaktywny.
-- Cykl życia, najprostszy: stuknięcia zmieniają lokalny szkic od razu (wartość w kolorze akcentu). 800 ms po
+- Cykl życia, najprostszy: stuknięcia zmieniają lokalny szkic od razu. Stan nastawy pod wartością, neutralnie
+  (akcent jest zarezerwowany dla pracy urządzenia): `Zmieniasz…` (szkic), `Ustawianie…` (wysłane, HA jeszcze
+  nie pokazał), `Nie udało się ustawić` (błąd usługi), `Brak potwierdzenia` (10 s bez zmiany w HA). 800 ms po
   ostatnim stuknięciu idzie jedno `climate.set_temperature` z samym `temperature` - nigdy z `hvac_mode`, więc
   nastawa nie zmienia trybu (edycja przy `off` zmienia nastawę, którą termostat użyje po włączeniu).
 - **Jedno wywołanie naraz na cały panel**: od wysłania czegokolwiek (nastawa, tryb, preset, wentylator, nawiew)
@@ -121,21 +139,25 @@ anulowanie jego liczników.
 - Gdy przyciski się nie mieszczą (więcej niż 6 trybów albo etykieta szersza niż przycisk przy 19 px), wiersz
   staje się jednym przyciskiem-listą `Tryb` jak w pkt 5.3.
 
-### 5.3 Listy (Preset, Wentylator, Nawiew)
+### 5.3 Listy (Profil, Siła nawiewu, Kierunek)
 
-- Przycisk tylko przy odpowiednim bicie i niepustej liście: `Preset` (16, `preset_modes`), `Wentylator`
-  (8, `fan_modes`), `Nawiew` (32, `swing_modes` - bez zakładania osi, bo lista bywa mieszana), `Nawiew poziomy`
-  (512, `swing_horizontal_modes`). Szerokość dzielona równo; brak wszystkich = wiersz znika.
-- Lista wyboru (`climate-picker-gree.png`): okno nad panelem, wiersze 64 px, najwyżej 5 widocznych, pasek
-  przewijania, stały przycisk zamknięcia w nagłówku. Przewijanie nigdy nie wybiera. Stuknięcie poza listą i
-  wstecz zamykają tylko listę. Wybór = jedno wywołanie (`set_preset_mode`/`preset_mode`,
-  `set_fan_mode`/`fan_mode`, `set_swing_mode`/`swing_mode`,
+- Przycisk tylko przy odpowiednim bicie i niepustej liście: `Profil` (16, `preset_modes`), `Siła nawiewu`
+  (8, `fan_modes`), `Kierunek pionowy` (32, `swing_modes`), `Kierunek poziomy` (512, `swing_horizontal_modes`).
+  Szerokość dzielona równo (4 x 190 px, jeden na całą szerokość). Brak wszystkich = wiersz znika. Przycisk:
+  etykieta 16 px, wartość 21 px, strzałka `mdi:chevron-down`.
+- Lista wyboru (`climate-picker-gree.png`): okno 448 px szerokie (x 176-624), tytuł = etykieta przycisku,
+  zamknięcie 64x64, wiersze 64 px co 72 px; widać 4 pełne i połowę piątego, gdy jest więcej opcji (sygnał
+  przewijania), pasek przewijania tylko wtedy. Bieżąca pozycja: zaznaczenie neutralne + `mdi:check` po prawej.
+  Przewijanie nigdy nie wybiera; stuknięcie poza listą i wstecz zamykają tylko listę. Wybór = jedno wywołanie
+  (`set_preset_mode`/`preset_mode`, `set_fan_mode`/`fan_mode`, `set_swing_mode`/`swing_mode`,
   `set_swing_horizontal_mode`/`swing_horizontal_mode`) i zamknięcie listy.
-- Etykiety po polsku tylko dla wartości standardowych HA (presety: none Brak, away Poza domem, eco Eco,
-  boost Boost, sleep Sen, comfort Komfort, home Dom, activity Aktywność; wentylator: auto Auto, low Niski,
-  medium Średni, high Wysoki, off Wyłączony; nawiew: off Wyłączony, on Włączony, both Oba, vertical Pionowy,
-  horizontal Poziomy). Reszta (`medium low`, `full_swing`, `fireplace`...): tekst z HA, `_` na spację, wielka
-  pierwsza litera. Tłumaczeń producentów nie utrzymujemy.
+- Słowa: profil `none` -> `Standardowy` (tylko jawne `none`), `away` Poza domem, `eco` Eco, `boost` Boost,
+  `sleep` Sen, `comfort` Komfort, `home` Dom, `activity` Aktywność; siła nawiewu `auto` Auto, `low` Niska,
+  `medium` Średnia, `high` Wysoka, `off` Wyłączona; kierunek: tłumaczenie po słowach wartości HA, tylko gdy
+  **każde** słowo jest znane (`fixed` Stały, `swing` Ruch, `full` pełny, `upper` góra, `lower` dół,
+  `middle`/`center` środek, `left` lewo, `right` prawo, `default` Domyślny, `off` Wyłączony, `on` Włączony,
+  `both` Oba, `vertical` Pionowy, `horizontal` Poziomy): `fixed_upper_middle` -> `Stały: góra-środek`,
+  `full_swing` -> `Ruch: pełny`. Inaczej cała wartość z HA bez zmian poza `_` -> spacja i wielką literą.
 
 ### 5.4 Stan na żywo, błędy, zamykanie
 

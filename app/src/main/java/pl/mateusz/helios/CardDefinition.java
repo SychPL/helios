@@ -45,6 +45,8 @@ final class CardDefinition {
             // schema 6: one entity of any domain, an intent from ActionPolicy instead of a fixed action, an mdi: icon by domain when none is set
             new CardDefinition("tile",6,fields("entity",6,"icon",6,"attribute",6),"",null,null,true,true,false,false,true,null,null,DashboardSpec.TILE_ATTRIBUTES,Layout.FIT,Gate.NONE,Feed.ENTITIES),
             // SPEC 0.17: read-only energy summary - PV power as the value, the house and (optionally) the battery under it
+            // SPEC 0.19: a climate entity - measured temperature big, the setpoint under it; the tap opens the full control panel
+            new CardDefinition("climate",6,fields("entity",6,"icon",6),"climate","climate",null,false,false,false,false,false,null,null,ClimateModel.ATTRIBUTES,Layout.BIG_FIT,Gate.KNOWN,Feed.ENTITIES),
             new CardDefinition("energy",6,fields("entity",6,"load_entity",6,"battery_entity",6,"icon",6),"sensor",null,null,false,false,false,false,false,"mdi:solar-power","PV",DashboardSpec.UNIT_ATTRIBUTES,Layout.BIG_FIT,Gate.NONE,Feed.ENTITIES),
         })all.put(d.type,d);
         ALL=Collections.unmodifiableMap(all);

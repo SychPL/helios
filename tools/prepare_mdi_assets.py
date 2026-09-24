@@ -20,9 +20,12 @@ for name, url in sources.items():
     data[name] = urllib.request.urlopen(url, timeout=30).read()
     manifest[name] = {'source': url, 'sha256': hashlib.sha256(data[name]).hexdigest()}
 (assets / 'materialdesignicons-webfont.ttf').write_bytes(data['materialdesignicons-webfont.ttf'])
-rows = {}
-for icon in json.loads(data['meta.json']):
-    for alias in [icon['name']] + icon.get('aliases', []):
+icons = json.loads(data['meta.json'])
+# a real icon name always wins over another icon's alias: `exponent` lists `power` as an alias, and taking names and
+# aliases in one pass let it shadow the real `power` (the clock drew x^y for mdi:power)
+rows = {icon['name']: icon['codepoint'] for icon in icons}
+for icon in icons:
+    for alias in icon.get('aliases', []):
         rows.setdefault(alias, icon['codepoint'])
 lines = [f'{name} {rows[name]}' for name in sorted(rows)]
 (assets / 'mdi-codepoints.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')

@@ -290,6 +290,10 @@ public final class DashboardView extends FrameLayout {
             title.setTextColor(attention?Theme.ATTENTION:t.muted);detail.setTextColor(t.muted);detail2.setTextColor(t.muted);
             value.setTextColor(!live?t.muted:attention?Theme.ATTENTION:t.text);
             icon.setVisibility(shownIcon==null?GONE:VISIBLE);
+            if(!inlineIcon&&title.getLayoutParams() instanceof LinearLayout.LayoutParams){ // the gap follows the icon actually shown, also one a body picks (climate)
+                LinearLayout.LayoutParams tp=(LinearLayout.LayoutParams)title.getLayoutParams();int gap=shownIcon==null?0:Math.round(8*scale);
+                if(tp.leftMargin!=gap){tp.leftMargin=gap;title.setLayoutParams(tp);}
+            }
             head.setVisibility(title.getText().length()==0&&(inlineIcon||shownIcon==null)?GONE:VISIBLE);
             if(shownIcon!=null)icon.set(shownIcon,attention?Theme.ATTENTION:accent?t.accent:t.muted);
             rule.setBackgroundColor((0x33<<24)|(t.muted&0xFFFFFF));
