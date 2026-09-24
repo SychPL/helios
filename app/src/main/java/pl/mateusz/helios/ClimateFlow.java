@@ -8,7 +8,7 @@ package pl.mateusz.helios;
 final class ClimateFlow {
     static final long DRAFT_MS=800,CONFIRM_MS=10_000;
     private Double draft;private long draftDue;
-    private String sentService;private Object sentValue;private long sentAt;
+    private String sentService;private Object sentValue;private long sentAt;private int generation;
     private String message,failed; // failed: the service whose call failed or went unconfirmed
 
     /** A call is out or a draft is waiting: mode and list controls are locked. */
@@ -31,6 +31,8 @@ final class ClimateFlow {
     }
     /** Which service is in flight, for its button's spinner; null when none. */
     String inFlight(){return sentService;}
+    /** The value on its way, so the requested control (not the current one) carries the spinner. */
+    Object inFlightValue(){return sentValue;}
 
     /** One -/+ tap; returns false when the step is not possible now. */
     boolean step(ClimateModel m,int direction,long now){
@@ -48,10 +50,11 @@ final class ClimateFlow {
     long draftDue(){return draftDue;}
     /** Anything but a setpoint: only when nothing is pending. */
     boolean mayCall(){return !busy();}
-    void sent(String service,Object value,long now){sentService=service;sentValue=value;sentAt=now;message=null;failed=null;}
+    /** Returns the call's generation: its answer counts only while this very call is still the one in flight. */
+    int sent(String service,Object value,long now){sentService=service;sentValue=value;sentAt=now;message=null;failed=null;return ++generation;}
     /** The service answered: success waits for HA's state, a failure ends the call at once. */
-    void result(String error){
-        if(sentService==null||error==null)return;
+    void result(int call,String error){
+        if(call!=generation||sentService==null||error==null)return;
         failed=sentService;clearSent();message="Nie wykonano: "+error;
     }
     /** Host.send refused before anything went out (stale state, no connection): the reason goes to the header. */

@@ -48,6 +48,7 @@ final class ClimatePanel {
     private final FrameLayout root;
     private Dialog picker;
     private String modesKey="",listsKey="";
+    private boolean closed; // set the moment the panel goes: late answers and timers then do nothing
     private final Runnable draftCheck=this::draftDue,confirmCheck=this::refresh,idle=this::closeByUser;
 
     ClimatePanel(Activity activity,DashboardSpec.Item item,String name,Host host){
@@ -99,6 +100,7 @@ final class ClimatePanel {
     private ClimateModel model(){return new ClimateModel(host.state(),host.fahrenheit());}
     /** Re-renders from the latest HA state; also where a call in flight ends (HA shows the value, or 10 s passed). */
     void refresh(){
+        if(closed)return;
         ClimateModel m=model();
         long now=SystemClock.elapsedRealtime();
         flow.observe(m,now);
@@ -131,8 +133,9 @@ final class ClimatePanel {
         refresh();
     }
     private void send(String service,Object value){
-        String refused=host.send(service,value,error->main.post(()->{flow.result(error);refresh();}));
-        if(refused==null)flow.sent(service,value,SystemClock.elapsedRealtime());
+        final int[] call={0};
+        String refused=host.send(service,value,error->main.post(()->{if(closed)return;flow.result(call[0],error);refresh();}));
+        if(refused==null)call[0]=flow.sent(service,value,SystemClock.elapsedRealtime());
         else flow.refused(service,refused);
     }
     private void choose(String service,String value){
@@ -144,22 +147,22 @@ final class ClimatePanel {
     // --- rows ---
     private void modes(ClimateModel m,boolean enabled){
         Theme t=Theme.current();
-        boolean picker=m.modes.size()>6; // more than six do not fit as buttons (SPEC 0.19 pkt 5.2): one list button instead
-        String key=m.modes+"|"+m.state+"|"+enabled+"|"+flow.inFlight();
+        boolean picker=!fits(m.modes); // more than six, or a label wider than its button (SPEC 0.19 pkt 5.2): one list button instead
+        String key=m.modes+"|"+m.state+"|"+enabled+"|"+flow.inFlight()+"|"+flow.inFlightValue();
         if(key.equals(modesKey))return;modesKey=key;
         modeRow.removeAllViews();
         modeLabel.setVisibility(m.modes.isEmpty()?View.GONE:View.VISIBLE);
         if(picker){
             List<String> labels=new ArrayList<>();for(String mode:m.modes)labels.add(ClimateModel.mode(mode,false));
-            addSelector(modeRow,"Tryb",ClimateModel.mode(m.state,false),enabled,1,()->openPicker("Tryb",m.modes,labels,m.state,v->choose("set_hvac_mode",v)));
+            addSelector(modeRow,"Tryb",ClimateModel.mode(m.state,false),"set_hvac_mode".equals(flow.inFlight()),enabled,1,()->openPicker("Tryb",m.modes,labels,m.state,v->choose("set_hvac_mode",v)));
             return;
         }
         int n=m.modes.size();
         for(int i=0;i<n;i++){
             String mode=m.modes.get(i);
-            boolean selected=mode.equals(m.state),sending="set_hvac_mode".equals(flow.inFlight())&&selected;
-            TextView b=chip(ClimateModel.mode(mode,n>=5)+(sending?" …":""),selected,n>3?19:21,t);
-            b.setEnabled(enabled);b.setAlpha(enabled?1f:.4f);
+            boolean selected=mode.equals(m.state),sending="set_hvac_mode".equals(flow.inFlight())&&mode.equals(flow.inFlightValue());
+            View b=chip(ClimateModel.mode(mode,n>=5),selected,sending,n>3?19:21,t);
+            b.setEnabled(enabled);b.setAlpha(enabled||sending?1f:.4f);
             b.setOnClickListener(v->{if(!mode.equals(model().state))choose("set_hvac_mode",mode);});
             add(modeRow,b,i,n);
         }
@@ -173,20 +176,21 @@ final class ClimatePanel {
         for(int i=0;i<n;i++){
             ClimateModel.Group g=m.groups.get(i);
             List<String> labels=new ArrayList<>();for(String o:g.options)labels.add(ClimateModel.option(g.label,o));
-            String value=ClimateModel.option(g.label,g.current)+(g.service.equals(flow.inFlight())?" …":"");
-            addSelector(listRow,g.label,value,enabled,n,()->openPicker(g.label,g.options,labels,g.current,v->choose(g.service,v)));
+            String value=ClimateModel.option(g.label,g.current);
+            addSelector(listRow,g.label,value,g.service.equals(flow.inFlight()),enabled,n,()->openPicker(g.label,g.options,labels,g.current,v->choose(g.service,v)));
         }
     }
-    private void addSelector(LinearLayout row,String label,String value,boolean enabled,int n,Runnable open){
+    private void addSelector(LinearLayout row,String label,String value,boolean sending,boolean enabled,int n,Runnable open){
         Theme t=Theme.current();
         FrameLayout b=new FrameLayout(activity);b.setBackground(fill(t.raised,false,t));
         LinearLayout col=new LinearLayout(activity);col.setOrientation(LinearLayout.VERTICAL);col.setPadding(px(16),px(12),px(44),0);
         TextView l=text(16,t.muted);l.setText(label);col.addView(l);
         TextView v=text(21,t.text);v.setText(value);v.setPadding(0,px(6),0,0);col.addView(v);
         b.addView(col,new FrameLayout.LayoutParams(-1,-1));
-        IconView chevron=new IconView(activity);chevron.set("mdi:chevron-down",t.muted);
-        FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(px(26),px(26),Gravity.END|Gravity.CENTER_VERTICAL);cp.rightMargin=px(14);b.addView(chevron,cp);
-        b.setClickable(true);b.setEnabled(enabled);b.setAlpha(enabled?1f:.4f);
+        View mark=sending?spinner():new IconView(activity);if(!sending)((IconView)mark).set("mdi:chevron-down",t.muted);
+        FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(px(26),px(26),Gravity.END|Gravity.CENTER_VERTICAL);cp.rightMargin=px(14);b.addView(mark,cp);
+        b.setClickable(true);b.setEnabled(enabled);b.setAlpha(enabled||sending?1f:.4f);
+        b.setContentDescription(label+": "+value+(sending?", zmieniane":""));
         b.setOnClickListener(x->{if(enabled)open.run();});
         add(row,b,row.getChildCount(),n);
     }
@@ -211,7 +215,8 @@ final class ClimatePanel {
             FrameLayout row=new FrameLayout(activity);row.setBackground(fill(selected?selectedFill(t):t.raised,selected,t));
             TextView l=text(21,t.text);l.setText(labels.get(i));l.setGravity(Gravity.CENTER_VERTICAL);l.setPadding(px(20),0,px(52),0);row.addView(l,new FrameLayout.LayoutParams(-1,-1));
             if(selected){IconView check=new IconView(activity);check.set("mdi:check",t.text);FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(px(30),px(30),Gravity.END|Gravity.CENTER_VERTICAL);cp.rightMargin=px(16);row.addView(check,cp);}
-            row.setClickable(true);row.setOnClickListener(v->{d.dismiss();if(!value.equals(current))pick.accept(value);});
+            row.setClickable(true);row.setSelected(selected);row.setContentDescription(labels.get(i)+(selected?", wybrane":""));
+            row.setOnClickListener(v->{d.dismiss();if(!value.equals(current))pick.accept(value);});
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,px(ClimatePanelGeometry.ROW));rp.bottomMargin=px(ClimatePanelGeometry.ROW_STEP-ClimatePanelGeometry.ROW);list.addView(row,rp);
         }
         close.setOnClickListener(v->d.dismiss());
@@ -238,7 +243,7 @@ final class ClimatePanel {
     Runnable onUserClose=this::dismiss;
     private void dismiss(){dialog.dismiss();}
     private void touched(){main.removeCallbacks(idle);main.postDelayed(idle,IDLE_MS);}
-    private void stopTimers(){main.removeCallbacks(draftCheck);main.removeCallbacks(confirmCheck);main.removeCallbacks(idle);flow.discard();if(picker!=null){picker.dismiss();picker=null;}}
+    private void stopTimers(){closed=true;main.removeCallbacks(draftCheck);main.removeCallbacks(confirmCheck);main.removeCallbacks(idle);flow.discard();if(picker!=null){picker.dismiss();picker=null;}}
 
     // --- small view helpers ---
     private int px(float units){return Math.round(units*s);}
@@ -249,9 +254,25 @@ final class ClimatePanel {
     private void card(Box b,Theme t){View v=new View(activity);v.setBackground(Theme.card(t.surface,Theme.RADIUS*s));root.addView(v,box(b));}
     private LinearLayout row(Box b){LinearLayout r=new LinearLayout(activity);r.setOrientation(LinearLayout.HORIZONTAL);root.addView(r,box(b));return r;}
     private void square(MusicOverlay.IconButton b,Theme t){b.style(t.raised,t.text,s);GradientDrawable d=new GradientDrawable();d.setCornerRadius(18*s);d.setColor(t.raised);b.setBackground(d);}
-    private TextView chip(String label,boolean selected,float size,Theme t){
-        TextView b=text(size,t.text);b.setText(label);b.setGravity(Gravity.CENTER);b.setClickable(true);
-        b.setBackground(fill(selected?selectedFill(t):t.raised,selected,t));return b;
+    /** A mode button: label, neutral selection, and a spinner on the one whose call is on its way. */
+    private View chip(String label,boolean selected,boolean sending,float size,Theme t){
+        FrameLayout b=new FrameLayout(activity);b.setClickable(true);b.setSelected(selected);
+        b.setBackground(fill(selected?selectedFill(t):t.raised,selected,t));
+        TextView l=text(size,t.text);l.setText(label);l.setGravity(Gravity.CENTER);b.addView(l,new FrameLayout.LayoutParams(-1,-1));
+        if(sending){FrameLayout.LayoutParams sp=new FrameLayout.LayoutParams(px(20),px(20),Gravity.END|Gravity.TOP);sp.topMargin=sp.rightMargin=px(6);b.addView(spinner(),sp);}
+        b.setContentDescription("Tryb "+label+(selected?", wybrany":"")+(sending?", zmieniany":""));
+        return b;
+    }
+    private View spinner(){android.widget.ProgressBar p=new android.widget.ProgressBar(activity);p.setIndeterminate(true);return p;}
+    /** Whether every mode label fits its button at 19 px (16 px padding each side); otherwise the row becomes a list. */
+    private boolean fits(List<String> modes){
+        int n=modes.size();
+        if(n>6)return false;
+        if(n==0)return true;
+        float width=(ClimatePanelGeometry.MODES.w-ClimatePanelGeometry.GAP*(n-1))/(float)n-32;
+        android.graphics.Paint paint=new TextView(activity).getPaint();paint.setTextSize(19);
+        for(String m:modes)if(paint.measureText(ClimateModel.mode(m,n>=5))>width)return false;
+        return true;
     }
     /** Selection is neutral (SPEC 0.19 pkt 5): a lighter surface and an inside border, never the accent - that means "working". */
     private static int selectedFill(Theme t){return Theme.composite(t.text,.10f,t.raised);}

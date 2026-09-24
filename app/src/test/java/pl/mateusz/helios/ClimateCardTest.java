@@ -116,7 +116,7 @@ public class ClimateCardTest {
         Double d=f.takeDraft(900,false);assertEquals(21.5,d,0);
         f.sent("set_temperature",d,900);
         assertFalse("no step from a stale value",f.step(m,1,950));assertFalse(f.mayCall());assertEquals("Ustawianie…",f.status());
-        f.result(null); // accepted: still waits for HA to show it
+        f.result(1,null); // accepted: still waits for HA to show it
         assertTrue(f.busy());
         f.observe(new ClimateModel(entity("heat","supported_features","401","temperature","21.5","min_temp","14","max_temp","25"),false),2000);
         assertFalse(f.busy());assertNull(f.status());assertNull(f.message());
@@ -124,17 +124,31 @@ public class ClimateCardTest {
     @Test public void failuresTimeoutsAndDiscards(){
         ClimateModel m=new ClimateModel(salon("heat","idle"),false);
         ClimateFlow f=new ClimateFlow();f.sent("set_hvac_mode","off",0);
-        f.result("Entity not found");assertFalse(f.busy());assertEquals("Nie wykonano: Entity not found",f.message());assertNull("a mode failure is not a setpoint line",f.status());
+        f.result(1,"Entity not found");assertFalse(f.busy());assertEquals("Nie wykonano: Entity not found",f.message());assertNull("a mode failure is not a setpoint line",f.status());
         f=new ClimateFlow();f.sent("set_temperature",21.0,0);
         f.observe(m,9_999);assertTrue(f.busy());
         f.observe(m,10_000);assertFalse(f.busy());assertEquals("Brak potwierdzenia",f.message());assertEquals("Brak potwierdzenia",f.status());
-        f.result("late");assertEquals("a late answer after the timeout changes nothing","Brak potwierdzenia",f.message());
+        f.result(1,"late");assertEquals("a late answer after the timeout changes nothing","Brak potwierdzenia",f.message());
         f=new ClimateFlow();f.step(m,-1,0);f.discard();assertFalse(f.busy());assertNull(f.takeDraft(10_000,true));
         f=new ClimateFlow();f.step(m,1,0);assertEquals("closing flushes a draft before its time",21.0,f.takeDraft(10,true),0);
         f=new ClimateFlow();f.refused("set_temperature","Brak połączenia z Home Assistant");assertEquals("Nie udało się ustawić",f.status());
         f=new ClimateFlow();f.sent("set_preset_mode","away",0);
         f.observe(new ClimateModel(entity("heat","supported_features","401","preset_modes","[\"none\",\"away\"]","preset_mode","away"),false),100);
         assertFalse("a list value ends the call when HA shows it",f.busy());
+    }
+    @Test public void aLateAnswerOfAnEarlierCallNeverTouchesTheNewerOne(){
+        ClimateFlow f=new ClimateFlow();
+        int a=f.sent("set_preset_mode","away",0);
+        f.observe(new ClimateModel(entity("heat","supported_features","401","preset_modes","[\"none\",\"away\"]","preset_mode","away"),false),100); // HA shows A first
+        int b=f.sent("set_hvac_mode","off",200);
+        f.result(a,"timeout"); // A's transport gives up afterwards
+        assertTrue("B is still in flight",f.busy());assertEquals("set_hvac_mode",f.inFlight());assertEquals("off",f.inFlightValue());
+        f.result(b,"refused");assertFalse(f.busy());
+    }
+    @Test public void aStepHaSentThatIsNotOneTurnsEditingOff(){
+        for(String bad:new String[]{"0","-0.5","NaN","abc","Infinity"})
+            assertFalse(bad,new ClimateModel(entity("heat","supported_features","1","temperature","20","min_temp","14","max_temp","25","target_temp_step",bad),false).editable());
+        assertTrue("absent: the default",new ClimateModel(entity("heat","supported_features","1","temperature","20","min_temp","14","max_temp","25"),false).editable());
     }
     @Test public void theGridStaysInTheWindowWithoutOverlapsAndFingerSized(){
         Box w=ClimatePanelGeometry.WINDOW;

@@ -330,6 +330,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         HaDashboardClient client=ha();
         if(client==null||client==attachedTo||!resumed)return;
         detachHa();attachGeneration++;attachedTo=client;client.attach(haListener);
+        readUnits(); // onSessionStarted is not replayed to a new listener; a failure here (no session yet) is simply ignored
     }
     private void detachHa(){if(attachedTo!=null){attachedTo.detach(haListener);attachedTo=null;attachGeneration++;}live=false;}
 
@@ -404,7 +405,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(client==null)return;
         try{client.request(new org.json.JSONObject().put("type","get_config"),m->{
             org.json.JSONObject r=m.optJSONObject("result"),u=r==null?null:r.optJSONObject("unit_system");
-            if(u!=null){boolean f="°F".equals(u.optString("temperature"));main.post(()->fahrenheit=f);}
+            if(u!=null&&client==ha()){boolean f="°F".equals(u.optString("temperature"));main.post(()->{if(client==ha())fahrenheit=f;});} // an answer from an older session is dropped
         });}catch(org.json.JSONException ignored){}
     }
     private void openMusicLibrary(){

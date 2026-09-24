@@ -38,8 +38,8 @@ final class ClimateModel {
         action=e==null?null:e.attribute("hvac_action");
         current=number(e,"current_temperature");target=number(e,"temperature");low=number(e,"target_temp_low");high=number(e,"target_temp_high");
         min=number(e,"min_temp");max=number(e,"max_temp");
-        Double s=number(e,"target_temp_step");
-        step=s!=null&&s>0?s:fahrenheit?1:0.5;
+        boolean given=e!=null&&e.attribute("target_temp_step")!=null;Double s=number(e,"target_temp_step");
+        step=!given?(fahrenheit?1:0.5):s!=null&&s>0?s:Double.NaN; // NaN: HA sent a step that is not one - editing stays off
         Double f=number(e,"supported_features");features=f==null?0:(int)Math.round(f);
         modes=list(e==null?null:e.attribute("hvac_modes"));
         List<Group> g=new ArrayList<>();
@@ -56,7 +56,7 @@ final class ClimateModel {
     boolean has(int bit){return (features&bit)!=0;}
 
     /** A single setpoint the panel may change: the feature, a finite value, sane bounds and step (pkt 5.1). */
-    boolean editable(){return known&&has(TARGET_TEMPERATURE)&&target!=null&&min!=null&&max!=null&&min<=max&&step>0;}
+    boolean editable(){return known&&has(TARGET_TEMPERATURE)&&target!=null&&min!=null&&max!=null&&min<=max&&Double.isFinite(step)&&step>0;}
     /** A read-only range when there is no single setpoint. */
     boolean range(){return !editable()&&has(TARGET_RANGE)&&low!=null&&high!=null;}
     String setpoint(){return editable()?degrees(target):range()?degrees(low).replace("°","")+"–"+degrees(high):"—";}
