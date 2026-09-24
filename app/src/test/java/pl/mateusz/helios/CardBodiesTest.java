@@ -117,8 +117,10 @@ public class CardBodiesTest {
         c=CardBodies.FOR.get("weather").render(wide,s,true,env);
         assertNotNull(c.side);
         assertEquals("21°C",c.side.value);assertEquals("↓ 12°",c.side.detail);assertEquals("mdi:weather-partly-cloudy",c.side.icon);
-        assertEquals("16 km/h",c.detail); // the condition word gives way to the second half; the icon carries it
-        assertEquals("Pogoda: 12°C, Deszcz, 16 km/h, jutro 21°C ↓ 12°",c.description);
+        assertEquals("↓ 12° · 16 km/h",c.detail); // the condition word gives way to tonight's low; the icon carries it
+        assertEquals("Pogoda: 12°C, Deszcz, w nocy 12°, 16 km/h, jutro 21°C ↓ 12°",c.description);
+        box[0]=Tomorrow.parse(new org.json.JSONObject("{\"forecast\":[{\"datetime\":\"1970-01-02T00:00:00+00:00\",\"condition\":\"sunny\",\"temperature\":21}]}"),"°C",1_000L,java.time.ZoneId.of("UTC"));
+        assertEquals("16 km/h",CardBodies.FOR.get("weather").render(wide,s,true,env).detail); // no low in the feed: the wind alone, no stray separator
         // one cell has no room for two halves, so the same forecast changes nothing there
         assertNull(CardBodies.FOR.get("weather").render(narrow,s,true,env).side);
     }

@@ -88,8 +88,9 @@ final class CardBodies {
         Side side=t==null?null:new Side(t.icon(),t.value(),t.detail());
         // Half a tile is no room for the condition in words - the icon already says it, so only the wind stays
         // under the temperature. The description keeps the word, because a screen reader has no icon to read.
-        String extra=side!=null?windText:condition+(windText.isEmpty()?"":" · "+windText);
-        String spoken=defaultLabel(item)+": "+text+", "+condition+(windText.isEmpty()?"":", "+windText)
+        String night=t==null?"":t.night(); // tonight's low before the wind, where the second half makes room for it
+        String extra=side!=null?night+(night.isEmpty()||windText.isEmpty()?"":" · ")+windText:condition+(windText.isEmpty()?"":" · "+windText);
+        String spoken=defaultLabel(item)+": "+text+", "+condition+(night.isEmpty()?"":", w nocy "+night.substring(2))+(windText.isEmpty()?"":", "+windText)
             +(side==null?"":", jutro "+side.value+(side.detail.isEmpty()?"":" "+side.detail))+(live?"":", dane nieaktualne");
         return new CardContent(text,extra,"",item.title,known?WeatherLabels.icon(e.state):null,spoken,false,0,side);
     }

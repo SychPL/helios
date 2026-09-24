@@ -45,6 +45,9 @@ final class Tomorrow {
     String value(){return high!=null?degrees(high)+unit:low!=null?degrees(low)+unit:"—";}
     /** "↓ 12°" - the night low beside the day's high; empty when HA sends only one number. */
     String detail(){return low==null||high==null?"":"↓ "+degrees(low)+"°";}
+    /** "↓ 10°" for the coming night, shown under today: a daily record's low is the early morning of its own date
+     *  (met.no in HA: 9.9° at 05:00 UTC in the record dated tomorrow), so tomorrow's low is tonight. Empty without one. */
+    String night(){return low==null?"":"↓ "+degrees(low)+"°";}
     String icon(){return WeatherLabels.icon(condition);}
     private static String degrees(double value){return String.format(Locale.ROOT,"%.0f",value).replace("-0","0");}
     private static Double number(JSONObject o,String key){
