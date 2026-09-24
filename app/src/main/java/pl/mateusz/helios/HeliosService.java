@@ -331,7 +331,7 @@ public final class HeliosService extends Service {
                     if(requestMusicFocus()){
                         if(voiceActive()){
                             sink.setGain(DUCK_GAIN); // before the output opens: not even the first chunk plays at full level over the answer
-                            main.post(()->{if(session==null)return;if(voiceActive())session.duckForVoice();else sink.setGain(1f);}); // the conversation may have ended meanwhile
+                            main.post(()->{if(session==null)return;if(voiceActive())session.duckForVoice();else session.reapplyDuck();}); // the conversation may have ended meanwhile: the state machine decides, a focus duck included
                         }
                         return true;
                     }

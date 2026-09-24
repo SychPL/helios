@@ -50,6 +50,13 @@ public class MusicSessionTest {
         session.onTransport(SendspinClient.State.PLAYING);
         assertEquals("[duck:true, duck:false]",log.toString());
     }
+    @Test public void reapplyingFollowsTheDuckReasonsAFocusDuckIncluded(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.reapplyDuck();
+        session.onFocusChange(MusicSession.FOCUS_LOSS_TRANSIENT_CAN_DUCK);
+        session.reapplyDuck(); // the conversation ended before the posted check ran: another app's focus still ducks
+        assertEquals("[duck:false, duck:true, duck:true]",log.toString());
+    }
     @Test public void regainedFocusDoesNotLiftTheConversationDuck(){
         session.onTransport(SendspinClient.State.PLAYING);
         session.duckForVoice();

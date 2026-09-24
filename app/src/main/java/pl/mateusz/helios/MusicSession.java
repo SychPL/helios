@@ -52,6 +52,8 @@ final class MusicSession {
         if(!focus.request())return false;
         permanentLoss=false;restore();return true;
     }
+    /** Sets the sink to what the duck reasons say now; used when a level set ahead of the state machine may be stale. */
+    void reapplyDuck(){sink.duck(ducked||voiceDucked);}
     private void liftVoiceDuck(){if(voiceDucked){voiceDucked=false;if(!ducked)sink.duck(false);}}
     private void restore(){
         if(ducked){ducked=false;if(!voiceDucked)sink.duck(false);} // regained focus must not lift the conversation's duck
