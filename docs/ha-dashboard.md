@@ -56,9 +56,42 @@ Przykład całego dokumentu: [ha/helios-clock-v6.yaml](../ha/helios-clock-v6.yam
   `details` otwiera na zegarze okno z wartością encji i przyciskami dozwolonych intencji. `none` czyni kafelek nieklikalnym. Intencja spoza listy domeny odrzuca dokument (`Encja light.x nie obsługuje akcji open`). Zamek (`lock`, `unlock`) zawsze pyta przed wykonaniem; `confirmation.enabled: false` jest dla niego odrzucane.
 - Ikony: `icon: mdi:<nazwa>` z katalogu Material Design Icons 7.4.47 wbudowanego w aplikację (te same nazwy, które podpowiada HA). Sześć starych nazw (`information`, `weather-rainy`, `lightbulb`, `window-shutter`, `garage-open`, `music`) nadal działa i oznacza tę samą ikonę `mdi:`. Kafelek `tile` bez `icon` dostaje ikonę domeny (żarówka, roleta, kłódka, oko...), a jeśli encja ma własny atrybut `icon`, pokazuje ten. Nieznana nazwa odrzuca dokument.
 - Typy 2-5 (`clock`, `weather`, `entity`, `light`, `cover`, `garage`, `music`, `cover_group`) działają w dokumencie 6 bez zmian; `light`, `cover` i `garage` da się zapisać jako `tile` z intencją `toggle`, `controls` i `close`.
-- Każdy błąd (nieznane pole, literówka w ikonie, zła domena, nakładanie) odrzuca cały zapis: zegar zachowuje poprzedni układ i pokazuje komunikat w pasku. Bez żadnej poprawnej konfiguracji `version: 2` zegar pokazuje układ awaryjny (sam zegar) i komunikat `Wymagana konfiguracja Helios version: 2`.
+
+## Dziś i jutro w kafelku pogody (Helios 0.13)
+
+Kafelek `weather` szerszy niż jedna komórka dzieli się na dwie połowy: po lewej dziś, po prawej jutro. Każda połowa to ikona warunku i temperatura; pod dzisiejszą jest prędkość wiatru, pod jutrzejszą nocne minimum (`↓ 8°`). Warunek pogodowy niesie ikona - ta sama, której używa Home Assistant - więc nie zajmuje już linii tekstu. Opis dla czytnika ekranu zachowuje warunek słowami.
+
+Prognozy **nie trzeba konfigurować**: zegar sam prosi Home Assistanta o dobową prognozę encji z kafelka (`weather/subscribe_forecast`, typ `daily`) i wybiera rekord po dacie jutra, nie po pozycji na liście. Nie jest do tego potrzebna żadna encja pomocnicza ani pakiet YAML. Gdy HA odmówi albo nie ma prognozy, prawa połowa po prostu nie powstaje, a kafelek pokazuje samo dziś - wtedy pod temperaturą wraca też warunek słowami.
+
+Kafelek jednokomórkowy zostaje bez zmian: ikona, temperatura i linia z warunkiem oraz wiatrem.
+
+Pola `forecast_entity` i `forecast_when` działają jak dotąd, czyli nadal **razem** (SPEC 0.9): ustawione, zamieniają całą zawartość kafelka na prognozę, gdy encja trybu jest w podanym stanie. To osobne zachowanie od prawej połowy i nie jest potrzebne, żeby zobaczyć jutro.
 
 Format `version: 1` z wersji 0.4 nie jest migrowany automatycznie. Po instalacji 0.5 zaktualizuj YAML w HA albo uruchom `python tools/publish_ha_dashboard.py --replace` (Python: `websocket-client`, `PyYAML`; kopia poprzedniej konfiguracji trafia do `.local/`). Zakładka `menu-zegara` z 0.4 nie jest już używana i można ją usunąć.
+
+## Strony na zegarze (Helios 0.15)
+
+Dokument `version: 6` może mieć do 8 stron (`pages`). Zegar pokazuje jedną naraz: **przesunięcie palcem w lewo** przechodzi na następną, **w prawo** na poprzednią (bez zawijania). Nad kartami, w pasku pod napisem HELIOS, pojawiają się wtedy kropki stron - tylko na czas dotyku, gasną około 1,5 s po puszczeniu palca i niczego nie zasłaniają. Kropek nie da się kliknąć. Po 2 minutach bez dotyku zegar wraca na pierwszą stronę (otwarte okno panelu wstrzymuje ten licznik). Stuknięcie w kafelek działa jak dotąd; ruch wyraźnie w bok zabiera gest kafelkowi, więc nie wywoła jego akcji.
+
+Warunkowe kafelki (`visible_when`) i ostrzeżenia działają na wszystkich stronach, także tych niewidocznych. Prognoza jutra jest jedna: dla pierwszego szerokiego kafelka pogody w dokumencie; szeroki kafelek z inną encją pogody pokaże samo dziś.
+
+## Kafelek energii `energy` (Helios 0.14)
+
+Kafelek tylko do odczytu, pomyślany na jedną komórkę: w górnej linii `produkcja / pobór` (np. `1392 / 702 W`), a pod nią duży procent baterii. Bez `battery_entity` dużą wartością jest sama para `produkcja / pobór`. Każda liczba ma jednostkę swojej encji z Home Assistanta; brak odczytu to kreska.
+
+```yaml
+- id: energia
+  type: energy
+  column: 4
+  row: 2
+  width: 1
+  height: 1
+  entity: sensor.goodwe_pv_power                     # moc z PV (wymagane, sensor)
+  load_entity: sensor.goodwe_house_consumption       # zużycie domu (wymagane, sensor)
+  battery_entity: sensor.goodwe_battery_state_of_charge  # bateria w % (opcjonalnie, sensor)
+```
+
+Domyślny tytuł to `PV`, a ikona `mdi:solar-power`; obie da się zmienić polami `title` i `icon`. Typ wymaga `version: 6` i Heliosa 0.14 - starszy zegar odrzuci dokument z tym kafelkiem i zostanie przy ostatnim dobrym układzie, więc najpierw zaktualizuj zegary, które ten dokument czytają.
 
 ## Sterowanie i bezpieczeństwo
 

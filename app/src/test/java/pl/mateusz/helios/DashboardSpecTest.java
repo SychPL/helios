@@ -68,7 +68,6 @@ public class DashboardSpecTest {
         assertEquals(3,spec.version);assertEquals(7,spec.items.size());
         DashboardSpec.Item music=spec.item("music");
         assertNull(music.entity);assertTrue(music.interactive());assertEquals("music",music.icon);assertEquals("library",music.action);
-        assertFalse(spec.entities().contains(null));
         JSONObject two=new JSONObject().put("version",3).put("grid",new JSONObject().put("columns",4).put("rows",3)).put("items",new JSONArray().put(item("m1","music",1,1,1,1)).put(item("m2","music",2,1,1,1)));rejects(two,"two music tiles");
         rejects(example().put("version",2).put("items",new JSONArray().put(item("music","music",1,1,1,1))),"music at version 2");
         rejects(new JSONObject(c.toString()).put("music_layout",new JSONObject()),"music_layout");
@@ -108,6 +107,8 @@ public class DashboardSpecTest {
         DashboardSpec.Item weather=spec.item("weather");
         assertEquals("sensor.helios_pogoda_jutro",weather.forecastEntity);assertEquals("binary_sensor.helios_pogoda_jutro_tryb",weather.forecastWhenEntity);assertEquals("on",weather.forecastWhenState);
         List<String> entities=spec.entities();
+        // A null here would reach HA as a malformed subscribe_entities and cost the clock its whole session.
+        assertFalse(entities.contains(null));
         for(String e:new String[]{"cover.bedroom_main_cover_a","cover.bedroom_main_cover_b","light.bedroom_a_all","binary_sensor.helios_sypialnia_swiatlo_pokaz","binary_sensor.helios_pogoda_jutro_tryb","sensor.helios_pogoda_jutro","weather.forecast_dom"})assertTrue(e,entities.contains(e));
         Map<String,Set<String>> attributes=spec.attributes();
         assertEquals(new HashSet<>(Arrays.asList("current_position","supported_features")),attributes.get("cover.bedroom_main_cover_a"));

@@ -10,10 +10,11 @@ final class DashboardSpec {
     static final String VERSION_ERROR="Wymagana konfiguracja Helios version: 2, 3, 4, 5 lub 6";
     /** The six bare icon names of versions 2-5; at version 6 they are aliases of the same `mdi:` names. */
     static final List<String> ICONS=Arrays.asList("information","weather-rainy","lightbulb","window-shutter","garage-open","music");
-    static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit");
+    static final List<String> WEATHER_ATTRIBUTES=Arrays.asList("temperature","temperature_unit","wind_speed","wind_speed_unit","humidity","pressure","pressure_unit","cloud_coverage");
     static final List<String> COVER_ATTRIBUTES=Arrays.asList("current_position","supported_features");
     static final List<String> FORECAST_ATTRIBUTES=Arrays.asList("forecast_date","condition","temperature","templow","temperature_unit","fetched_at","valid_until");
     static final List<String> TILE_ATTRIBUTES=Arrays.asList("friendly_name","icon","unit_of_measurement","device_class");
+    static final List<String> UNIT_ATTRIBUTES=Collections.singletonList("unit_of_measurement");
     private static final List<String> COMMON=Arrays.asList("id","type","column","row","width","height","title","icon","visible_when","tap_action","confirmation");
     /** Keys every type takes; icon, tap_action and confirmation come from the CardDefinition. */
     private static final List<String> BASE=Arrays.asList("id","type","column","row","width","height","title","visible_when");
@@ -39,6 +40,8 @@ final class DashboardSpec {
     static final class Cover {final String entity,title;Cover(String entity,String title){this.entity=entity;this.title=title;}}
     static final class Item {
         final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity;
+        /** energy (SPEC 0.17): the house load, required, and the battery charge, optional; null for every other type. */
+        String loadEntity,batteryEntity;
         final int column,row,width,height;
         final boolean confirm,ownIcon; // ownIcon: the icon was named in the config, so the entity's own icon never replaces it
         final List<Cover> covers;
@@ -52,7 +55,7 @@ final class DashboardSpec {
             this.ownIcon=ownIcon;this.id=id;this.type=type;this.column=column;this.row=row;this.width=width;this.height=height;this.title=title;this.icon=icon;this.entity=entity;this.temperatureEntity=temperatureEntity;this.attribute=attribute;this.action=action;this.visibleEntity=visibleEntity;this.visibleState=visibleState;this.confirm=confirm;this.confirmText=confirmText;
             this.covers=Collections.unmodifiableList(covers);this.forecastEntity=forecastEntity;this.forecastWhenEntity=forecastWhenEntity;this.forecastWhenState=forecastWhenState;this.offEntity=offEntity;
         }
-        /** Tomorrow's forecast is shown when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
+        /** The whole tile swaps to tomorrow when the mode entity is live and equals the configured state (SPEC 0.9 pkt 7.2). */
         boolean forecast(){return forecastEntity!=null;}
         boolean interactive(){return action!=null;}
         boolean conditional(){return visibleEntity!=null;}
@@ -198,7 +201,13 @@ final class DashboardSpec {
             if(forced&&!confirm)throw new IllegalArgumentException("Akcja "+action+" wymaga potwierdzenia");
             if(c.has("text"))confirmText=string(c,"text",true,80);
         }
-        return new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity,ownIcon);
+        Item out=new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity,ownIcon);
+        if(allowed.contains("load_entity")){
+            out.loadEntity=string(o,"load_entity",true,128);
+            if(!out.loadEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("load_entity wymaga encji sensor");
+            if(o.has("battery_entity")){out.batteryEntity=string(o,"battery_entity",true,128);if(!out.batteryEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("battery_entity wymaga encji sensor");}
+        }
+        return out;
     }
     /** Versions 2-5: one of six drawn names. Version 6: `mdi:<name>` from the bundled catalogue, the six old names normalised to it. */
     private static String icon(String icon,int version){
@@ -236,6 +245,8 @@ final class DashboardSpec {
         return (Integer)value;
     }
 
+    /** Every page's items in order: visibility, warnings and the forecast look past the page on screen (SPEC 0.18). */
+    List<Item> allItems(){List<Item> out=new ArrayList<>();for(Page p:pages)out.addAll(p.items);return out;}
     /** Any page's item by id; ids are unique across the document. */
     Item item(String id){for(Page p:pages)for(Item i:p.items)if(i.id.equals(id))return i;return null;}
     /** Every entity the renderer or visibility needs on any page, in first-use order, without duplicates. */
@@ -243,9 +254,12 @@ final class DashboardSpec {
         LinkedHashSet<String> out=new LinkedHashSet<>();
         for(Page p:pages)for(Item i:p.items){
             if(i.entity!=null)out.add(i.entity);for(Cover c:i.covers)out.add(c.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);
-            if(i.forecastEntity!=null){out.add(i.forecastWhenEntity);out.add(i.forecastEntity);}
+            out.add(i.loadEntity);out.add(i.batteryEntity); // energy; nulls go with out.remove(null) below
+            if(i.forecastWhenEntity!=null)out.add(i.forecastWhenEntity); // a forecast entity may stand without a mode entity; a null here would be sent to HA and take the whole subscription down
+            if(i.forecastEntity!=null)out.add(i.forecastEntity);
             if(i.visibleEntity!=null)out.add(i.visibleEntity);
         }
+        out.remove(null);
         return new ArrayList<>(out);
     }
     /** Attributes worth retaining per entity; everything else is dropped at decode time. */
@@ -258,6 +272,7 @@ final class DashboardSpec {
             if(i.forecastEntity!=null)out.computeIfAbsent(i.forecastEntity,k->new HashSet<>()).addAll(FORECAST_ATTRIBUTES);
             if(i.attribute!=null)out.computeIfAbsent(i.entity,k->new HashSet<>()).add(i.attribute);
             if(i.temperatureEntity!=null)out.computeIfAbsent(i.temperatureEntity,k->new HashSet<>()).add("unit_of_measurement"); // the weather tile shows the sensor's own unit, never a default
+            for(String extra:new String[]{i.loadEntity,i.batteryEntity})if(extra!=null)out.computeIfAbsent(extra,k->new HashSet<>()).add("unit_of_measurement");
         }
         return out;
     }

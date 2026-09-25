@@ -24,6 +24,7 @@ import org.json.JSONObject;
 import java.io.*;
 import java.net.*;
 import java.text.SimpleDateFormat;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -34,6 +35,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private final Runnable unboost=()->{WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;getWindow().setAttributes(p);};
     @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){
         int action=event.getActionMasked();
+        if(action==android.view.MotionEvent.ACTION_DOWN&&dashboard!=null)dashboard.touched(); // before the night clock swallows the gesture
         // The touch that ends the night clock only wakes the panel (SPEC 0.13 pkt 5): the whole gesture is
         // swallowed, not just its first event, or the finger would still land on whatever tile is underneath.
         if(dashboard!=null&&dashboard.nightVisible()){
@@ -69,6 +71,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean live;
     private String connectionIssue="Łączenie z konfiguracją ekranu w HA…",configIssue;
     private final Set<String> pendingActions=new HashSet<>();
+    private boolean fahrenheit; // HA's unit system (get_config), read once per session: the default setpoint step is 1 in °F, 0.5 in °C
     private final ServiceConnection serviceConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             service=((HeliosService.Local)binder).service();
@@ -108,10 +111,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 }
                 if(received==null&&specRaw==null){spec=DashboardSpec.fallback();dashboard.setSpec(spec,MainActivity.this::tap);}
                 configIssue=issue;connectionIssue=null;states=snapshot;live=true;decideVisibility();dashboard.connected(true);renderDashboard();
+                subscribeForecast(); // the layout names the weather entity, so the forecast can only be asked for once it is here
             });
         }
         @Override public void onStates(Map<String,EntityStates.Entity> snapshot){update(()->{states=snapshot;live=true;decideVisibility();renderDashboard();});}
         @Override public void onUnavailable(String reason){update(()->{live=false;connectionIssue=reason;dashboard.connected(false);closePanel();renderDashboard();});}
+        @Override public void onSessionStarted(){main.post(()->{forecastFor=null;dashboard.tomorrow(null);readUnits();});} // subscriptions die with the session, so the next layout asks again
     };
     private Dialog panel;
     private MusicLibraryDialog library;
@@ -260,6 +265,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(sensors!=null&&lightSensor!=null)sensors.registerListener(light,lightSensor,android.hardware.SensorManager.SENSOR_DELAY_NORMAL);
         tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
     @Override public void onPause(){resumed=false;
+        if(panel!=null&&panelItem!=null&&"climate".equals(panelItem.type))closePanel(); // SPEC 0.19: the thermostat panel goes with the app, its unsent draft dropped
         if(sensors!=null)sensors.unregisterListener(light);
         // the night clock goes away with its dimming: hiding the layer alone would leave the panel at 0.01
         screensaver.forget();dashboard.night(false);restoreBrightness();
@@ -290,11 +296,41 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         }finally{c.disconnect();}
     }
     private void connect(){onboarding(false);}
+    /**
+     * Asks HA for the daily forecast of every wide weather tile, so tomorrow needs no helper entity in HA.
+     * A session carries its own subscriptions, so this runs again on every reconnect; a refusal simply leaves
+     * the tile showing today.
+     */
+    private void subscribeForecast(){
+        HaDashboardClient client=ha();
+        if(client==null||spec==null)return;
+        String entity=null;
+        for(DashboardSpec.Item item:spec.allItems())if("weather".equals(item.type)&&item.entity!=null&&item.width>1){entity=item.entity;break;} // one forecast is all the layout has room for
+        if(entity==null){forecastFor=null;dashboard.tomorrow(null);return;}
+        if(entity.equals(forecastFor))return; // already subscribed on this session for this entity
+        forecastFor=entity;
+        final String subscribed=entity;
+        client.subscribe(Tomorrow.subscribe(subscribed),
+            event->{
+                Tomorrow t=Tomorrow.parse(event,unitOf(subscribed),System.currentTimeMillis(),ZoneId.systemDefault());
+                if(t!=null)t.entity=subscribed;
+                main.post(()->{if(resumed)dashboard.tomorrow(t);});
+            },
+            code->main.post(()->{if(resumed){if(subscribed.equals(forecastFor))forecastFor=null;dashboard.tomorrow(null);}}));
+    }
+    private String forecastFor; // the weather entity whose forecast this session already asked for
+    /** The unit the weather entity itself reports, so tomorrow is written the same way as today. */
+    private String unitOf(String entity){
+        EntityStates.Entity e=states==null?null:states.get(entity);
+        String unit=e==null?null:e.attribute("temperature_unit");
+        return unit==null?"":unit;
+    }
     private HaDashboardClient ha(){return service==null?null:service.ha();}
     private void attachHa(){
         HaDashboardClient client=ha();
         if(client==null||client==attachedTo||!resumed)return;
         detachHa();attachGeneration++;attachedTo=client;client.attach(haListener);
+        readUnits(); // onSessionStarted is not replayed to a new listener; a failure here (no session yet) is simply ignored
     }
     private void detachHa(){if(attachedTo!=null){attachedTo.detach(haListener);attachedTo=null;attachGeneration++;}live=false;}
 
@@ -310,7 +346,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         return dashboardLabel(item)+(position==null?"":" · "+position.replaceAll("\\.0+$","")+"%");
     }
     private void decideVisibility(){
-        for(DashboardSpec.Item item:spec.items)if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
+        for(DashboardSpec.Item item:spec.allItems())if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
     }
     private void tap(DashboardSpec.Item item){
         ActionPolicy.Panel panel=ActionPolicy.panel(item.action);
@@ -321,6 +357,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(panel==ActionPolicy.Panel.COVER){coverPanel(item);return;}
         if(panel==ActionPolicy.Panel.COVER_GROUP){coverGroupPanel(item);return;}
         if(panel==ActionPolicy.Panel.DETAILS){detailsPanel(item);return;}
+        if(panel==ActionPolicy.Panel.CLIMATE){climatePanel(item);return;}
         ActionPolicy.Call c=ActionPolicy.call(item,dashboardLabel(item));
         if(c!=null)confirm(item,c.question,()->callEntity(item,c.entity,c.domain,c.service,null));
     }
@@ -337,6 +374,39 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         panel=details.dialog;panelItem=item;panelRefresh=()->details.refresh(states,live);
         details.dialog.setOnCancelListener(d->{panel=null;panelItem=null;panelRefresh=null;});
         details.dialog.show();
+    }
+    /** SPEC 0.19: the thermostat panel; every call re-checked against the entity as it is when it leaves (pkt 6). */
+    private void climatePanel(DashboardSpec.Item item){
+        closePanel();dashboard.musicOverlay().closePanel();
+        ClimatePanel c=new ClimatePanel(this,item,dashboardLabel(item),new ClimatePanel.Host(){
+            public EntityStates.Entity state(){return states.get(item.entity);}
+            public boolean live(){return live;}
+            public boolean fahrenheit(){return fahrenheit;}
+            public String send(String service,Object value,java.util.function.Consumer<String> done){
+                HaDashboardClient client=ha();
+                if(!live||client==null)return "Brak połączenia z Home Assistant";
+                if(!new ClimateModel(states.get(item.entity),fahrenheit).allows(service,value))return "Termostat nie przyjmie tej wartości";
+                org.json.JSONObject data=ActionPolicy.climateData(service,value);
+                if(data==null)return "Niedozwolone polecenie";
+                onEvent("service_call","climate."+service+" "+item.entity+" "+data);
+                client.callService("climate",service,item.entity,data,error->main.post(()->{
+                    if(error!=null){onEvent("service_error",error);if(panel==null||panelItem!=item)Toast.makeText(MainActivity.this,"Nie wykonano: "+error,Toast.LENGTH_LONG).show();}
+                    done.accept(error);
+                }));
+                return null;
+            }
+        });
+        c.onUserClose=this::closePanel; // X, back, idle: the panel flushes its draft first, then goes the ordinary way
+        panel=c.dialog;panelItem=item;panelRefresh=c::refresh;
+        c.show();
+    }
+    private void readUnits(){
+        HaDashboardClient client=ha();
+        if(client==null)return;
+        try{client.request(new org.json.JSONObject().put("type","get_config"),m->{
+            org.json.JSONObject r=m.optJSONObject("result"),u=r==null?null:r.optJSONObject("unit_system");
+            if(u!=null&&client==ha()){boolean f="°F".equals(u.optString("temperature"));main.post(()->{if(client==ha())fahrenheit=f;});} // an answer from an older session is dropped
+        });}catch(org.json.JSONException ignored){}
     }
     private void openMusicLibrary(){
         if(service==null||!service.musicConfigured()){Toast.makeText(this,"Music Assistant nie jest skonfigurowany (Odśwież parowanie)",Toast.LENGTH_LONG).show();return;}
@@ -410,7 +480,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         client.callService(domain,service,entity,error->main.post(()->{
             if(tracked){pendingActions.remove(key);dashboard.pending(item.id,anyPending(item.id));}
             if(done!=null)done.run();
-            if(error!=null){onEvent("service_error",error);Toast.makeText(this,"Nie wykonano: "+error,Toast.LENGTH_LONG).show();}
+            if(error!=null){onEvent("service_error",error);Toast.makeText(MainActivity.this,"Nie wykonano: "+error,Toast.LENGTH_LONG).show();}
             if(panelRefresh!=null)panelRefresh.run();
         }));
         return true;

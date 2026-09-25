@@ -34,6 +34,47 @@ public class MusicSessionTest {
         session.onVoiceReady(()->true);
         assertEquals("[duck:true, duck:false, duck:true, duck:false]",log.toString());
     }
+    @Test public void aStreamStartedMidConversationStaysDuckedUntilTheConversationEnds(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.duckForVoice();session.duckForVoice(); // a second call only re-applies the level
+        assertEquals("[duck:true, duck:true]",log.toString());assertEquals(MusicSession.Ui.PLAYING,session.ui());
+        session.onVoiceReady(()->true);
+        assertEquals("[duck:true, duck:true, duck:false]",log.toString());
+    }
+    @Test public void musicStoppedMidConversationDoesNotLeaveTheNextStreamQuiet(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.duckForVoice();
+        session.onTransport(SendspinClient.State.NONE); // "stop the music" in the same conversation
+        assertEquals("[duck:true, duck:false]",log.toString());
+        session.onVoiceReady(()->true);
+        session.onTransport(SendspinClient.State.PLAYING);
+        assertEquals("[duck:true, duck:false]",log.toString());
+    }
+    @Test public void reapplyingFollowsTheDuckReasonsAFocusDuckIncluded(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.reapplyDuck();
+        session.onFocusChange(MusicSession.FOCUS_LOSS_TRANSIENT_CAN_DUCK);
+        session.reapplyDuck(); // the conversation ended before the posted check ran: another app's focus still ducks
+        assertEquals("[duck:false, duck:true, duck:true]",log.toString());
+    }
+    @Test public void regainedFocusDoesNotLiftTheConversationDuck(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.duckForVoice();
+        session.onFocusChange(MusicSession.FOCUS_LOSS_TRANSIENT_CAN_DUCK);
+        session.onFocusChange(MusicSession.FOCUS_GAIN);
+        assertEquals("[duck:true, duck:true]",log.toString()); // still ducked: the conversation goes on
+        session.onVoiceReady(()->true);
+        assertEquals("[duck:true, duck:true, duck:false]",log.toString());
+    }
+    @Test public void aConversationEndingDuringAFocusDuckKeepsTheFocusDuck(){
+        session.onTransport(SendspinClient.State.PLAYING);
+        session.duckForVoice();
+        session.onFocusChange(MusicSession.FOCUS_LOSS_TRANSIENT_CAN_DUCK);
+        session.onVoiceReady(()->false); // another app still holds focus
+        assertEquals("[duck:true, duck:true]",log.toString());
+        session.onFocusChange(MusicSession.FOCUS_GAIN);
+        assertEquals("[duck:true, duck:true, duck:false]",log.toString());
+    }
     @Test public void permanentLossPausesThroughTheTransportAndNeverResumesByItself(){
         session.onTransport(SendspinClient.State.PLAYING);
         session.onFocusChange(MusicSession.FOCUS_LOSS);

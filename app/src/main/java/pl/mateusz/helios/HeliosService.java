@@ -224,6 +224,8 @@ public final class HeliosService extends Service {
     private void diag(String event,String detail){if(diagnostics!=null)diagnostics.accept(event,detail);}
     void publish(){if(device!=null)device.publish();}
     /** Our own conversation finished: the sink may resume only if the system grants focus again. */
+    /** Between wake word and "ready" - including the follow-up turns, which never pass through idle. */
+    private boolean voiceActive(){String s=voiceState;return !s.equals("idle")&&!s.equals("error");}
     void onVoiceReady(){if(session!=null){session.onVoiceReady(this::requestMusicFocus);publishMusic();}}
 
     // --- music ---
@@ -326,7 +328,13 @@ public final class HeliosService extends Service {
                 }
                 /** Sendspin thread, before the output opens: focus already held or granted now; otherwise the stream is refused and MA gets pause. */
                 public boolean onStreamStart(){
-                    if(requestMusicFocus())return true;
+                    if(requestMusicFocus()){
+                        if(voiceActive()){
+                            sink.setGain(DUCK_GAIN); // before the output opens: not even the first chunk plays at full level over the answer
+                            main.post(()->{if(session==null)return;if(voiceActive())session.duckForVoice();else session.reapplyDuck();}); // the conversation may have ended meanwhile: the state machine decides, a focus duck included
+                        }
+                        return true;
+                    }
                     main.post(()->{musicIssue="Głośnik jest zajęty przez inną aplikację";publishMusic();});return false;
                 }
                 public void onStreamFailed(String reason){abandonMusicFocus();main.post(()->{musicIssue=reason;publishMusic();});}

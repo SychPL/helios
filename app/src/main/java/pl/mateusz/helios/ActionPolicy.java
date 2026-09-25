@@ -7,7 +7,7 @@ import java.util.*;
  * target is always the tile's own entity (SPEC 0.5 pkt 11.4, redrawn for version 6 in docs/ha-dashboard.md). Pure.
  */
 final class ActionPolicy {
-    enum Panel {COVER,COVER_GROUP,MUSIC_LIBRARY,DETAILS}
+    enum Panel {COVER,COVER_GROUP,MUSIC_LIBRARY,DETAILS,CLIMATE}
     /** What a `tile` may do on tap; `Item.action` stores the lower-case name. Legacy types keep their own action words. */
     enum Intent {NONE,TOGGLE,TURN_ON,TURN_OFF,OPEN,CLOSE,STOP,CONTROLS,DETAILS,ACTIVATE,LOCK,UNLOCK}
     /** One hard-coded service on one entity, asked about with `question` when the item wants a confirmation. */
@@ -71,10 +71,23 @@ final class ActionPolicy {
             case CONTROLS:return "Sterowanie";case ACTIVATE:return "Uruchom";case LOCK:return "Zamknij zamek";case UNLOCK:return "Otwórz zamek";default:return null;
         }
     }
+    /** The six climate services the panel may call and the one data key each takes (SPEC 0.19 pkt 6). */
+    private static final Map<String,String> CLIMATE=new LinkedHashMap<>();
+    static {
+        CLIMATE.put("set_temperature","temperature");CLIMATE.put("set_hvac_mode","hvac_mode");CLIMATE.put("set_preset_mode","preset_mode");
+        CLIMATE.put("set_fan_mode","fan_mode");CLIMATE.put("set_swing_mode","swing_mode");CLIMATE.put("set_swing_horizontal_mode","swing_horizontal_mode");
+    }
+    /** service_data for one climate call: exactly the service's own key, nothing else; null for any other service or value type. */
+    static org.json.JSONObject climateData(String service,Object value){
+        String key=CLIMATE.get(service);
+        if(key==null||value==null)return null;
+        if(service.equals("set_temperature")!=(value instanceof Double))return null; // a number for the setpoint, a word for everything else
+        try{return new org.json.JSONObject().put(key,value);}catch(org.json.JSONException e){return null;}
+    }
     /** Actions that open a panel instead of calling a service; null otherwise. */
     static Panel panel(String action){
         if(action==null)return null;
-        switch(action){case "controls":return Panel.COVER;case "covers":return Panel.COVER_GROUP;case "library":return Panel.MUSIC_LIBRARY;case "details":return Panel.DETAILS;default:return null;}
+        switch(action){case "controls":return Panel.COVER;case "covers":return Panel.COVER_GROUP;case "library":return Panel.MUSIC_LIBRARY;case "details":return Panel.DETAILS;case "climate":return Panel.CLIMATE;default:return null;}
     }
     /** The service call an item's action stands for; null when the action opens a panel or the item is not tappable. */
     static Call call(DashboardSpec.Item item,String label){
@@ -97,12 +110,12 @@ final class ActionPolicy {
     /** unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5); panels without an own entity and the details dialog are exempt. */
     static boolean needsKnown(String action){
         if(action==null)return false;
-        switch(action){case "lights_off":case "controls":return true;case "covers":case "library":case "details":return false;default:return intent(action)!=null;}
+        switch(action){case "lights_off":case "controls":case "climate":return true;case "covers":case "library":case "details":return false;default:return intent(action)!=null;}
     }
     /** How a tile with this action is gated: service calls wait for a known state and no call in flight, the cover panel for a known state, dialogs never. */
     static CardDefinition.Gate gate(String action){
         if(action==null)return CardDefinition.Gate.NONE;
-        if(action.equals("controls"))return CardDefinition.Gate.KNOWN;
+        if(action.equals("controls")||action.equals("climate"))return CardDefinition.Gate.KNOWN; // panels: a known state opens them, calls inside have their own gate
         return needsKnown(action)?CardDefinition.Gate.KNOWN_NOT_PENDING:CardDefinition.Gate.NONE;
     }
 }

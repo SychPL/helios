@@ -5,14 +5,30 @@ import java.util.*;
 /** What each card type shows, as pure text and flags; DashboardView owns the Views and only applies the result. Testable on the JVM. */
 final class CardBodies {
     /** Local facts the entity snapshot does not carry. */
-    interface Env {String time();String weekday();String date();String musicInfo();long now();}
+    interface Env {String time();String weekday();String date();String musicInfo();long now();
+        /** Tomorrow from HA's daily forecast feed, or null while the clock has none. */
+        default Tomorrow tomorrow(){return null;}}
+    /** The right half of a wide tile: the same shape as the left one - an icon, a big value and a small line under it. */
+    static final class Side {
+        final String icon,value,detail;
+        Side(String icon,String value,String detail){this.icon=icon;this.value=value;this.detail=detail;}
+    }
     /** One rendering: value line, up to two detail lines, optional label and icon overrides, the full content description, accent tint and an expiry for self-refreshing content. */
     static final class CardContent {
         final String value,detail,detail2,label,icon,description;final boolean accent;final long expiresAt;
-        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.icon=icon;this.description=description;this.accent=accent;this.expiresAt=expiresAt;}
+        /** An icon drawn in front of the big value (energy: the battery level); null everywhere else. */
+        String valueIcon;
+        /** The second half, or null for every tile that has only one. */
+        final Side side;
+        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt){this(value,detail,detail2,label,icon,description,accent,expiresAt,null);}
+        CardContent(String value,String detail,String detail2,String label,String icon,String description,boolean accent,long expiresAt,Side side){this.value=value;this.detail=detail;this.detail2=detail2;this.label=label;this.icon=icon;this.description=description;this.accent=accent;this.expiresAt=expiresAt;this.side=side;}
         CardContent(String value,String detail,String label,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){this(value,detail,label,null,accent,expiresAt,item,live);}
         CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live){
             this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)+(live?"":", dane nieaktualne"),accent,expiresAt);
+        }
+        CardContent(String value,String detail,String label,String icon,boolean accent,long expiresAt,DashboardSpec.Item item,boolean live,Side side){
+            this(value,detail,"",label,icon,(label!=null?label:defaultLabel(item))+": "+value+(detail.isEmpty()?"":", "+detail)
+                +(side==null?"":", jutro "+side.value+(side.detail.isEmpty()?"":" "+side.detail))+(live?"":", dane nieaktualne"),accent,expiresAt,side);
         }
     }
     interface Body {CardContent render(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env);}
@@ -33,6 +49,8 @@ final class CardBodies {
             String text=!known?"Brak danych":e.state.equals("on")?"Włączone":e.state.equals("off")?"Wyłączone":e.state;
             return new CardContent(text,"",null,known&&e.state.equals("on"),0,item,live);
         });
+        m.put("energy",CardBodies::energy);
+        m.put("climate",CardBodies::climate);
         m.put("cover",CardBodies::cover);
         m.put("garage",CardBodies::cover);
         m.put("music",(item,states,live,env)->new CardContent(env.musicInfo(),"","",null,null,"Muzyka: "+env.musicInfo(),false,0)); // the player, not HA, says whether this is live
@@ -65,10 +83,21 @@ final class CardBodies {
         String temperature=null,unit="";
         if(item.temperatureEntity!=null){EntityStates.Entity t=states.get(item.temperatureEntity);if(t!=null&&t.known()){temperature=t.state;if(t.attribute("unit_of_measurement")!=null)unit=t.attribute("unit_of_measurement");}}
         else if(known){temperature=e.attribute("temperature");if(e.attribute("temperature_unit")!=null)unit=e.attribute("temperature_unit");}
-        String text=number(temperature,unit),extra; // no unit in HA means no unit on screen (SPEC 0.8a pkt 3.3)
-        if(known){extra=WeatherLabels.polish(e.state);String wind=e.attribute("wind_speed");if(wind!=null)extra+=" · Wiatr "+number(wind,e.attribute("wind_speed_unit")==null?"":" "+e.attribute("wind_speed_unit"));}
-        else extra="Brak danych";
-        return new CardContent(text,extra,null,false,0,item,live);
+        String text=number(temperature,unit); // no unit in HA means no unit on screen (SPEC 0.8a pkt 3.3)
+        String wind=known?e.attribute("wind_speed"):null;
+        String windText=wind==null?"":number(wind,e.attribute("wind_speed_unit")==null?"":" "+e.attribute("wind_speed_unit"));
+        String condition=known?WeatherLabels.polish(e.state):"Brak danych";
+        // A wide tile puts tomorrow beside today; the forecast comes from HA's own daily feed, so nothing has to be configured.
+        Tomorrow t=item.width>1?env.tomorrow():null;
+        if(t!=null&&t.entity!=null&&!t.entity.equals(item.entity))t=null; // one forecast feed, for one weather entity: another page's tile shows today only
+        Side side=t==null?null:new Side(t.icon(),t.value(),t.detail());
+        // Half a tile is no room for the condition in words - the icon already says it, so only the wind stays
+        // under the temperature. The description keeps the word, because a screen reader has no icon to read.
+        String night=t==null?"":t.night(); // tonight's low before the wind, where the second half makes room for it
+        String extra=side!=null?night+(night.isEmpty()||windText.isEmpty()?"":" · ")+windText:condition+(windText.isEmpty()?"":" · "+windText);
+        String spoken=defaultLabel(item)+": "+text+", "+condition+(night.isEmpty()?"":", w nocy "+night.substring(2))+(windText.isEmpty()?"":", "+windText)
+            +(side==null?"":", jutro "+side.value+(side.detail.isEmpty()?"":" "+side.detail))+(live?"":", dane nieaktualne");
+        return new CardContent(text,extra,"",item.title,known?WeatherLabels.icon(e.state):null,spoken,false,0,side);
     }
     private static final List<String> ACTIVE=Arrays.asList("on","open","opening","closing","unlocked","unlocking","playing","heating","cooling","cleaning","running");
     /** One entity of any domain: the state in Polish where the word is fixed, a number with its unit, or the configured attribute; the entity's own name and icon unless the config says otherwise. */
@@ -116,6 +145,41 @@ final class CardBodies {
     static String decimal(String raw,String unit){
         try{double v=Double.parseDouble(raw);String s=String.format(new Locale("pl"),"%.1f",v);if(s.endsWith(",0"))s=s.substring(0,s.length()-2);return s+" "+unit;}
         catch(NumberFormatException e){return raw+" "+unit;}
+    }
+    /** Measured temperature big, "Zadana 20,5°" under it; the icon says what the device is doing, amber only while it works (SPEC 0.19 pkt 4). */
+    private static CardContent climate(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
+        EntityStates.Entity e=states.get(item.entity);ClimateModel m=new ClimateModel(e,false);
+        String name=item.title!=null?item.title:e!=null&&e.attribute("friendly_name")!=null?e.attribute("friendly_name"):defaultLabel(item);
+        String word=m.known?m.actionWord():null;
+        String spoken=name+": w pokoju "+(m.current==null||!m.known?"brak pomiaru":m.currentText().replace("°"," stopnia"))+", "+m.tileDetail().toLowerCase(new Locale("pl"))
+            +(word==null?"":", "+word.toLowerCase(new Locale("pl")))+(live?"":", dane nieaktualne");
+        return new CardContent(m.currentText(),m.tileDetail(),"",name,item.ownIcon?null:m.icon(),spoken,m.known&&m.working(),0);
+    }
+    /** "1302 / 742 W" (production / house) where the title goes, the battery charge big under it; without a battery the pair is the value. */
+    private static CardContent energy(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
+        EntityStates.Entity pv=states.get(item.entity),house=states.get(item.loadEntity);
+        String pvUnit=unit(pv),houseUnit=unit(house);
+        // one unit at the end when both sensors share it, each its own otherwise
+        String pair=pvUnit.equals(houseUnit)?number(pv,"")+" / "+number(house,"")+(pvUnit.isEmpty()?"":" "+pvUnit):number(pv,pvUnit)+" / "+number(house,houseUnit);
+        String battery=item.batteryEntity==null?null:number(states.get(item.batteryEntity),unit(states.get(item.batteryEntity)));
+        String spoken=defaultLabel(item)+": produkcja "+number(pv,pvUnit)+", dom "+number(house,houseUnit)+(battery==null?"":", bateria "+battery)+(live?"":", dane nieaktualne");
+        if(item.batteryEntity==null)return new CardContent(pair,"","",null,null,spoken,false,0);
+        CardContent c=new CardContent(battery,"","",pair,null,spoken,false,0);
+        c.valueIcon=batteryIcon(states.get(item.batteryEntity));
+        return c;
+    }
+    /** HA's own battery glyphs in steps of ten: battery-0 .. battery-90, battery (full), battery-unknown without a number. */
+    static String batteryIcon(EntityStates.Entity e){
+        double v;
+        try{if(e==null||!e.known())return "mdi:battery-unknown";v=Double.parseDouble(e.state);}catch(NumberFormatException x){return "mdi:battery-unknown";}
+        int step=(int)Math.round(Math.max(0,Math.min(100,v))/10.0)*10;
+        return step>=100?"mdi:battery":"mdi:battery-"+step;
+    }
+    private static String unit(EntityStates.Entity e){String u=e==null?null:e.attribute("unit_of_measurement");return u==null?"":u;}
+    /** A known reading with up to one decimal and its unit after a space, a dash otherwise. */
+    private static String number(EntityStates.Entity e,String unit){
+        if(e==null||!e.known())return "—";
+        return unit.isEmpty()?decimal(e.state,"").trim():decimal(e.state,unit);
     }
     static String coverState(String state){
         switch(state){case "open":return "Otwarta";case "closed":return "Zamknięta";case "opening":return "Otwieranie…";case "closing":return "Zamykanie…";default:return state;}

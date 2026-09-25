@@ -5,7 +5,7 @@ import java.util.*;
 /** Schema and rendering facts for one card type. Pure data: no JSON, no Views, no sockets. Adding a type means one row here, one body in CardBodies and, if it taps, one rule in ActionPolicy. */
 final class CardDefinition {
     /** How the tile sizes its text: the clock measures its hour, weather keeps a big fixed value, the rest fit the value to the width. */
-    enum Layout {CLOCK,LARGE_VALUE,FIT}
+    enum Layout {CLOCK,LARGE_VALUE,FIT,BIG_FIT} // BIG_FIT: FIT that may grow to the weather size (energy: the battery)
     /** When the tile is tappable: always, only with a known state, or only with a known state and no call in flight. */
     enum Gate {NONE,KNOWN,KNOWN_NOT_PENDING}
     /** Which event re-renders the tile: the entity snapshot, the local clock or the music player. */
@@ -44,6 +44,10 @@ final class CardDefinition {
             new CardDefinition("cover_group",4,fields("covers",4,"icon",4),null,"covers",null,false,false,false,false,false,"window-shutter","Rolety",NONE,Layout.FIT,Gate.NONE,Feed.ENTITIES),
             // schema 6: one entity of any domain, an intent from ActionPolicy instead of a fixed action, an mdi: icon by domain when none is set
             new CardDefinition("tile",6,fields("entity",6,"icon",6,"attribute",6),"",null,null,true,true,false,false,true,null,null,DashboardSpec.TILE_ATTRIBUTES,Layout.FIT,Gate.NONE,Feed.ENTITIES),
+            // SPEC 0.17: read-only energy summary - PV power as the value, the house and (optionally) the battery under it
+            // SPEC 0.19: a climate entity - measured temperature big, the setpoint under it; the tap opens the full control panel
+            new CardDefinition("climate",6,fields("entity",6,"icon",6),"climate","climate",null,false,false,false,false,false,null,null,ClimateModel.ATTRIBUTES,Layout.BIG_FIT,Gate.KNOWN,Feed.ENTITIES),
+            new CardDefinition("energy",6,fields("entity",6,"load_entity",6,"battery_entity",6,"icon",6),"sensor",null,null,false,false,false,false,false,"mdi:solar-power","PV",DashboardSpec.UNIT_ATTRIBUTES,Layout.BIG_FIT,Gate.NONE,Feed.ENTITIES),
         })all.put(d.type,d);
         ALL=Collections.unmodifiableMap(all);
         Set<String> known=new HashSet<>();for(CardDefinition d:all.values())known.addAll(d.fields.keySet());

@@ -67,10 +67,14 @@ final class HaDashboardClient {
     void detach(Listener listener){listeners.remove(listener);}
 
     /** One service call for one entity; done receives null on acceptance or an error text. Never retried, never queued. */
-    void callService(String domain,String service,String entityId,Consumer<String> done){
+    void callService(String domain,String service,String entityId,Consumer<String> done){callService(domain,service,entityId,null,done);}
+    /** The same with service_data - built only by ActionPolicy.climateData, never from config text. */
+    void callService(String domain,String service,String entityId,JSONObject data,Consumer<String> done){
         if(!live){done.accept("Brak połączenia z Home Assistant");return;}
         try{
-            request(new JSONObject().put("type","call_service").put("domain",domain).put("service",service).put("target",new JSONObject().put("entity_id",entityId)),
+            JSONObject call=new JSONObject().put("type","call_service").put("domain",domain).put("service",service).put("target",new JSONObject().put("entity_id",entityId));
+            if(data!=null)call.put("service_data",data);
+            request(call,
                 m->done.accept(m.optBoolean("success")?null:errorText(m,"HA odrzucił polecenie")));
         }catch(JSONException e){done.accept("Nie udało się wysłać polecenia");}
     }
