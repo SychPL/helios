@@ -268,7 +268,7 @@ final class DashboardSpec {
         keys(when,Arrays.asList("entity","state"),key);
         String entity=string(when,"entity",true,128),state=string(when,"state",true,64);
         if(!entity.matches(ENTITY))throw new IllegalArgumentException("Nieprawidłowa encja "+key);
-        if(state.equals("unknown")||state.equals("unavailable"))throw new IllegalArgumentException("Brak danych nie może oznaczać "+(key.equals("visible_when")?"widoczności":"trybu prognozy"));
+        if(state.equals("unknown")||state.equals("unavailable"))throw new IllegalArgumentException("Brak danych nie może oznaczać "+(key.equals("visible_when")?"widoczności":key.equals("when")?"ostrzeżenia":"trybu prognozy"));
         return new String[]{entity,state};
     }
 
