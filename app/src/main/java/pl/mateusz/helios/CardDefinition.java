@@ -47,6 +47,8 @@ final class CardDefinition {
             // SPEC 0.17: read-only energy summary - PV power as the value, the house and (optionally) the battery under it
             // SPEC 0.19: a climate entity - measured temperature big, the setpoint under it; the tap opens the full control panel
             new CardDefinition("climate",6,fields("entity",6,"icon",6),"climate","climate",null,false,false,false,false,false,null,null,ClimateModel.ATTRIBUTES,Layout.BIG_FIT,Gate.KNOWN,Feed.ENTITIES),
+            // SPEC 0.20: every warning in one tile - the count and the newest few; the tap slides the full list in; a stand-in card while none applies
+            new CardDefinition("alerts",6,fields("sources",6,"empty",6),null,"alerts",null,false,false,false,false,false,null,"Uwagi",NONE,Layout.FIT,Gate.NONE,Feed.ENTITIES),
             new CardDefinition("energy",6,fields("entity",6,"load_entity",6,"battery_entity",6,"icon",6),"sensor",null,null,false,false,false,false,false,"mdi:solar-power","PV",DashboardSpec.UNIT_ATTRIBUTES,Layout.BIG_FIT,Gate.NONE,Feed.ENTITIES),
         })all.put(d.type,d);
         ALL=Collections.unmodifiableMap(all);

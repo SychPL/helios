@@ -68,6 +68,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private JSONObject specRaw;
     private Map<String,EntityStates.Entity> states=new HashMap<>();
     private final Map<String,Boolean> visibility=new HashMap<>();
+    /** SPEC 0.20: "Zgaś" state per alerts tile, kept across drawer openings so a reopened list cannot send twice. */
+    private final Map<String,Map<String,AlertsModel.OffState>> alertOffs=new HashMap<>();
     private boolean live;
     private String connectionIssue="Łączenie z konfiguracją ekranu w HA…",configIssue;
     private final Set<String> pendingActions=new HashSet<>();
@@ -106,7 +108,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         @Override public void onDashboard(JSONObject raw,DashboardSpec received,Map<String,EntityStates.Entity> snapshot,String issue){
             update(()->{
                 if(received!=null&&(specRaw==null||!raw.toString().equals(specRaw.toString()))){
-                    spec=received;specRaw=raw;visibility.clear();closePanel();dashboard.setSpec(spec,MainActivity.this::tap);
+                    spec=received;specRaw=raw;visibility.clear();alertOffs.clear();closePanel();dashboard.setSpec(spec,MainActivity.this::tap);
                     onEvent("dashboard_configured","items="+spec.items.size());
                 }
                 if(received==null&&specRaw==null){spec=DashboardSpec.fallback();dashboard.setSpec(spec,MainActivity.this::tap);}
@@ -167,6 +169,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         // where a tile stays lit for days, blocking on it means the night clock never appears at all.
         if(notificationsBlock)for(Map.Entry<String,Boolean> e:visibility.entrySet())
             if(Boolean.TRUE.equals(e.getValue()))return "kafelek "+e.getKey();
+        if(notificationsBlock&&spec!=null)for(DashboardSpec.Item i:spec.allItems()) // SPEC 0.20: an active warning on any page's alerts tile
+            if(!i.sources.isEmpty()&&new AlertsModel(i.sources,states,live).a()>0)return "uwagi "+i.id;
         return null;
     }
     private String lastWait;
@@ -265,7 +269,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         if(sensors!=null&&lightSensor!=null)sensors.registerListener(light,lightSensor,android.hardware.SensorManager.SENSOR_DELAY_NORMAL);
         tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
     @Override public void onPause(){resumed=false;
-        if(panel!=null&&panelItem!=null&&"climate".equals(panelItem.type))closePanel(); // SPEC 0.19: the thermostat panel goes with the app, its unsent draft dropped
+        if(panel!=null&&panelItem!=null&&("climate".equals(panelItem.type)||"alerts".equals(panelItem.type)))closePanel(); // SPEC 0.20: the list too, its timers with it // SPEC 0.19: the thermostat panel goes with the app, its unsent draft dropped
         if(sensors!=null)sensors.unregisterListener(light);
         // the night clock goes away with its dimming: hiding the layer alone would leave the panel at 0.01
         screensaver.forget();dashboard.night(false);restoreBrightness();
@@ -305,7 +309,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         HaDashboardClient client=ha();
         if(client==null||spec==null)return;
         String entity=null;
-        for(DashboardSpec.Item item:spec.allItems())if("weather".equals(item.type)&&item.entity!=null&&item.width>1){entity=item.entity;break;} // one forecast is all the layout has room for
+        for(DashboardSpec.Item item:spec.rendered())if("weather".equals(item.type)&&item.entity!=null&&item.width>1){entity=item.entity;break;} // one forecast is all the layout has room for; an alerts stand-in counts too
         if(entity==null){forecastFor=null;dashboard.tomorrow(null);return;}
         if(entity.equals(forecastFor))return; // already subscribed on this session for this entity
         forecastFor=entity;
@@ -339,11 +343,24 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         String issue=connectionIssue!=null?connectionIssue:configIssue;
         dashboard.setIssue(issue);navigation.status(issue==null?"HA: połączono, dane aktualne":issue);
         dashboard.render(states,visibility,live);
+        observeAlertOffs();
         if(panelRefresh!=null)panelRefresh.run();
     }
     private String coverTitle(DashboardSpec.Item item){
         EntityStates.Entity e=states.get(item.entity);String position=e==null||!e.known()?null:e.attribute("current_position");
         return dashboardLabel(item)+(position==null?"":" · "+position.replaceAll("\\.0+$","")+"%");
+    }
+    /** A warning that went away ends the rest after a successful "Zgaś", also while its list is closed (SPEC 0.20 pkt 4). */
+    private void observeAlertOffs(){
+        if(spec==null||alertOffs.isEmpty())return;
+        long now=System.currentTimeMillis();
+        for(DashboardSpec.Item i:spec.allItems()){
+            Map<String,AlertsModel.OffState> offs=alertOffs.get(i.id);
+            if(offs!=null)for(DashboardSpec.Source src:i.sources){
+                AlertsModel.OffState o=offs.get(src.whenEntity+"="+src.whenState);
+                if(o!=null&&AlertsModel.cond(src,states,live)!=AlertsModel.Cond.ACTIVE)o.observe(false,now);
+            }
+        }
     }
     private void decideVisibility(){
         for(DashboardSpec.Item item:spec.allItems())if(item.conditional())visibility.put(item.id,item.visible(states.get(item.visibleEntity)));
@@ -351,6 +368,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void tap(DashboardSpec.Item item){
         ActionPolicy.Panel panel=ActionPolicy.panel(item.action);
         if(panel==ActionPolicy.Panel.MUSIC_LIBRARY){openMusicLibrary();return;} // library and remote control depend on MA, not on HA
+        if(panel==ActionPolicy.Panel.ALERTS){alertsDrawer(item);return;} // offline the list still opens: every row then says it has no data
         if(!live||ha()==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
         EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
         if(ActionPolicy.needsKnown(item.action)&&!ActionPolicy.usable(item.action,e))return; // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
@@ -400,6 +418,27 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         panel=c.dialog;panelItem=item;panelRefresh=c::refresh;
         c.show();
     }
+    /** SPEC 0.20: the list behind an alerts tile; "Zgaś" is re-checked against the states at the moment it leaves. */
+    private void alertsDrawer(DashboardSpec.Item item){
+        closePanel();dashboard.musicOverlay().closePanel();
+        AlertsDrawer d=new AlertsDrawer(this,item,new AlertsDrawer.Host(){
+            public Map<String,EntityStates.Entity> states(){return states;}
+            public boolean live(){return live;}
+            public Map<String,AlertsModel.OffState> offs(){return alertOffs.computeIfAbsent(item.id,k->new HashMap<>());}
+            public String turnOff(DashboardSpec.Source src,java.util.function.Consumer<String> done){
+                HaDashboardClient client=ha();
+                String why=AlertsModel.offBlock(src,states,live&&client!=null);
+                if(why!=null)return why;
+                onEvent("service_call","light.turn_off "+src.offEntity);
+                client.callService("light","turn_off",src.offEntity,error->main.post(()->{if(error!=null)onEvent("service_error",error);done.accept(error);}));
+                return null;
+            }
+            public Dialog confirm(String question,Runnable ok){return Theme.confirm(MainActivity.this,question,"Potwierdź",ok,()->{});}
+        });
+        d.onUserClose=this::closePanel;
+        panel=d.dialog;panelItem=item;panelRefresh=d::refresh;
+        d.show();
+    }
     private void readUnits(){
         HaDashboardClient client=ha();
         if(client==null)return;
@@ -428,16 +467,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     /** Palette confirmation with finger-sized buttons; cancel, outside touch and dismiss all run onCancel without sending anything. */
     private void confirmDialog(String message,String okLabel,Runnable onOk,Runnable onCancel){
-        Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-        LinearLayout column=Theme.dialogColumn(this,20);column.setMinimumWidth(Theme.dp(this,320));
-        TextView text=Theme.label(this,message,18,false);text.setPadding(0,0,0,Theme.dp(this,16));column.addView(text);
-        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
-        Button cancel=Theme.button(this,"Anuluj",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));Button ok=Theme.button(this,okLabel,true,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
-        LinearLayout.LayoutParams a=new LinearLayout.LayoutParams(0,Theme.dp(this,56),1);a.rightMargin=Theme.dp(this,8);row.addView(cancel,a);row.addView(ok,new LinearLayout.LayoutParams(0,Theme.dp(this,56),1));
-        cancel.setOnClickListener(v->dialog.cancel());ok.setOnClickListener(v->{panel=null;dialog.setOnCancelListener(null);dialog.dismiss();onOk.run();});
-        dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->{panel=null;onCancel.run();});
-        if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        dialog.show();
+        panel=Theme.confirm(this,message,okLabel,()->{panel=null;onOk.run();},()->{panel=null;onCancel.run();});
     }
     private void coverPanel(DashboardSpec.Item item){
         closePanel();

@@ -66,4 +66,18 @@ final class Theme {
         b.setTextColor(primary?t.onColor(t.accent):t.text);b.setBackground(card(primary?t.accent:t.raised,radiusPx));b.setStateListAnimator(null);b.setPadding(0,0,0,0);
         return b;
     }
+    /** Palette confirmation with finger-sized buttons; OK runs onOk, and cancel, back or a touch outside run onCancel - nothing is sent. */
+    static android.app.Dialog confirm(android.app.Activity activity,String message,String okLabel,Runnable onOk,Runnable onCancel){
+        android.app.Dialog dialog=new android.app.Dialog(activity);dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        android.widget.LinearLayout column=dialogColumn(activity,20);column.setMinimumWidth(dp(activity,320));
+        android.widget.TextView text=label(activity,message,18,false);text.setPadding(0,0,0,dp(activity,16));column.addView(text);
+        android.widget.LinearLayout row=new android.widget.LinearLayout(activity);row.setOrientation(android.widget.LinearLayout.HORIZONTAL);column.addView(row);
+        android.widget.Button cancel=button(activity,"Anuluj",false,dp(activity,17),dp(activity,RADIUS)),ok=button(activity,okLabel,true,dp(activity,17),dp(activity,RADIUS));
+        android.widget.LinearLayout.LayoutParams a=new android.widget.LinearLayout.LayoutParams(0,dp(activity,56),1);a.rightMargin=dp(activity,8);row.addView(cancel,a);row.addView(ok,new android.widget.LinearLayout.LayoutParams(0,dp(activity,56),1));
+        cancel.setOnClickListener(v->dialog.cancel());ok.setOnClickListener(v->{dialog.setOnCancelListener(null);dialog.dismiss();onOk.run();});
+        dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->onCancel.run());
+        if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dialog.show();
+        return dialog;
+    }
 }

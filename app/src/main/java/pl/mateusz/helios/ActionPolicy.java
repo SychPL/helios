@@ -7,7 +7,7 @@ import java.util.*;
  * target is always the tile's own entity (SPEC 0.5 pkt 11.4, redrawn for version 6 in docs/ha-dashboard.md). Pure.
  */
 final class ActionPolicy {
-    enum Panel {COVER,COVER_GROUP,MUSIC_LIBRARY,DETAILS,CLIMATE}
+    enum Panel {COVER,COVER_GROUP,MUSIC_LIBRARY,DETAILS,CLIMATE,ALERTS}
     /** What a `tile` may do on tap; `Item.action` stores the lower-case name. Legacy types keep their own action words. */
     enum Intent {NONE,TOGGLE,TURN_ON,TURN_OFF,OPEN,CLOSE,STOP,CONTROLS,DETAILS,ACTIVATE,LOCK,UNLOCK}
     /** One hard-coded service on one entity, asked about with `question` when the item wants a confirmation. */
@@ -87,7 +87,7 @@ final class ActionPolicy {
     /** Actions that open a panel instead of calling a service; null otherwise. */
     static Panel panel(String action){
         if(action==null)return null;
-        switch(action){case "controls":return Panel.COVER;case "covers":return Panel.COVER_GROUP;case "library":return Panel.MUSIC_LIBRARY;case "details":return Panel.DETAILS;case "climate":return Panel.CLIMATE;default:return null;}
+        switch(action){case "controls":return Panel.COVER;case "covers":return Panel.COVER_GROUP;case "library":return Panel.MUSIC_LIBRARY;case "details":return Panel.DETAILS;case "climate":return Panel.CLIMATE;case "alerts":return Panel.ALERTS;default:return null;}
     }
     /** The service call an item's action stands for; null when the action opens a panel or the item is not tappable. */
     static Call call(DashboardSpec.Item item,String label){
@@ -110,7 +110,7 @@ final class ActionPolicy {
     /** unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5); panels without an own entity and the details dialog are exempt. */
     static boolean needsKnown(String action){
         if(action==null)return false;
-        switch(action){case "lights_off":case "controls":case "climate":return true;case "covers":case "library":case "details":return false;default:return intent(action)!=null;}
+        switch(action){case "lights_off":case "controls":case "climate":return true;case "covers":case "library":case "details":case "alerts":return false;default:return intent(action)!=null;}
     }
     /** How a tile with this action is gated: service calls wait for a known state and no call in flight, the cover panel for a known state, dialogs never. */
     static CardDefinition.Gate gate(String action){

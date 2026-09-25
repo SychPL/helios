@@ -24,6 +24,14 @@ public final class DashboardView extends FrameLayout {
     private final Typeface sans,mono;
     private final Paint monoPaint=new Paint(Paint.ANTI_ALIAS_FLAG),sansPaint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Map<String,Tile> tiles=new LinkedHashMap<>();
+    /** SPEC 0.20: `alerts` tiles by id; their stand-in cards live in `tiles` under the same id. */
+    private final Map<String,AlertsTile> alertTiles=new LinkedHashMap<>();
+    /** A finger is on the glass; a card swapped under it voids the tap that finger would end with (SPEC 0.20 pkt 3). */
+    private boolean fingerDown,voidTap;
+    /** The alerts tiles (or their stand-ins) under the finger when it went down. */
+    private final Set<String> downOn=new HashSet<>();
+    private final Runnable emptyCheck=this::recheckEmpty;
+    private void recheckEmpty(){if(lastStates!=null)render(lastStates,lastVisibility,lastLive);}
     private final MusicOverlay overlay;
     private final PageDots dots;
     /** The page on screen (SPEC 0.18); kept across a new document while that document still has it. */
@@ -86,12 +94,14 @@ public final class DashboardView extends FrameLayout {
         backdrop.setImageBitmap(bitmap);backdrop.setVisibility(photo?VISIBLE:GONE);
         dimLayer.setAlpha(dimPercent/100f);dimLayer.setVisibility(photo?VISIBLE:GONE);
         for(Tile tile:tiles.values())tile.theme();
+        for(AlertsTile tile:alertTiles.values())tile.theme();
     }
     /** Recolours everything in place: no grid rebuild, no overlay geometry change (SPEC 0.8b pkt 6). */
     public void applyTheme(){
         Theme t=Theme.current();
         setBackgroundColor(t.background);bar.setBackgroundColor(t.background);brand.setTextColor(t.muted);dots.invalidate();refreshStatus();connected(haConnected);
         for(Tile tile:tiles.values())tile.theme();
+        for(AlertsTile tile:alertTiles.values())tile.theme();
         overlay.applyTheme();
     }
     private TextView text(String value,Typeface face){TextView t=new TextView(getContext());t.setText(value);t.setTypeface(face);t.setGravity(Gravity.CENTER_VERTICAL);t.setIncludeFontPadding(false);addView(t);return t;}
@@ -119,6 +129,12 @@ public final class DashboardView extends FrameLayout {
             box(tile,GAP+(i.column-1)*(cellW+GAP),BAR+GAP+(i.row-1)*(cellH+GAP),w,h,s,ox,oy);
             tile.scale(s,w,h);
         }
+        for(AlertsTile tile:alertTiles.values()){
+            DashboardSpec.Item i=tile.item;
+            float w=cellW*i.width+GAP*(i.width-1),h=cellH*i.height+GAP*(i.height-1);
+            box(tile,GAP+(i.column-1)*(cellW+GAP),BAR+GAP+(i.row-1)*(cellH+GAP),w,h,s,ox,oy);
+            tile.scale(s,w,h);
+        }
         overlay.arrange(s,ox,oy);
     }
 
@@ -129,7 +145,15 @@ public final class DashboardView extends FrameLayout {
     }
     private void buildPage(){
         for(Tile t:tiles.values())removeView(t);tiles.clear();
-        for(DashboardSpec.Item item:spec.pages.get(page).items){Tile t=new Tile(item);tiles.put(item.id,t);addView(t,indexOfChild(overlay));}
+        for(AlertsTile t:alertTiles.values())removeView(t);alertTiles.clear();removeCallbacks(emptyCheck);
+        for(DashboardSpec.Item item:spec.pages.get(page).items){
+            if(item.type.equals("alerts")){
+                AlertsTile a=new AlertsTile(item);alertTiles.put(item.id,a);addView(a,indexOfChild(overlay));
+                if(item.empty!=null){Tile t=new Tile(item.empty);t.substitute=true;t.setVisibility(GONE);tiles.put(item.id,t);addView(t,indexOfChild(overlay));}
+                continue;
+            }
+            Tile t=new Tile(item);tiles.put(item.id,t);addView(t,indexOfChild(overlay));
+        }
         dots.set(spec.pages.size(),page);
         overlay.bringToFront();nightLayer.bringToFront();arrange();
         for(String id:pendingIds){Tile t=tiles.get(id);if(t!=null)t.pending(true);}
@@ -147,9 +171,12 @@ public final class DashboardView extends FrameLayout {
     @Override public boolean dispatchTouchEvent(MotionEvent e){
         int a=e.getActionMasked();
         if(a==MotionEvent.ACTION_DOWN){
+            fingerDown=true;voidTap=false;downOn.clear();
+            for(AlertsTile t:alertTiles.values()){LayoutParams p=(LayoutParams)t.getLayoutParams();if(p!=null&&e.getX()>=p.leftMargin&&e.getX()<p.leftMargin+p.width&&e.getY()>=p.topMargin&&e.getY()<p.topMargin+p.height)downOn.add(t.item.id);}
             removeCallbacks(hideDots);removeCallbacks(home); // both wait while the finger is down
             if(swipeable()){dots.animate().cancel();dots.animate().alpha(1f).setDuration(120).start();}
         }else if(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL){
+            fingerDown=false;
             removeCallbacks(hideDots);removeCallbacks(home);postDelayed(hideDots,1500);
             if(page!=0)postDelayed(home,HOME_AFTER_MS);
         }
@@ -201,7 +228,19 @@ public final class DashboardView extends FrameLayout {
     /** visibility holds the last decided value per conditional item; a conditional item without an entry stays hidden. */
     public void render(Map<String,EntityStates.Entity> states,Map<String,Boolean> visibility,boolean live){
         lastStates=states;lastVisibility=visibility;lastLive=live;
+        long now=System.currentTimeMillis(),due=-1;
+        for(AlertsTile a:alertTiles.values()){
+            Tile sub=tiles.get(a.item.id);
+            boolean stand=a.render(states,live,now)&&sub!=null; // no stand-in configured: the tile itself says "Brak uwag"
+            boolean shown=!a.item.conditional()||Boolean.TRUE.equals(visibility.get(a.item.id)); // visible_when hides the tile and its stand-in alike
+            if((a.getVisibility()!=VISIBLE)!=(stand||!shown)&&fingerDown&&downOn.contains(a.item.id))voidTap=true; // only the card that changed under the finger loses its tap
+            a.setVisibility(shown&&!stand?VISIBLE:GONE);
+            if(sub!=null)sub.setVisibility(shown&&stand?VISIBLE:GONE);
+            if(!stand&&sub!=null&&a.gate.due()>0)due=due<0?a.gate.due():Math.min(due,a.gate.due());
+        }
+        removeCallbacks(emptyCheck);if(due>0)postDelayed(emptyCheck,Math.max(0,due-now));
         for(Tile t:tiles.values()){
+            if(t.substitute){if(t.getVisibility()==VISIBLE)t.render(states,live);continue;}
             boolean shown=!t.item.conditional()||Boolean.TRUE.equals(visibility.get(t.item.id));
             t.setVisibility(shown?VISIBLE:GONE);
             if(shown)t.render(states,live);
@@ -236,6 +275,7 @@ public final class DashboardView extends FrameLayout {
         boolean live=true,accent,known=true;long forecastExpiresAt;
         String rowsKey=""; // the second half is rebuilt only when what it shows actually changes
         CardBodies.Side lastSide;
+        boolean substitute; // the stand-in card of an `alerts` tile: shown by that tile's state, not by visible_when
         String shownIcon; // the config icon, or the entity's own when the body prefers it
         Tile(DashboardSpec.Item item){
             super(DashboardView.this.getContext());this.item=item;def=CardDefinition.of(item.type);body=CardBodies.FOR.get(item.type);clock=def.layout==CardDefinition.Layout.CLOCK;shownIcon=item.icon;
@@ -274,7 +314,7 @@ public final class DashboardView extends FrameLayout {
             String label=inlineIcon&&item.title==null?"":CardBodies.defaultLabel(item);
             title.setText(label);if(label.isEmpty())title.setVisibility(GONE);
             head.setVisibility(label.isEmpty()&&(inlineIcon||shownIcon==null)?GONE:VISIBLE);
-            if(item.interactive()){setClickable(true);setFocusable(true);setOnClickListener(v->{if(actions!=null)actions.onTap(item);});}
+            if(item.interactive()){setClickable(true);setFocusable(true);setOnClickListener(v->{if(actions!=null&&!voidTap)actions.onTap(item);});}
             theme();
             if(clock)clock();
         }
@@ -386,6 +426,92 @@ public final class DashboardView extends FrameLayout {
                 case KNOWN:setEnabled(live&&known);break;
                 default:break;
             }
+        }
+    }
+
+    /**
+     * SPEC 0.20: the count and the newest warnings in one tile (1x1, 1x2 or 2x1), drawn at the fixed positions of the
+     * spec's geometry table; the whole tile opens the list. What it says comes from AlertsModel.
+     */
+    private final class AlertsTile extends FrameLayout {
+        final DashboardSpec.Item item;
+        final AlertsModel.EmptyGate gate=new AlertsModel.EmptyGate();
+        private final IconView headIcon;
+        private final TextView title,count,summary,suffix,idle,footer;
+        private final LinearLayout summaryRow;
+        private final IconView[] slotIcons=new IconView[3];private final TextView[] slotTexts=new TextView[3];private final String[] slotGlyphs=new String[3];
+        private final boolean tall,wide;
+        private AlertsModel model;private boolean live=true;
+        AlertsTile(DashboardSpec.Item item){
+            super(DashboardView.this.getContext());this.item=item;
+            tall=item.height>1;wide=item.width>1;
+            headIcon=new IconView(getContext());addView(headIcon);
+            title=text(1);count=text(1);idle=text(1);footer=text(1);
+            summaryRow=new LinearLayout(getContext());summaryRow.setOrientation(LinearLayout.HORIZONTAL);addView(summaryRow);
+            summary=line(1);suffix=line(1);
+            summaryRow.addView(summary,new LinearLayout.LayoutParams(-2,-2)); // its max width leaves room for the suffix: the "+N" is never cut
+            summaryRow.addView(suffix,new LinearLayout.LayoutParams(-2,-2));
+            for(int n=0;n<3;n++){slotIcons[n]=new IconView(getContext());addView(slotIcons[n]);slotTexts[n]=text(tall?2:1);}
+            setClickable(true);setFocusable(true);
+            setOnClickListener(v->{if(actions!=null&&!voidTap)actions.onTap(item);});
+        }
+        private TextView line(int lines){TextView t=new TextView(getContext());t.setTypeface(sans);t.setMaxLines(lines);t.setEllipsize(TextUtils.TruncateAt.END);t.setIncludeFontPadding(false);return t;}
+        private TextView text(int lines){TextView t=line(lines);addView(t);return t;}
+        private void put(View v,float x,float y,float w,float h){LayoutParams p=new LayoutParams(Math.round(w*scale),Math.round(h*scale));p.leftMargin=Math.round(x*scale);p.topMargin=Math.round(y*scale);v.setLayoutParams(p);}
+        /** Positions from the SPEC 0.20 pkt 3 table, in 800x480 units of the tile's own box. */
+        private float unitW;
+        void scale(float s,float w,float h){
+            unitW=w;
+            put(headIcon,12,10,22,22);put(title,40,10,w-52,22);size(title,17,s);
+            put(count,12,wide?40:32,wide?64:w-24,48);size(count,44,s);
+            put(summaryRow,12,84,w-24,20);size(summary,17,s);size(suffix,17,s);
+            put(footer,wide?92:12,tall?228:106,wide?284:w-24,16);size(footer,13,s);
+            for(int n=0;n<3;n++){
+                if(tall){put(slotIcons[n],12,92+44*n,20,20);put(slotTexts[n],40,92+44*n,w-52,40);size(slotTexts[n],17,s);}
+                else{put(slotIcons[n],92,44+32*n,20,20);put(slotTexts[n],120,44+32*n,w-132,24);size(slotTexts[n],19,s);}
+            }
+            if(tall)put(idle,12,92,w-24,40);else if(wide)put(idle,92,44,w-104,24);else put(idle,12,84,w-24,20);
+            size(idle,wide?19:17,s);
+            theme();
+        }
+        /** Fills the tile; true when its place should go to the stand-in card now. */
+        boolean render(Map<String,EntityStates.Entity> states,boolean live,long now){
+            this.live=live;model=new AlertsModel(item.sources,states,live);
+            String label=CardBodies.defaultLabel(item);
+            title.setText(live?label:label+" (offline)");
+            count.setText(model.count());
+            String word=model.idleWord();
+            idle.setText(word==null?"":word);idle.setVisibility(word==null?GONE:VISIBLE);
+            boolean single=!tall&&!wide;
+            summaryRow.setVisibility(single&&word==null?VISIBLE:GONE);
+            if(single&&word==null){
+                summary.setText(model.summaryTitle());suffix.setText(model.summarySuffix());
+                summary.setMaxWidth(Math.max(0,Math.round((unitW-24)*scale-suffix.getPaint().measureText(model.summarySuffix()))));
+            }
+            List<AlertsModel.Slot> slots=single||word!=null?Collections.emptyList():model.slots(tall?3:2);
+            for(int n=0;n<3;n++){
+                boolean on=n<slots.size();
+                slotIcons[n].setVisibility(on?VISIBLE:GONE);slotTexts[n].setVisibility(on?VISIBLE:GONE);
+                slotGlyphs[n]=on?slots.get(n).icon:null;
+                if(on)slotTexts[n].setText(slots.get(n).title);
+            }
+            String foot=model.footer();footer.setText(foot==null?"":foot);footer.setVisibility(foot==null?GONE:VISIBLE);
+            setContentDescription(model.description(label));
+            theme();
+            return gate.show(model.quiet(),now);
+        }
+        /** Warm glow while something applies and the data is live; the plain card otherwise. */
+        void theme(){
+            Theme t=Theme.current();float r=Theme.RADIUS*scale;
+            boolean on=live&&model!=null&&model.a()>0;
+            if(on)setBackground(Theme.card(!photo?t.attentionSurface:(0xEB000000|(t.attentionSurface&0xFFFFFF)),Theme.ATTENTION,2*scale,r));
+            else setBackground(Theme.card(!photo?t.surface:(0xEB000000|(t.surface&0xFFFFFF)),r));
+            int ink=on?Theme.ATTENTION:t.muted;
+            headIcon.set(on?"mdi:bell-alert":"mdi:bell",ink);
+            title.setTextColor(ink);
+            count.setTextColor(on?Theme.ATTENTION:live?t.text:t.muted);
+            summary.setTextColor(t.text);suffix.setTextColor(t.text);idle.setTextColor(t.muted);footer.setTextColor(t.muted);
+            for(int n=0;n<3;n++){slotTexts[n].setTextColor(t.text);if(slotGlyphs[n]!=null)slotIcons[n].set(slotGlyphs[n],ink);}
         }
     }
 }

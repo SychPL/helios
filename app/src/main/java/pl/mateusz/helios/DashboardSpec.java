@@ -38,10 +38,19 @@ final class DashboardSpec {
     }
     /** One roller shutter inside a cover_group: entity for the services, title for the panel row. */
     static final class Cover {final String entity,title;Cover(String entity,String title){this.entity=entity;this.title=title;}}
+    /** One warning feeding an `alerts` tile (SPEC 0.20 pkt 2): its text entity, its condition, an optional icon and lights to turn off. */
+    static final class Source {
+        final String title,entity,icon,whenEntity,whenState,offEntity;final boolean showSince;
+        Source(String title,String entity,String icon,String whenEntity,String whenState,String offEntity,boolean showSince){this.title=title;this.entity=entity;this.icon=icon;this.whenEntity=whenEntity;this.whenState=whenState;this.offEntity=offEntity;this.showSince=showSince;}
+    }
+    /** Card types an `alerts` tile may stand aside for while nothing needs attention. */
+    static final List<String> EMPTY_TYPES=Arrays.asList("energy","climate","weather","clock","tile");
     static final class Item {
         final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity;
         /** energy (SPEC 0.17): the house load, required, and the battery charge, optional; null for every other type. */
         String loadEntity,batteryEntity;
+        /** alerts (SPEC 0.20): the warnings in config order, and the card shown in their place while none applies (null = none). */
+        List<Source> sources=Collections.emptyList();Item empty;
         final int column,row,width,height;
         final boolean confirm,ownIcon; // ownIcon: the icon was named in the config, so the entity's own icon never replaces it
         final List<Cover> covers;
@@ -207,7 +216,40 @@ final class DashboardSpec {
             if(!out.loadEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("load_entity wymaga encji sensor");
             if(o.has("battery_entity")){out.batteryEntity=string(o,"battery_entity",true,128);if(!out.batteryEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("battery_entity wymaga encji sensor");}
         }
+        if(allowed.contains("sources"))alerts(o,out,version);
         return out;
+    }
+    private static final Set<String> SOURCE_KEYS=new HashSet<>(Arrays.asList("title","entity","icon","when","off_entity","show_since"));
+    /** The `alerts` parts: 1-12 sources with distinct conditions, and an optional stand-in card of a plain type. */
+    private static void alerts(JSONObject o,Item out,int version) throws Exception {
+        boolean size=(out.width==1&&out.height==1)||(out.width==1&&out.height==2)||(out.width==2&&out.height==1);
+        if(!size)throw new IllegalArgumentException("Kafelek alerts ma rozmiar 1x1, 1x2 albo 2x1");
+        JSONArray list=o.optJSONArray("sources");
+        if(list==null||list.length()==0||list.length()>MAX_ITEMS)throw new IllegalArgumentException("alerts wymaga od 1 do "+MAX_ITEMS+" pozycji sources");
+        List<Source> sources=new ArrayList<>();Set<String> conditions=new HashSet<>();
+        for(int n=0;n<list.length();n++){
+            JSONObject src=list.optJSONObject(n);if(src==null)throw new IllegalArgumentException("sources: pozycja musi być obiektem");
+            keys(src,new ArrayList<>(SOURCE_KEYS),"sources");
+            String title=string(src,"title",true,40),entity=string(src,"entity",true,128);
+            if(!entity.matches(ENTITY))throw new IllegalArgumentException("sources: nieprawidłowa encja "+entity);
+            String[] when=when(src,"when");
+            if(!conditions.add(when[0]+"="+when[1]))throw new IllegalArgumentException("sources: powtórzony warunek "+when[0]+" = "+when[1]);
+            String off=null;
+            if(src.has("off_entity")){off=string(src,"off_entity",true,128);if(!off.matches("light\\.[a-z0-9_]+"))throw new IllegalArgumentException("off_entity wymaga encji z domeny light");}
+            Object since=src.opt("show_since");
+            if(since!=null&&!(since instanceof Boolean))throw new IllegalArgumentException("show_since musi być boolean");
+            String icon=src.has("icon")?icon(string(src,"icon",true,40),version):null;
+            sources.add(new Source(title,entity,icon,when[0],when[1],off,since==null||(Boolean)since));
+        }
+        out.sources=Collections.unmodifiableList(sources);
+        if(o.has("empty")){
+            JSONObject e=o.optJSONObject("empty");if(e==null)throw new IllegalArgumentException("empty musi być obiektem");
+            for(String k:Arrays.asList("id","column","row","width","height","visible_when"))if(e.has(k))throw new IllegalArgumentException("empty: pole "+k+" bierze się z kafelka alerts");
+            String type=string(e,"type",true,16);
+            if(!EMPTY_TYPES.contains(type))throw new IllegalArgumentException("empty: dozwolone typy "+String.join(", ",EMPTY_TYPES));
+            JSONObject copy=new JSONObject(e.toString()).put("id",out.id).put("column",out.column).put("row",out.row).put("width",out.width).put("height",out.height);
+            out.empty=item(copy,version);
+        }
     }
     /** Versions 2-5: one of six drawn names. Version 6: `mdi:<name>` from the bundled catalogue, the six old names normalised to it. */
     private static String icon(String icon,int version){
@@ -226,7 +268,7 @@ final class DashboardSpec {
         keys(when,Arrays.asList("entity","state"),key);
         String entity=string(when,"entity",true,128),state=string(when,"state",true,64);
         if(!entity.matches(ENTITY))throw new IllegalArgumentException("Nieprawidłowa encja "+key);
-        if(state.equals("unknown")||state.equals("unavailable"))throw new IllegalArgumentException("Brak danych nie może oznaczać "+(key.equals("visible_when")?"widoczności":"trybu prognozy"));
+        if(state.equals("unknown")||state.equals("unavailable"))throw new IllegalArgumentException("Brak danych nie może oznaczać "+(key.equals("visible_when")?"widoczności":key.equals("when")?"ostrzeżenia":"trybu prognozy"));
         return new String[]{entity,state};
     }
 
@@ -247,12 +289,15 @@ final class DashboardSpec {
 
     /** Every page's items in order: visibility, warnings and the forecast look past the page on screen (SPEC 0.18). */
     List<Item> allItems(){List<Item> out=new ArrayList<>();for(Page p:pages)out.addAll(p.items);return out;}
+    /** Every item that draws anything: the pages' items plus the stand-in cards of `alerts` tiles, which are not items of their own. */
+    List<Item> rendered(){List<Item> out=new ArrayList<>();for(Item i:allItems()){out.add(i);if(i.empty!=null)out.add(i.empty);}return out;}
     /** Any page's item by id; ids are unique across the document. */
     Item item(String id){for(Page p:pages)for(Item i:p.items)if(i.id.equals(id))return i;return null;}
     /** Every entity the renderer or visibility needs on any page, in first-use order, without duplicates. */
     List<String> entities(){
         LinkedHashSet<String> out=new LinkedHashSet<>();
-        for(Page p:pages)for(Item i:p.items){
+        for(Item i:rendered()){
+            for(Source s:i.sources){out.add(s.whenEntity);out.add(s.entity);out.add(s.offEntity);}
             if(i.entity!=null)out.add(i.entity);for(Cover c:i.covers)out.add(c.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);
             out.add(i.loadEntity);out.add(i.batteryEntity); // energy; nulls go with out.remove(null) below
             if(i.forecastWhenEntity!=null)out.add(i.forecastWhenEntity); // a forecast entity may stand without a mode entity; a null here would be sent to HA and take the whole subscription down
@@ -265,7 +310,7 @@ final class DashboardSpec {
     /** Attributes worth retaining per entity; everything else is dropped at decode time. */
     Map<String,Set<String>> attributes(){
         Map<String,Set<String>> out=new HashMap<>();
-        for(Page p:pages)for(Item i:p.items){
+        for(Item i:rendered()){
             CardDefinition def=CardDefinition.of(i.type);
             if(i.entity!=null&&!def.attributes.isEmpty())out.computeIfAbsent(i.entity,k->new HashSet<>()).addAll(def.attributes);
             for(Cover c:i.covers)out.computeIfAbsent(c.entity,k->new HashSet<>()).addAll(COVER_ATTRIBUTES);

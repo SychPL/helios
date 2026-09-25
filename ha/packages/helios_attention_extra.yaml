@@ -1,0 +1,182 @@
+# Helios - Uwagi (SPEC 0.20 pkt 6): pomocniki dla kafelka "Uwagi" - garaż otwarty wieczorem i wywóz śmieci jutro.
+# Instalacja: skopiować do config/packages/helios_attention_extra.yaml i mieć w configuration.yaml:
+#   homeassistant:
+#     packages: !include_dir_named packages
+# Potem restart HA (input_datetime i automatyzacje z pakietu wczytuje dopiero restart).
+#
+# WYMAGANE: kalendarz wywozów `calendar.smieci` (np. Kalendarz lokalny z terminami albo integracja
+# waste_collection_schedule). Każde wydarzenie danego dnia to jeden rodzaj odpadów (summary = "bio",
+# "zmieszane"...). Bez tej encji sensor śmieci jest unavailable, a flaga - unknown: zegar pokaże
+# "Śmieci jutro - brak danych", nigdy fałszywe "Brak uwag".
+#
+# Encje z tego pakietu (wpis do kafelka alerts w dokumencie zegara):
+#   - {title: Garaż otwarty, entity: sensor.helios_garaz_uwaga, icon: mdi:garage-open,
+#      when: {entity: binary_sensor.helios_garaz_wieczor_pokaz, state: 'on'}}
+#   - {title: Śmieci jutro, entity: sensor.helios_smieci_jutro, icon: mdi:trash-can,
+#      when: {entity: binary_sensor.helios_smieci_jutro_pokaz, state: 'on'}}
+
+input_datetime:
+  # Data wywozu, którego dotyczy odhaczenie "Śmieci wyniesione". 2000-01-01 = nic nie odhaczono.
+  smieci_wyniesione_dla:
+    name: Smieci wyniesione dla
+    has_date: true
+    has_time: false
+    icon: mdi:calendar-check
+
+template:
+  - binary_sensor:
+      # Garaż otwarty wieczorem: kamera widzi otwartą bramę między 19:00 a 7:00 czasu HA.
+      # Poza tym oknem flaga jest znana i wyłączona; w oknie niedostępna kamera = unknown (zegar: brak danych).
+      - name: "Helios garaz wieczor pokaz"
+        unique_id: helios_garaz_wieczor_pokaz
+        icon: mdi:garage-alert
+        state: >-
+          {{ (now().hour >= 19 or now().hour < 7)
+             and is_state('sensor.camera_garage_garage_gate_classification', 'open') }}
+        availability: >-
+          {{ not (now().hour >= 19 or now().hour < 7)
+             or has_value('sensor.camera_garage_garage_gate_classification') }}
+
+      # Śmieci jutro: ważny wynik kalendarza na jutro (data zapytania = jutro, odświeżony w ostatnich 65 min),
+      # niepusta lista i jutrzejszy wywóz nieodhaczony. Nieważny wynik albo nieznana data odhaczenia = unknown.
+      - name: "Helios smieci jutro pokaz"
+        unique_id: helios_smieci_jutro_pokaz
+        icon: mdi:trash-can-outline
+        state: >-
+          {{ (state_attr('sensor.helios_smieci_jutro', 'count') | int(0)) > 0
+             and states('input_datetime.smieci_wyniesione_dla') != ((now() + timedelta(days=1)).date() | string) }}
+        availability: >-
+          {% set tomorrow = (now() + timedelta(days=1)).date() | string %}
+          {% set at = state_attr('sensor.helios_smieci_jutro', 'refreshed_at') %}
+          {{ states('sensor.helios_smieci_jutro') not in ['unknown', 'unavailable']
+             and state_attr('sensor.helios_smieci_jutro', 'query_date') == tomorrow
+             and at is not none and (utcnow() - as_datetime(at)).total_seconds() < 65 * 60
+             and states('input_datetime.smieci_wyniesione_dla') not in ['unknown', 'unavailable'] }}
+
+  # Wywozy na jutro z kalendarza: przy starcie HA, tuż po północy, o 19:00 i co 30 min.
+  # Błąd albo brak odpowiedzi to NIE pusta lista - sensor jest wtedy unavailable.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time
+        at:
+          - "00:00:30"
+          - "19:00:00"
+      - trigger: time_pattern
+        minutes: "/30"
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id: calendar.smieci
+        data:
+          start_date_time: "{{ (now() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+          end_date_time: "{{ (now() + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+        response_variable: odpowiedz
+        continue_on_error: true
+      - variables:
+          ok: >-
+            {{ odpowiedz is defined and odpowiedz is mapping and 'calendar.smieci' in odpowiedz
+               and odpowiedz['calendar.smieci'].events is defined }}
+          rodzaje: >-
+            {{ (odpowiedz['calendar.smieci'].events | map(attribute='summary') | map('trim') | unique | list) if ok else [] }}
+          jutro: "{{ (now() + timedelta(days=1)).date() | string }}"
+    sensor:
+      - name: "Helios smieci jutro"
+        unique_id: helios_smieci_jutro
+        icon: mdi:trash-can
+        state: "{{ ('Jutro: ' ~ (rodzaje | join(', ')))[:250] if rodzaje else '' }}"
+        availability: "{{ ok }}"
+        attributes:
+          count: "{{ rodzaje | count }}"
+          query_date: "{{ jutro }}"
+          refreshed_at: "{{ utcnow().isoformat() }}"
+
+automation:
+  # Odhaczenie "Śmieci wyniesione" przypisuje je do daty wywozu: od 12:00 jutrzejszego, przed 12:00 dzisiejszego;
+  # gdy wskazanego dnia wywozu nie ma, drugiego z nich. Bez żadnego z nich (albo bez kalendarza) - do jutra.
+  - id: helios_smieci_odhaczenie
+    alias: "Helios - Smieci odhaczenie dla daty"
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.smieci_wyniesione
+        to: "on"
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id: calendar.smieci
+        data:
+          start_date_time: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+          end_date_time: "{{ (now() + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+        response_variable: odpowiedz
+        continue_on_error: true
+      - variables:
+          cel: &cel >-
+            {% set dzis = now().date() | string %}
+            {% set jutro = (now() + timedelta(days=1)).date() | string %}
+            {% set ev = odpowiedz['calendar.smieci'].events
+                        if (odpowiedz is defined and odpowiedz is mapping and 'calendar.smieci' in odpowiedz) else [] %}
+            {% set ns = namespace(dni=[]) %}
+            {% for e in ev %}{% set ns.dni = ns.dni + [(e.start | string)[:10]] %}{% endfor %}
+            {% set dni = ns.dni %}
+            {% set pierwszy, drugi = (jutro, dzis) if now().hour >= 12 else (dzis, jutro) %}
+            {{ pierwszy if pierwszy in dni else drugi if drugi in dni else jutro }}
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.smieci_wyniesione_dla
+        data:
+          date: "{{ cel }}"
+
+  # Wyłączenie przełącznika ręcznie czyści odhaczenie (automatyczne wyłączenie poniżej go nie czyści).
+  - id: helios_smieci_odznaczenie
+    alias: "Helios - Smieci odznaczenie recznie"
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.smieci_wyniesione
+        from: "on"
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.to_state.context.user_id is not none }}"
+    actions:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.smieci_wyniesione_dla
+        data:
+          date: "2000-01-01"
+
+  # Przełącznik gaśnie, gdy odhaczenie dotyczy innej daty niż obecny cel (reguła 12:00): po przestoju HA,
+  # o północy i o 12:00, kiedy cel przechodzi na następny wywóz - wtedy można odhaczyć kolejny.
+  - id: helios_smieci_uzgodnienie
+    alias: "Helios - Smieci uzgodnienie przelacznika"
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time
+        at:
+          - "00:05:00"
+          - "12:00:00"
+      - trigger: state
+        entity_id: sensor.helios_smieci_jutro
+    conditions:
+      - condition: state
+        entity_id: input_boolean.smieci_wyniesione
+        state: "on"
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id: calendar.smieci
+        data:
+          start_date_time: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+          end_date_time: "{{ (now() + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+        response_variable: odpowiedz
+        continue_on_error: true
+      - variables:
+          cel: *cel
+      - condition: template
+        value_template: "{{ states('input_datetime.smieci_wyniesione_dla') != cel }}"
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.smieci_wyniesione
