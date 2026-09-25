@@ -1,6 +1,6 @@
 # SPEC 0.20 - kafelek "Uwagi" (`alerts`): wszystkie ostrzeżenia w jednym miejscu, lista w wysuwanym panelu
 
-Status: projekt do akceptacji właściciela. Uzgodniony z Codexem w 4 rundach (2026-09-25, VERDICT: READY).
+Status: zaakceptowany przez właściciela 2026-09-25, zaimplementowany w Helios 0.17.0. Uzgodniony z Codexem w 4 rundach.
 Makiety 800x480 z czcionkami, ikonami i kolorami aplikacji: `docs/mockups/alerts-board-active.png` (dolny rząd
 sypialni: kafelek 2x1 z dwoma ostrzeżeniami), `alerts-board-empty.png` (to samo miejsce, gdy nic nie obowiązuje:
 karta zastępcza energii), `alerts-sizes.png` (1x1 i 2x1 we wszystkich stanach), `alerts-sizes-tall.png` (1x2 we

@@ -61,6 +61,11 @@ final class CardBodies {
             return new CardContent(CoverText.line("A",a),CoverText.line("B",b),"",null,null,label+": "+ca.title+": "+CoverText.state(a)+", "+cb.title+": "+CoverText.state(b)+(live?"":", dane nieaktualne"),CoverText.attention(a)||CoverText.attention(b),0);
         });
         m.put("tile",CardBodies::tile);
+        m.put("alerts",(item,states,live,env)->{ // the tile draws itself from AlertsModel; this keeps value and description for the shared paths
+            AlertsModel a=new AlertsModel(item.sources,states,live);
+            String idle=a.idleWord();
+            return new CardContent(a.count(),idle!=null?idle:a.summaryTitle()+a.summarySuffix(),"",defaultLabel(item),null,a.description(defaultLabel(item)),live&&a.a()>0,0);
+        });
         FOR=Collections.unmodifiableMap(m);
     }
     private static CardContent cover(DashboardSpec.Item item,Map<String,EntityStates.Entity> states,boolean live,Env env){
