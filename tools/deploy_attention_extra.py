@@ -72,6 +72,7 @@ AUTOMATIONS = {
         "description": "SPEC 0.20: odhaczenie dotyczy wywozu wskazanego regula 12:00.",
         "mode": "queued",
         "triggers": [{"trigger": "state", "entity_id": "input_boolean.smieci_wyniesione", "to": "on"}],
+        "conditions": PACKAGE["automation"][0]["conditions"],  # a tick from the clock already set tomorrow
         "actions": [EVENTS_TODAY_TOMORROW, {"variables": {"cel": CEL}},
                     {"action": "input_datetime.set_datetime", "target": {"entity_id": "input_datetime.smieci_wyniesione_dla"}, "data": {"date": "{{ cel }}"}}],
     },
@@ -95,6 +96,9 @@ AUTOMATIONS = {
                     {"action": "input_boolean.turn_off", "target": {"entity_id": "input_boolean.smieci_wyniesione"}}],
     },
 }
+
+
+SCRIPTS = {"helios_smieci_wyniesione": PACKAGE["script"]["helios_smieci_wyniesione"]}
 
 
 def rest(method, path, body=None):
@@ -144,6 +148,10 @@ def main():
             r = rest("POST", "/api/config/config_entries/flow/" + flow["flow_id"],
                      {"name": name, "state": state, "additional_options": {"availability": availability}})
             print("  ->", r.get("type"), r.get("errors"))
+    for sid, body in SCRIPTS.items():
+        print("write script", sid)
+        if APPLY:
+            print("  ->", rest("POST", "/api/config/script/config/" + sid, body))
     for aid, body in AUTOMATIONS.items():
         print("write automation", aid)
         if APPLY:

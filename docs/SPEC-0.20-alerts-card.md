@@ -137,7 +137,14 @@ w polu z odstępem >= 10 od dolnej krawędzi):
   - sukces: przycisk nieaktywny, dopóki warunek nie przestanie być aktywny albo przez 10 s; wiersz zostaje, dopóki
     pomocnik nie zgaśnie;
   - źródło przestaje być aktywne (lub staje się nieznane) w trakcie potwierdzenia - wysyłka anulowana.
-- Poza zakresem: potwierdzanie/odrzucanie ostrzeżeń, historia, mruganie lampką.
+- **4a. Przycisk "zrobione" (Helios 0.17.1, prośba właściciela 2026-09-27: wyniesione śmieci nie mogą dalej wisieć).**
+  Źródło może mieć `done_entity` (`script`/`input_boolean` = `turn_on`, `input_button`/`button` = `press`) i
+  `done_label` (do 12 znaków, domyślnie `Zrobione`) zamiast `off_entity` - jeden przycisk na wiersz, oba naraz to
+  błąd. Przycisk stoi tam, gdzie `Zgaś`, z tym samym kontraktem (bramki, potwierdzenie `<tytuł>: <napis>?`, w toku,
+  `Nie udało się oznaczyć`, odpoczynek po sukcesie); napis zmniejsza się do 13 px, gdy się nie mieści. Skrypt, przycisk
+  i input_button w stanie `unknown` są użyteczne (jak intencja `activate`), brak encji albo `unavailable` - nie.
+  Wiersz znika, gdy HA zgasi flagę ostrzeżenia.
+- Poza zakresem: odrzucanie ostrzeżeń bez akcji w HA, historia, mruganie lampką.
 
 ## 5. Czas "Aktywne od"
 
@@ -164,7 +171,9 @@ przesuwa - udokumentowane ograniczenie.
   off, gdy zapisana data różni się od bieżącej daty docelowej z reguły 12:00 (sprawdzane przy starcie HA, o 00:05,
   o 12:00 i przy każdym odświeżeniu). Przykład: odhaczenie w niedzielę wieczorem (dla poniedziałku) trzyma
   przełącznik do poniedziałku 12:00; wtedy cel zmienia się na wtorek, przełącznik gaśnie i można odhaczyć wtorek.
-  Wyłączenie ręczne czyści datę. Logika flagi zależy tylko od daty. Odhaczanie jak dziś w HA (bez akcji w panelu zegara).
+  Wyłączenie ręczne czyści datę. Logika flagi zależy tylko od daty. Odhaczanie w HA albo z zegara (pkt 4a): skrypt `script.helios_smieci_wyniesione` zapisuje
+  datę **jutra** (ostrzeżenie na zegarze zawsze dotyczy jutra) i włącza przełącznik; automatyzacja odhaczenia pomija
+  wtedy regułę 12:00, bo data jest już jutrzejsza.
 - **Garaż wieczorem**: flaga garażu aktywna 19:00-07:00 (czas lokalny); niedostępny czujnik w tym oknie = nieznane.
 - Pliki: `ha/packages/helios_attention_extra.yaml` (przykład) + prywatna kopia w `.local/ha/`; restart/przeładowanie
   szablonów HA przy wdrożeniu (decyzja właściciela przy wdrożeniu).

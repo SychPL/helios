@@ -102,13 +102,35 @@ final class AlertsModel {
         return "Aktywne od "+then.getDayOfMonth()+" "+MONTHS[then.getMonthValue()-1]+" "+hm;
     }
 
-    /** Why "Zgaś" must not go out now (SPEC 0.20 pkt 4), or null when it may. Checked at the tap and again after the confirmation. */
-    static String offBlock(DashboardSpec.Source s,Map<String,EntityStates.Entity> states,boolean live){
-        if(s.offEntity==null)return "Brak świateł do zgaszenia";
+    /**
+     * The one button a row may carry: "Zgaś" (off_entity, light.turn_off) or "done" (done_entity: script/input_boolean
+     * turn_on, input_button/button press). The services are fixed here, never taken from the config (docs/ha-dashboard.md).
+     */
+    static final class Action {
+        final String domain,service,entity,label,question,failure,busy,description;
+        Action(String domain,String service,String entity,String label,String question,String failure,String busy,String description){
+            this.domain=domain;this.service=service;this.entity=entity;this.label=label;this.question=question;this.failure=failure;this.busy=busy;this.description=description;
+        }
+    }
+    static final String DEFAULT_DONE_LABEL="Zrobione";
+    /** The row's action, or null for a source without one. */
+    static Action action(DashboardSpec.Source s){
+        if(s.offEntity!=null)return new Action("light","turn_off",s.offEntity,"Zgaś","Zgasić wszystkie obserwowane światła?","Nie udało się zgasić","Gaszenie świateł, czekam na Home Assistant","Zgaś światła: "+s.title);
+        if(s.doneEntity==null)return null;
+        String domain=s.doneEntity.substring(0,s.doneEntity.indexOf('.')),label=s.doneLabel!=null?s.doneLabel:DEFAULT_DONE_LABEL;
+        String service=domain.equals("input_button")||domain.equals("button")?"press":"turn_on";
+        return new Action(domain,service,s.doneEntity,label,s.title+": "+label.toLowerCase(new Locale("pl"))+"?","Nie udało się oznaczyć","Oznaczanie, czekam na Home Assistant",label+": "+s.title);
+    }
+    /** Why the row's action must not go out now (SPEC 0.20 pkt 4), or null when it may. Checked at the tap and again after the confirmation. */
+    static String actionBlock(DashboardSpec.Source s,Map<String,EntityStates.Entity> states,boolean live){
+        Action a=action(s);
+        if(a==null)return "Brak akcji dla tej uwagi";
         if(!live)return "Brak połączenia z Home Assistant";
         if(cond(s,states,true)!=Cond.ACTIVE)return s.title+" - już nieaktywne";
-        EntityStates.Entity e=states.get(s.offEntity);
-        if(e==null||!e.known())return s.title+" - brak danych";
+        EntityStates.Entity e=states.get(a.entity);
+        // a script, button or input_button reads unknown until first used and still works; only a missing or unavailable one is refused
+        boolean usable=a.service.equals("press")||a.domain.equals("script")?ActionPolicy.usable("activate",e):e!=null&&e.known();
+        if(!usable)return s.title+" - brak danych";
         return null;
     }
 
@@ -121,6 +143,10 @@ final class AlertsModel {
         static final long HOLD_MS=10_000;
         /** A call with no answer after this long counts as failed (the transport gives up at 10 s). */
         static final long LIMIT_MS=10_500;
+        private final String failure;
+        OffState(){this("Nie udało się zgasić");}
+        /** failure: the word shown in the row when the call fails ("Nie udało się zgasić", "Nie udało się oznaczyć"). */
+        OffState(String failure){this.failure=failure;}
         private boolean busy;private int call;private long heldUntil,messageUntil,sentAt;private String message,messageKey;
         boolean busy(long now,String key){if(busy&&now-sentAt>=LIMIT_MS)expire(call,key,now);return busy;}
         /** Resting after a success: the button is off, but not for lack of data. */
@@ -130,7 +156,7 @@ final class AlertsModel {
         void result(int n,String error,String key,long now){
             if(n!=call||!busy)return;
             busy=false;
-            if(error!=null)show("Nie udało się zgasić",key,now);else heldUntil=now+HOLD_MS;
+            if(error!=null)show(failure,key,now);else heldUntil=now+HOLD_MS;
         }
         /** The call that is still out after the limit counts as failed; its late answer then changes nothing. */
         void expire(int n,String key,long now){if(n==call&&busy){result(n,"timeout",key,now);call++;}}

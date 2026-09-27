@@ -23,15 +23,16 @@ import java.util.function.Consumer;
 /**
  * The list behind an `alerts` tile (SPEC 0.20 pkt 4): slides in from the right under the bar, one row per active
  * warning (newest first) and one muted row per warning without data. Rows are information, not buttons; the only
- * control is "Zgaś" on a source with off_entity, and every call goes through Host.turnOff, which re-checks it.
+ * control is the source's action ("Zgaś" for off_entity, "done" for done_entity), and every call goes through Host.act,
+ * which re-checks it.
  * While a finger or a fling is on the list the rows keep their heights and places; what changed shape waits for it.
  */
 final class AlertsDrawer {
     interface Host {
         Map<String,EntityStates.Entity> states();
         boolean live();
-        /** Turns the source's lights off; null when the call went out, else why nothing was sent. */
-        String turnOff(DashboardSpec.Source source,Consumer<String> done);
+        /** Runs the source's action (AlertsModel.action); null when the call went out, else why nothing was sent. */
+        String act(DashboardSpec.Source source,Consumer<String> done);
         /** "Zgaś" state by source key; owned by the host so it outlives this drawer. */
         Map<String,AlertsModel.OffState> offs();
         /** The palette confirmation over the drawer; the drawer stays open. Returns the dialog so it can be withdrawn. */
@@ -220,14 +221,14 @@ final class AlertsDrawer {
         restore(anchor,old);
     }
 
-    /** One warning: icon, title, "Aktywne od", the helper's text (or a message in its place) and, with off_entity, "Zgaś". */
+    /** One warning: icon, title, "Aktywne od", the helper's text (or a message in its place) and, with an action, its button. */
     private final class RowView {
         final FrameLayout view;final IconView icon;final TextView title,since,text;final FrameLayout button;final TextView buttonLabel;final ProgressBar spinner;
         final boolean withButton;
         String key;boolean showingMessage;
         RowView(AlertsModel.Row r){
             Theme t=Theme.current();
-            key=r.key();withButton=r.cond==AlertsModel.Cond.ACTIVE&&r.source.offEntity!=null;
+            key=r.key();AlertsModel.Action action=AlertsModel.action(r.source);withButton=r.cond==AlertsModel.Cond.ACTIVE&&action!=null;
             view=new FrameLayout(activity);view.setBackground(Theme.card(t.surface,16*s));view.setMinimumHeight(px(ROW_MIN));
             int right=withButton?BUTTON_COLUMN:16,width=WIN_W-16;
             icon=new IconView(activity);view.addView(icon,box(16,16,28,28));
@@ -240,12 +241,14 @@ final class AlertsDrawer {
             view.addView(text,tp);
             if(withButton){
                 button=new FrameLayout(activity);button.setClickable(true);button.setFocusable(true);
-                buttonLabel=text(19,t.text,1);buttonLabel.setText("Zgaś");buttonLabel.setGravity(Gravity.CENTER);button.addView(buttonLabel,new FrameLayout.LayoutParams(-1,-1));
+                buttonLabel=text(19,t.text,1);buttonLabel.setText(action.label);buttonLabel.setGravity(Gravity.CENTER);buttonLabel.setPadding(px(6),0,px(6),0);
+                buttonLabel.setAutoSizeTextTypeUniformWithConfiguration(px(13),px(19),1,TypedValue.COMPLEX_UNIT_PX); // "Wyniesione" fits 96 wide at a smaller size
+                button.addView(buttonLabel,new FrameLayout.LayoutParams(-1,-1));
                 spinner=new ProgressBar(activity);spinner.setIndeterminate(true);spinner.setVisibility(View.GONE);
                 button.addView(spinner,new FrameLayout.LayoutParams(px(28),px(28),Gravity.CENTER));
                 view.addView(button,box(width-BUTTON_COLUMN+8,18,96,64));
                 final DashboardSpec.Source src=r.source;
-                button.setOnClickListener(v->tapOff(src));
+                button.setOnClickListener(v->tapAction(src));
             }else{button=null;buttonLabel=null;spinner=null;}
         }
         void fill(AlertsModel.Row r,Map<String,EntityStates.Entity> states,boolean live,long now){
@@ -269,14 +272,15 @@ final class AlertsDrawer {
             if(button!=null){
                 if(o!=null)o.observe(active,now);
                 boolean busy=o!=null&&o.busy(now,sig),held=o!=null&&o.held();
-                boolean usable=AlertsModel.offBlock(r.source,states,live)==null;
+                boolean usable=AlertsModel.actionBlock(r.source,states,live)==null;
+                AlertsModel.Action action=AlertsModel.action(r.source);
                 spinner.setVisibility(busy?View.VISIBLE:View.GONE);buttonLabel.setVisibility(busy?View.INVISIBLE:View.VISIBLE);
                 button.setEnabled(!busy&&!held);
                 // unusable (no connection, target unknown) looks off but still answers a tap with the reason
                 boolean looksOn=!busy&&!held&&usable;
                 button.setBackground(looksOn?Theme.card(t.raised,14*s):Theme.card(t.surface,t.muted,Math.max(1,s),14*s));
                 buttonLabel.setTextColor(looksOn?t.text:t.muted);
-                button.setContentDescription(busy?"Gaszenie świateł, czekam na Home Assistant":"Zgaś światła: "+r.source.title);
+                button.setContentDescription(busy?action.busy:action.description);
             }
         }
         void freeze(){
@@ -290,23 +294,25 @@ final class AlertsDrawer {
         }
     }
 
-    // --- Zgaś ---
-    private void tapOff(DashboardSpec.Source src){
+    // --- the row's action ---
+    private void tapAction(DashboardSpec.Source src){
         if(closed)return;
+        AlertsModel.Action action=AlertsModel.action(src);
+        if(action==null)return;
         String key=src.whenEntity+"="+src.whenState;
-        AlertsModel.OffState o=host.offs().computeIfAbsent(key,k->new AlertsModel.OffState());
+        AlertsModel.OffState o=host.offs().computeIfAbsent(key,k->new AlertsModel.OffState(action.failure));
         if(o.busy(System.currentTimeMillis(),signature(src))||o.held())return;
         Map<String,EntityStates.Entity> states=host.states();
-        String why=AlertsModel.offBlock(src,states,host.live());
+        String why=AlertsModel.actionBlock(src,states,host.live());
         if(why!=null){o.show(why,signature(src),System.currentTimeMillis());refresh();return;}
         confirmKey=key;
-        confirm=host.confirm("Zgasić wszystkie obserwowane światła?",()->{
+        confirm=host.confirm(action.question,()->{
             confirm=null;
             if(closed)return;
-            String again=AlertsModel.offBlock(src,host.states(),host.live());
+            String again=AlertsModel.actionBlock(src,host.states(),host.live());
             if(again!=null){o.show(again,signature(src),System.currentTimeMillis());refresh();return;}
             final int n=o.send(System.currentTimeMillis());
-            String refused=host.turnOff(src,error->main.post(()->{o.result(n,error,signature(src),System.currentTimeMillis());if(!closed)refresh();}));
+            String refused=host.act(src,error->main.post(()->{o.result(n,error,signature(src),System.currentTimeMillis());if(!closed)refresh();}));
             if(refused!=null){o.result(n,refused,signature(src),System.currentTimeMillis());o.show(refused,signature(src),System.currentTimeMillis());}
             refresh();
         });
