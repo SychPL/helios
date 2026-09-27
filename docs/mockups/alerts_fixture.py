@@ -8,7 +8,7 @@ NOW = time.time()
 SOURCES = [
     {'title': 'Garaż otwarty', 'entity': 'sensor.helios_garaz_uwaga', 'icon': 'mdi:garage-open', 'when': {'entity': 'binary_sensor.helios_garaz_uwaga_pokaz', 'state': 'on'}},
     {'title': 'Śmieci jutro', 'entity': 'sensor.helios_smieci_jutro', 'icon': 'mdi:trash-can', 'when': {'entity': 'binary_sensor.helios_smieci_jutro_pokaz', 'state': 'on'},
-     'done_entity': 'script.helios_smieci_wyniesione', 'done_label': 'Wyniesione'},
+     'done_entity': 'input_button.helios_smieci_wyniesione', 'done_label': 'Wyniesione'},
     {'title': 'Światła', 'entity': 'sensor.helios_zapalone_swiatla', 'icon': 'mdi:lightbulb', 'when': {'entity': 'binary_sensor.helios_zapalone_swiatla_pokaz', 'state': 'on'},
      'off_entity': 'light.helios_swiatla_do_sprawdzenia'},
     {'title': 'Blaszak otwarty', 'entity': 'sensor.helios_blaszak_uwaga', 'icon': 'mdi:garage-open', 'when': {'entity': 'binary_sensor.helios_blaszak_uwaga_pokaz', 'state': 'on'}},
@@ -35,7 +35,7 @@ STATES = {
     'sensor.helios_blaszak_uwaga': {'s': 'unavailable', 'a': {}, 'lc': NOW - 600},
     'binary_sensor.helios_wiking_godzina_pokaz': {'s': 'off', 'a': {}, 'lc': NOW - 600},
     'sensor.helios_wiking_godzina': {'s': '12:40', 'a': {}, 'lc': NOW - 600},
-    'script.helios_smieci_wyniesione': {'s': 'off', 'a': {}, 'lc': NOW - 600},
+    'input_button.helios_smieci_wyniesione': {'s': 'off', 'a': {}, 'lc': NOW - 600},
     'sensor.pv': {'s': '1824', 'a': W, 'lc': NOW}, 'sensor.dom': {'s': '831', 'a': W, 'lc': NOW},
     'sensor.bateria': {'s': '70', 'a': {'unit_of_measurement': '%'}, 'lc': NOW},
 }
@@ -85,7 +85,7 @@ async def ws_handler(request):
             ok['result'] = {'helios': SPEC}
         if kind == 'get_config':
             ok['result'] = {'unit_system': {'temperature': '°C'}}
-        if kind == 'call_service' and m.get('domain') == 'script':  # "Wyniesione": the script ticks tomorrow, the warning goes
+        if kind == 'call_service' and m.get('domain') == 'input_button':  # "Wyniesione": HA ticks tomorrow, the warning goes
             async def ticked(mid=mid):
                 await asyncio.sleep(1.0)
                 await ws.send_json({'id': mid, 'type': 'result', 'success': True})
