@@ -171,8 +171,8 @@ przesuwa - udokumentowane ograniczenie.
   off, gdy zapisana data różni się od bieżącej daty docelowej z reguły 12:00 (sprawdzane przy starcie HA, o 00:05,
   o 12:00 i przy każdym odświeżeniu). Przykład: odhaczenie w niedzielę wieczorem (dla poniedziałku) trzyma
   przełącznik do poniedziałku 12:00; wtedy cel zmienia się na wtorek, przełącznik gaśnie i można odhaczyć wtorek.
-  Wyłączenie ręczne czyści datę. Logika flagi zależy tylko od daty. Odhaczanie w HA albo z zegara (pkt 4a): skrypt `script.helios_smieci_wyniesione` zapisuje
-  datę **jutra** (ostrzeżenie na zegarze zawsze dotyczy jutra) i włącza przełącznik; automatyzacja odhaczenia pomija
+  Wyłączenie ręczne czyści datę. Logika flagi zależy tylko od daty. Odhaczanie w HA albo z zegara (pkt 4a): naciśnięcie `input_button.helios_smieci_wyniesione` uruchamia
+  automatyzację, która zapisuje datę **jutra** (ostrzeżenie na zegarze zawsze dotyczy jutra) i włącza przełącznik; automatyzacja odhaczenia pomija
   wtedy regułę 12:00, bo data jest już jutrzejsza.
 - **Garaż wieczorem**: flaga garażu aktywna 19:00-07:00 (czas lokalny); niedostępny czujnik w tym oknie = nieznane.
 - Pliki: `ha/packages/helios_attention_extra.yaml` (przykład) + prywatna kopia w `.local/ha/`; restart/przeładowanie

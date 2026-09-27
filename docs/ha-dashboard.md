@@ -121,7 +121,7 @@ Wszystkie ostrzeżenia w jednym kafelku zamiast osobnego warunkowego kafelka na 
     - title: Śmieci jutro
       entity: sensor.helios_smieci_jutro
       when: {entity: binary_sensor.helios_smieci_jutro_pokaz, state: 'on'}
-      done_entity: script.helios_smieci_wyniesione     # opcjonalnie (Helios 0.17.1): przycisk "zrobione" w liście
+      done_entity: input_button.helios_smieci_wyniesione     # opcjonalnie (Helios 0.17.1): przycisk "zrobione" w liście
       done_label: Wyniesione                           # napis na nim, do 12 znaków, domyślnie "Zrobione"
     - title: Wiking był
       entity: sensor.helios_wiking_godzina

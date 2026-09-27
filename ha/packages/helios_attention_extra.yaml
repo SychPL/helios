@@ -14,7 +14,13 @@
 #      when: {entity: binary_sensor.helios_garaz_wieczor_pokaz, state: 'on'}}
 #   - {title: Śmieci jutro, entity: sensor.helios_smieci_jutro, icon: mdi:trash-can,
 #      when: {entity: binary_sensor.helios_smieci_jutro_pokaz, state: 'on'},
-#      done_entity: script.helios_smieci_wyniesione, done_label: Wyniesione}   # Helios 0.17.1+
+#      done_entity: input_button.helios_smieci_wyniesione, done_label: Wyniesione}   # Helios 0.17.1+
+
+input_button:
+  # Przycisk "Wyniesione" w liście Uwag na zegarze (done_entity); naciśnięcie obsługuje automatyzacja niżej.
+  helios_smieci_wyniesione:
+    name: Helios smieci wyniesione
+    icon: mdi:trash-can-outline
 
 input_datetime:
   # Data wywozu, którego dotyczy odhaczenie "Śmieci wyniesione". 2000-01-01 = nic nie odhaczono.
@@ -92,13 +98,18 @@ template:
           query_date: "{{ jutro }}"
           refreshed_at: "{{ utcnow().isoformat() }}"
 
-script:
-  # Przycisk "Wyniesione" w liście Uwag na zegarze (done_entity): ostrzeżenie dotyczy zawsze jutra, więc odhacza jutro.
-  helios_smieci_wyniesione:
-    alias: "Helios - Smieci wyniesione (jutro)"
-    icon: mdi:trash-can-outline
+automation:
+  # "Wyniesione" z zegara: ostrzeżenie dotyczy zawsze jutra, więc odhacza jutro (i pokazuje to przełącznikiem w HA).
+  - id: helios_smieci_wyniesione_z_zegara
+    alias: "Helios - Smieci wyniesione z zegara"
     mode: single
-    sequence:
+    triggers:
+      - trigger: state
+        entity_id: input_button.helios_smieci_wyniesione
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.to_state is not none and trigger.to_state.state not in ['unknown', 'unavailable'] and trigger.from_state is not none }}"
+    actions:
       - action: input_datetime.set_datetime
         target:
           entity_id: input_datetime.smieci_wyniesione_dla
@@ -108,7 +119,6 @@ script:
         target:
           entity_id: input_boolean.smieci_wyniesione
 
-automation:
   # Odhaczenie "Śmieci wyniesione" przypisuje je do daty wywozu: od 12:00 jutrzejszego, przed 12:00 dzisiejszego;
   # gdy wskazanego dnia wywozu nie ma, drugiego z nich. Bez żadnego z nich (albo bez kalendarza) - do jutra.
   - id: helios_smieci_odhaczenie
@@ -119,7 +129,7 @@ automation:
         entity_id: input_boolean.smieci_wyniesione
         to: "on"
     conditions:
-      # "Wyniesione" z zegara (skrypt niżej) już przypisał jutro - reguła 12:00 go nie nadpisuje
+      # "Wyniesione" z zegara (automatyzacja wyżej) już przypisał jutro - reguła 12:00 go nie nadpisuje
       - condition: template
         value_template: "{{ states('input_datetime.smieci_wyniesione_dla') != (now() + timedelta(days=1)).strftime('%Y-%m-%d') }}"
     actions:

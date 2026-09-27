@@ -20,7 +20,8 @@ URL = CFG.get("url", "http://192.168.1.212:8123").rstrip("/")
 H = {"Authorization": "Bearer " + CFG["token"], "Content-Type": "application/json"}
 PACKAGE = yaml.safe_load((ROOT / "ha/packages/helios_attention_extra.yaml").read_text(encoding="utf-8"))
 GARAGE = PACKAGE["template"][0]["binary_sensor"][0]
-CEL = PACKAGE["automation"][0]["actions"][1]["variables"]["cel"]
+PKG_AUTOMATIONS = {a["id"]: a for a in PACKAGE["automation"]}
+CEL = PKG_AUTOMATIONS["helios_smieci_odhaczenie"]["actions"][1]["variables"]["cel"]
 APPLY = "--apply" in sys.argv
 
 FRESH = ("{% set ts = state_attr('input_datetime.helios_smieci_odswiezone', 'timestamp') %}"
@@ -45,6 +46,7 @@ EVENTS_TODAY_TOMORROW = {
     "response_variable": "odpowiedz", "continue_on_error": True,
 }
 AUTOMATIONS = {
+    "helios_smieci_wyniesione_z_zegara": {k: v for k, v in PKG_AUTOMATIONS["helios_smieci_wyniesione_z_zegara"].items() if k != "id"},
     "helios_smieci_odswiez": {
         "alias": "Helios - Smieci jutro z kalendarza",
         "description": "SPEC 0.20: rodzaje odpadow na jutro z calendar.smieci; blad zapytania = '?' (zegar: brak danych), nigdy pusta lista.",
@@ -72,7 +74,7 @@ AUTOMATIONS = {
         "description": "SPEC 0.20: odhaczenie dotyczy wywozu wskazanego regula 12:00.",
         "mode": "queued",
         "triggers": [{"trigger": "state", "entity_id": "input_boolean.smieci_wyniesione", "to": "on"}],
-        "conditions": PACKAGE["automation"][0]["conditions"],  # a tick from the clock already set tomorrow
+        "conditions": PKG_AUTOMATIONS["helios_smieci_odhaczenie"]["conditions"],  # a tick from the clock already set tomorrow
         "actions": [EVENTS_TODAY_TOMORROW, {"variables": {"cel": CEL}},
                     {"action": "input_datetime.set_datetime", "target": {"entity_id": "input_datetime.smieci_wyniesione_dla"}, "data": {"date": "{{ cel }}"}}],
     },
@@ -98,7 +100,6 @@ AUTOMATIONS = {
 }
 
 
-SCRIPTS = {"helios_smieci_wyniesione": PACKAGE["script"]["helios_smieci_wyniesione"]}
 
 
 def rest(method, path, body=None):
@@ -119,6 +120,8 @@ async def helpers(existing):
         ("input_datetime", "input_datetime.smieci_wyniesione_dla", {"name": "Smieci wyniesione dla", "has_date": True, "has_time": False, "icon": "mdi:calendar-check"}),
         ("input_datetime", "input_datetime.helios_smieci_odswiezone", {"name": "Helios smieci odswiezone", "has_date": True, "has_time": True, "icon": "mdi:calendar-refresh"}),
         ("input_text", "input_text.helios_smieci_rodzaje", {"name": "Helios smieci rodzaje", "max": 255, "icon": "mdi:trash-can"}),
+        # "Wyniesione" on the clock (done_entity); a script would land in scripts.yaml, which this HA does not load
+        ("input_button", "input_button.helios_smieci_wyniesione", {"name": "Helios smieci wyniesione", "icon": "mdi:trash-can-outline"}),
     ]
     async with websockets.connect(URL.replace("http", "ws") + "/api/websocket", max_size=None) as ws:
         await ws.recv(); await ws.send(json.dumps({"type": "auth", "access_token": CFG["token"]})); await ws.recv()
@@ -148,10 +151,6 @@ def main():
             r = rest("POST", "/api/config/config_entries/flow/" + flow["flow_id"],
                      {"name": name, "state": state, "additional_options": {"availability": availability}})
             print("  ->", r.get("type"), r.get("errors"))
-    for sid, body in SCRIPTS.items():
-        print("write script", sid)
-        if APPLY:
-            print("  ->", rest("POST", "/api/config/script/config/" + sid, body))
     for aid, body in AUTOMATIONS.items():
         print("write automation", aid)
         if APPLY:

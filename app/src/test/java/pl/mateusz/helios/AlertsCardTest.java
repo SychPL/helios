@@ -168,25 +168,25 @@ public class AlertsCardTest {
         assertEquals("Uwagi: brak połączenia, dane nieaktualne",new AlertsModel(sources,st,false).description("Uwagi"));
     }
     @Test public void doneEntityGivesTheRowItsOwnButton() throws Exception {
-        JSONObject item=alerts(2,1,source("Śmieci jutro","smieci").put("done_entity","script.helios_smieci_wyniesione").put("done_label","Wyniesione"));
+        JSONObject item=alerts(2,1,source("Śmieci jutro","smieci").put("done_entity","input_button.helios_smieci_wyniesione").put("done_label","Wyniesione"));
         DashboardSpec spec=DashboardSpec.parse(doc(item));
         DashboardSpec.Source s=spec.items.get(0).sources.get(0);
-        assertEquals("script.helios_smieci_wyniesione",s.doneEntity);assertEquals("Wyniesione",s.doneLabel);
-        assertTrue("the done target is subscribed",spec.entities().contains("script.helios_smieci_wyniesione"));
+        assertEquals("input_button.helios_smieci_wyniesione",s.doneEntity);assertEquals("Wyniesione",s.doneLabel);
+        assertTrue("the done target is subscribed",spec.entities().contains("input_button.helios_smieci_wyniesione"));
         AlertsModel.Action a=AlertsModel.action(s);
-        assertEquals("script",a.domain);assertEquals("turn_on",a.service);assertEquals("Wyniesione",a.label);
+        assertEquals("input_button",a.domain);assertEquals("press",a.service);assertEquals("Wyniesione",a.label);
         assertEquals("Śmieci jutro: wyniesione?",a.question);assertEquals("Nie udało się oznaczyć",a.failure);
         assertEquals("press",AlertsModel.action(new DashboardSpec.Source("B","sensor.b",null,"binary_sensor.b","on",null,true,"input_button.b",null)).service);
         assertEquals("turn_on",AlertsModel.action(new DashboardSpec.Source("B","sensor.b",null,"binary_sensor.b","on",null,true,"input_boolean.b",null)).service);
         assertEquals("the default word",AlertsModel.DEFAULT_DONE_LABEL,AlertsModel.action(new DashboardSpec.Source("B","sensor.b",null,"binary_sensor.b","on",null,true,"input_boolean.b",null)).label);
         assertEquals("Zgaś",AlertsModel.action(src("Światła","swiatla","light.l")).label);
         assertNull(AlertsModel.action(src("G","g",null)));
-        // gates: a script reads unknown until first run and still works; missing or unavailable is refused
+        // gates: a button reads unknown until first press and still works; missing or unavailable is refused
         Map<String,EntityStates.Entity> st=new HashMap<>();st.put("binary_sensor.smieci_pokaz",e("on",0));
         assertEquals("Śmieci jutro - brak danych",AlertsModel.actionBlock(s,st,true));
-        st.put("script.helios_smieci_wyniesione",e("unknown",0));assertNull(AlertsModel.actionBlock(s,st,true));
-        st.put("script.helios_smieci_wyniesione",e("unavailable",0));assertEquals("Śmieci jutro - brak danych",AlertsModel.actionBlock(s,st,true));
-        st.put("script.helios_smieci_wyniesione",e("off",0));assertNull(AlertsModel.actionBlock(s,st,true));
+        st.put("input_button.helios_smieci_wyniesione",e("unknown",0));assertNull(AlertsModel.actionBlock(s,st,true));
+        st.put("input_button.helios_smieci_wyniesione",e("unavailable",0));assertEquals("Śmieci jutro - brak danych",AlertsModel.actionBlock(s,st,true));
+        st.put("input_button.helios_smieci_wyniesione",e("off",0));assertNull(AlertsModel.actionBlock(s,st,true));
         st.put("binary_sensor.smieci_pokaz",e("off",0));assertEquals("Śmieci jutro - już nieaktywne",AlertsModel.actionBlock(s,st,true));
         AlertsModel.OffState o=new AlertsModel.OffState(a.failure);int n=o.send(0);o.result(n,"x","k",1);
         assertEquals("Nie udało się oznaczyć",o.message("k",2));

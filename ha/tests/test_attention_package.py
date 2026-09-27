@@ -16,7 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = yaml.safe_load((ROOT / "ha/packages/helios_attention_extra.yaml").read_text(encoding="utf-8"))
 WARSAW = ZoneInfo("Europe/Warsaw")
 FLAGS = {s["unique_id"]: s for s in PACKAGE["template"][0]["binary_sensor"]}
-CEL = PACKAGE["automation"][0]["actions"][1]["variables"]["cel"]
+AUTOMATIONS = {a["id"]: a for a in PACKAGE["automation"]}
+CEL = AUTOMATIONS["helios_smieci_odhaczenie"]["actions"][1]["variables"]["cel"]
 
 
 def render(template, now, states=None, **variables):
@@ -93,10 +94,11 @@ def test_trash_flag_needs_a_fresh_result_for_tomorrow_and_an_unticked_tomorrow()
 
 
 def test_done_from_the_clock_ticks_tomorrow_and_the_12_oclock_rule_leaves_it_alone():
-    script = PACKAGE["script"]["helios_smieci_wyniesione"]["sequence"]
+    assert "helios_smieci_wyniesione" in PACKAGE["input_button"]
+    script = AUTOMATIONS["helios_smieci_wyniesione_z_zegara"]["actions"]
     assert render(script[0]["data"]["date"], datetime(2026, 9, 28, 9, 0)) == "2026-09-29", "a morning tap on a 'jutro' warning means tomorrow"
     assert script[1]["action"] == "input_boolean.turn_on", "the HA switch shows the tick too"
-    guard = PACKAGE["automation"][0]["conditions"][0]["value_template"]
+    guard = AUTOMATIONS["helios_smieci_odhaczenie"]["conditions"][0]["value_template"]
     ticked = lambda d: {"input_datetime.smieci_wyniesione_dla": {"state": d}}
     assert render(guard, datetime(2026, 9, 28, 9, 0), ticked("2026-09-29")) is False, "already tomorrow: the rule does not reassign"
     assert render(guard, datetime(2026, 9, 28, 9, 0), ticked("2000-01-01")) is True, "a manual tick in HA still goes through the rule"
