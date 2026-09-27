@@ -425,12 +425,13 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             public Map<String,EntityStates.Entity> states(){return states;}
             public boolean live(){return live;}
             public Map<String,AlertsModel.OffState> offs(){return alertOffs.computeIfAbsent(item.id,k->new HashMap<>());}
-            public String turnOff(DashboardSpec.Source src,java.util.function.Consumer<String> done){
+            public String act(DashboardSpec.Source src,java.util.function.Consumer<String> done){
                 HaDashboardClient client=ha();
-                String why=AlertsModel.offBlock(src,states,live&&client!=null);
+                String why=AlertsModel.actionBlock(src,states,live&&client!=null);
                 if(why!=null)return why;
-                onEvent("service_call","light.turn_off "+src.offEntity);
-                client.callService("light","turn_off",src.offEntity,error->main.post(()->{if(error!=null)onEvent("service_error",error);done.accept(error);}));
+                AlertsModel.Action a=AlertsModel.action(src);
+                onEvent("service_call",a.domain+"."+a.service+" "+a.entity);
+                client.callService(a.domain,a.service,a.entity,error->main.post(()->{if(error!=null)onEvent("service_error",error);done.accept(error);}));
                 return null;
             }
             public Dialog confirm(String question,Runnable ok){return Theme.confirm(MainActivity.this,question,"Potwierdź",ok,()->{});}

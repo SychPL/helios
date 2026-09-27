@@ -118,6 +118,11 @@ Wszystkie ostrzeżenia w jednym kafelku zamiast osobnego warunkowego kafelka na 
       entity: sensor.helios_zapalone_swiatla
       when: {entity: binary_sensor.helios_zapalone_swiatla_pokaz, state: 'on'}
       off_entity: light.helios_swiatla_do_sprawdzenia # opcjonalnie: przycisk "Zgaś" w liście
+    - title: Śmieci jutro
+      entity: sensor.helios_smieci_jutro
+      when: {entity: binary_sensor.helios_smieci_jutro_pokaz, state: 'on'}
+      done_entity: script.helios_smieci_wyniesione     # opcjonalnie (Helios 0.17.1): przycisk "zrobione" w liście
+      done_label: Wyniesione                           # napis na nim, do 12 znaków, domyślnie "Zrobione"
     - title: Wiking był
       entity: sensor.helios_wiking_godzina
       show_since: false                               # bez godziny "Aktywne od"
@@ -126,14 +131,14 @@ Wszystkie ostrzeżenia w jednym kafelku zamiast osobnego warunkowego kafelka na 
 
 - Ostrzeżenie jest aktywne, gdy encja z `when` ma znany stan równy `state`. Brak encji, `unknown`, `unavailable` albo brak połączenia z HA to "brak danych": kafelek pokazuje wtedy `-` i `Brak danych` (albo stopkę `Brak danych: N` obok aktywnych), a karta `empty` się nie pojawia. Dwa źródła z tym samym warunkiem to błąd.
 - Karta `empty` wchodzi po 2 s ciszy i znika natychmiast, gdy coś się pojawi. Bez `empty` kafelek pokazuje `0` i `Brak uwag`.
-- Lista: najnowsze na górze, godzina z `last_changed` encji warunku (restart HA ją przesuwa). "Zgaś" pyta o potwierdzenie, sprawdza przed wysłaniem, że ostrzeżenie nadal trwa i światła mają znany stan, i nie ponawia polecenia. Listę zamyka X, wstecz, przesunięcie w prawo albo 2 minuty bez dotyku.
+- Lista: najnowsze na górze, godzina z `last_changed` encji warunku (restart HA ją przesuwa). "Zgaś" (`off_entity`) albo przycisk "zrobione" (`done_entity`: `script`/`input_boolean` - włączenie, `input_button`/`button` - naciśnięcie; najwyżej jeden z nich na źródło) pyta o potwierdzenie, sprawdza przed wysłaniem, że ostrzeżenie nadal trwa i cel ma znany stan, i nie ponawia polecenia. Listę zamyka X, wstecz, przesunięcie w prawo albo 2 minuty bez dotyku.
 - Aktywne ostrzeżenie blokuje wygaszacz tak jak warunkowe kafelki, gdy zegar ma to włączone.
 
 Typ wymaga `version: 6` i Heliosa 0.17 - starszy zegar odrzuci dokument z tym kafelkiem i zostanie przy ostatnim dobrym układzie.
 
 ## Sterowanie i bezpieczeństwo
 
-Zegar wywołuje wyłącznie usługi przypisane w kodzie do intencji (`ActionPolicy`): `toggle`/`turn_on`/`turn_off` w domenach przełączalnych, `cover.open_cover`/`stop_cover`/`close_cover`, `lock.lock`/`unlock`, `script.turn_on`, `scene.turn_on`, `input_button.press`, `button.press` oraz `light.turn_off` dla `off_entity` (także w źródłach kafelka `alerts`) - zawsze dla encji wpisanej w YAML. Nazwy usług, cele ani dane usług nie pochodzą z konfiguracji; konfiguracja może natomiast uruchomić jawnie wybrany `script`/`scene`, którego skutki należą do HA. Polecenie nie jest ponawiane ani kolejkowane offline; brak odpowiedzi HA w 10 s daje komunikat. Token na zegarze ma prawa użytkownika HA, więc użyj dedykowanego użytkownika bez uprawnień administratora.
+Zegar wywołuje wyłącznie usługi przypisane w kodzie do intencji (`ActionPolicy`): `toggle`/`turn_on`/`turn_off` w domenach przełączalnych, `cover.open_cover`/`stop_cover`/`close_cover`, `lock.lock`/`unlock`, `script.turn_on`, `scene.turn_on`, `input_button.press`, `button.press` oraz `light.turn_off` dla `off_entity` (także w źródłach kafelka `alerts`) i `turn_on`/`press` dla `done_entity` źródła `alerts` - zawsze dla encji wpisanej w YAML. Nazwy usług, cele ani dane usług nie pochodzą z konfiguracji; konfiguracja może natomiast uruchomić jawnie wybrany `script`/`scene`, którego skutki należą do HA. Polecenie nie jest ponawiane ani kolejkowane offline; brak odpowiedzi HA w 10 s daje komunikat. Token na zegarze ma prawa użytkownika HA, więc użyj dedykowanego użytkownika bez uprawnień administratora.
 
 Domyślny adres panelu to `helios-clock`. Inny adres można podać w konfiguracji parowania jako `dashboard_path`. Mikrofon i hasło wybudzające nie są sterowane tym YAML.
 

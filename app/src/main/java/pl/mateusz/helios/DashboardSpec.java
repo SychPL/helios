@@ -40,8 +40,10 @@ final class DashboardSpec {
     static final class Cover {final String entity,title;Cover(String entity,String title){this.entity=entity;this.title=title;}}
     /** One warning feeding an `alerts` tile (SPEC 0.20 pkt 2): its text entity, its condition, an optional icon and lights to turn off. */
     static final class Source {
-        final String title,entity,icon,whenEntity,whenState,offEntity;final boolean showSince;
-        Source(String title,String entity,String icon,String whenEntity,String whenState,String offEntity,boolean showSince){this.title=title;this.entity=entity;this.icon=icon;this.whenEntity=whenEntity;this.whenState=whenState;this.offEntity=offEntity;this.showSince=showSince;}
+        final String title,entity,icon,whenEntity,whenState,offEntity,doneEntity,doneLabel;final boolean showSince;
+        Source(String title,String entity,String icon,String whenEntity,String whenState,String offEntity,boolean showSince){this(title,entity,icon,whenEntity,whenState,offEntity,showSince,null,null);}
+        /** doneEntity (SPEC 0.20 pkt 4a): what "done" runs - a script, an input_boolean, an input_button or a button; doneLabel is its button word. */
+        Source(String title,String entity,String icon,String whenEntity,String whenState,String offEntity,boolean showSince,String doneEntity,String doneLabel){this.title=title;this.entity=entity;this.icon=icon;this.whenEntity=whenEntity;this.whenState=whenState;this.offEntity=offEntity;this.showSince=showSince;this.doneEntity=doneEntity;this.doneLabel=doneLabel;}
     }
     /** Card types an `alerts` tile may stand aside for while nothing needs attention. */
     static final List<String> EMPTY_TYPES=Arrays.asList("energy","climate","weather","clock","tile");
@@ -219,7 +221,7 @@ final class DashboardSpec {
         if(allowed.contains("sources"))alerts(o,out,version);
         return out;
     }
-    private static final Set<String> SOURCE_KEYS=new HashSet<>(Arrays.asList("title","entity","icon","when","off_entity","show_since"));
+    private static final Set<String> SOURCE_KEYS=new HashSet<>(Arrays.asList("title","entity","icon","when","off_entity","show_since","done_entity","done_label"));
     /** The `alerts` parts: 1-12 sources with distinct conditions, and an optional stand-in card of a plain type. */
     private static void alerts(JSONObject o,Item out,int version) throws Exception {
         boolean size=(out.width==1&&out.height==1)||(out.width==1&&out.height==2)||(out.width==2&&out.height==1);
@@ -239,7 +241,11 @@ final class DashboardSpec {
             Object since=src.opt("show_since");
             if(since!=null&&!(since instanceof Boolean))throw new IllegalArgumentException("show_since musi być boolean");
             String icon=src.has("icon")?icon(string(src,"icon",true,40),version):null;
-            sources.add(new Source(title,entity,icon,when[0],when[1],off,since==null||(Boolean)since));
+            String done=null,doneLabel=null;
+            if(src.has("done_entity")){done=string(src,"done_entity",true,128);if(!done.matches("(script|input_boolean|input_button|button)\\.[a-z0-9_]+"))throw new IllegalArgumentException("done_entity wymaga encji script, input_boolean, input_button albo button");}
+            if(src.has("done_label")){if(done==null)throw new IllegalArgumentException("done_label wymaga done_entity");doneLabel=string(src,"done_label",true,12);}
+            if(off!=null&&done!=null)throw new IllegalArgumentException("sources: off_entity i done_entity wykluczają się");
+            sources.add(new Source(title,entity,icon,when[0],when[1],off,since==null||(Boolean)since,done,doneLabel));
         }
         out.sources=Collections.unmodifiableList(sources);
         if(o.has("empty")){
@@ -297,7 +303,7 @@ final class DashboardSpec {
     List<String> entities(){
         LinkedHashSet<String> out=new LinkedHashSet<>();
         for(Item i:rendered()){
-            for(Source s:i.sources){out.add(s.whenEntity);out.add(s.entity);out.add(s.offEntity);}
+            for(Source s:i.sources){out.add(s.whenEntity);out.add(s.entity);out.add(s.offEntity);out.add(s.doneEntity);}
             if(i.entity!=null)out.add(i.entity);for(Cover c:i.covers)out.add(c.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);
             out.add(i.loadEntity);out.add(i.batteryEntity); // energy; nulls go with out.remove(null) below
             if(i.forecastWhenEntity!=null)out.add(i.forecastWhenEntity); // a forecast entity may stand without a mode entity; a null here would be sent to HA and take the whole subscription down

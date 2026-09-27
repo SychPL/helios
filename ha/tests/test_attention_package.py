@@ -90,3 +90,13 @@ def test_trash_flag_needs_a_fresh_result_for_tomorrow_and_an_unticked_tomorrow()
     assert render(flag["availability"], now, st(at=stale)) is False, "older than 65 min"
     assert render(flag["availability"], now, st(state="unavailable")) is False, "calendar failed"
     assert render(flag["availability"], now, st(ticked="unavailable")) is False
+
+
+def test_done_from_the_clock_ticks_tomorrow_and_the_12_oclock_rule_leaves_it_alone():
+    script = PACKAGE["script"]["helios_smieci_wyniesione"]["sequence"]
+    assert render(script[0]["data"]["date"], datetime(2026, 9, 28, 9, 0)) == "2026-09-29", "a morning tap on a 'jutro' warning means tomorrow"
+    assert script[1]["action"] == "input_boolean.turn_on", "the HA switch shows the tick too"
+    guard = PACKAGE["automation"][0]["conditions"][0]["value_template"]
+    ticked = lambda d: {"input_datetime.smieci_wyniesione_dla": {"state": d}}
+    assert render(guard, datetime(2026, 9, 28, 9, 0), ticked("2026-09-29")) is False, "already tomorrow: the rule does not reassign"
+    assert render(guard, datetime(2026, 9, 28, 9, 0), ticked("2000-01-01")) is True, "a manual tick in HA still goes through the rule"
