@@ -102,3 +102,30 @@ def test_done_from_the_clock_ticks_tomorrow_and_the_12_oclock_rule_leaves_it_alo
     ticked = lambda d: {"input_datetime.smieci_wyniesione_dla": {"state": d}}
     assert render(guard, datetime(2026, 9, 28, 9, 0), ticked("2026-09-29")) is False, "already tomorrow: the rule does not reassign"
     assert render(guard, datetime(2026, 9, 28, 9, 0), ticked("2000-01-01")) is True, "a manual tick in HA still goes through the rule"
+
+
+def test_garage_blinks_only_after_15_minutes_open_at_any_hour():
+    flag = FLAGS["helios_garaz_dlugo_pokaz"]["state"]
+    now = datetime(2026, 9, 28, 14, 0)
+    opened = lambda minutes: now.replace(tzinfo=WARSAW) - timedelta(minutes=minutes)
+
+    class Obj:
+        def __init__(self, lc): self.last_changed = lc
+
+    def states_with(minutes, state="open"):
+        return {"sensor.camera_garage_garage_gate_classification": {"state": state}}, Obj(opened(minutes))
+
+    for minutes, want in ((14, False), (15, True), (90, True)):
+        st, obj = states_with(minutes)
+        assert render(flag.replace("states.sensor.camera_garage_garage_gate_classification.last_changed", "lc"), now, st, lc=obj.last_changed) is want, minutes
+    st, obj = states_with(60, "close")
+    assert render(flag.replace("states.sensor.camera_garage_garage_gate_classification.last_changed", "lc"), now, st, lc=obj.last_changed) is False
+
+
+def test_air_alarm_blinks_warning_only_shows_watch_is_hidden():
+    alarm, warning = FLAGS["helios_alarm_powietrzny_pokaz"], FLAGS["helios_zagrozenie_powietrzne_pokaz"]
+    now = datetime(2026, 9, 28, 23, 0)
+    lvl = lambda s: {"sensor.air_alert_level": {"state": s}}
+    assert [render(alarm["state"], now, lvl(s)) for s in ("safe", "watch", "warning", "alarm")] == [False, False, False, True]
+    assert [render(warning["state"], now, lvl(s)) for s in ("safe", "watch", "warning", "alarm")] == [False, False, True, False]
+    assert render(alarm["availability"], now, lvl("unavailable")) is False, "no data is 'brak danych', never 'safe'"

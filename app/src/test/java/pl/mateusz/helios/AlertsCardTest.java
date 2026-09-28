@@ -211,4 +211,19 @@ public class AlertsCardTest {
         st.put("binary_sensor.garaz_pokaz",e("unavailable",0));assertFalse(AlertsModel.blink(items,st,true));
         rejects(alerts(2,1,source("A","a").put("blink","tak")),"blink is a boolean");
     }
+    @Test public void silencingStopsTheBlinkUntilTheWarningComesBack() throws Exception {
+        JSONObject item=alerts(2,1,source("Garaż","garaz").put("blink",true),source("Alarm","alarm").put("blink",true));
+        List<DashboardSpec.Item> items=DashboardSpec.parse(doc(item)).allItems();
+        Map<String,EntityStates.Entity> st=new HashMap<>();st.put("binary_sensor.garaz_pokaz",e("on",1000));st.put("binary_sensor.alarm_pokaz",e("off",1000));
+        Map<String,Long> silenced=new HashMap<>();
+        assertTrue(AlertsModel.blink(items,st,true,silenced));
+        silenced.putAll(AlertsModel.blinkingNow(items,st,true,silenced));
+        assertEquals(Collections.singletonMap("uwagi|binary_sensor.garaz_pokaz=on",1000L),silenced);
+        assertFalse("silenced",AlertsModel.blink(items,st,true,silenced));
+        st.put("binary_sensor.alarm_pokaz",e("on",2000));
+        assertTrue("another warning still blinks",AlertsModel.blink(items,st,true,silenced));
+        st.put("binary_sensor.alarm_pokaz",e("off",3000));
+        st.put("binary_sensor.garaz_pokaz",e("off",4000));st.put("binary_sensor.garaz_pokaz",e("on",5000));
+        assertTrue("closed and opened again: a new occurrence blinks",AlertsModel.blink(items,st,true,silenced));
+    }
 }

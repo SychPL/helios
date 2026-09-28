@@ -70,6 +70,8 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private final Map<String,Boolean> visibility=new HashMap<>();
     /** SPEC 0.20: "Zgaś" state per alerts tile, kept across drawer openings so a reopened list cannot send twice. */
     private final Map<String,Map<String,AlertsModel.OffState>> alertOffs=new HashMap<>();
+    /** SPEC 0.20 pkt 4c: blink occurrences silenced with "Wycisz lampkę" (tile|condition -> its last_changed); cleared with a new document. */
+    private final Map<String,Long> silencedBlinks=new HashMap<>();
     private boolean live;
     private String connectionIssue="Łączenie z konfiguracją ekranu w HA…",configIssue;
     private final Set<String> pendingActions=new HashSet<>();
@@ -108,7 +110,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         @Override public void onDashboard(JSONObject raw,DashboardSpec received,Map<String,EntityStates.Entity> snapshot,String issue){
             update(()->{
                 if(received!=null&&(specRaw==null||!raw.toString().equals(specRaw.toString()))){
-                    spec=received;specRaw=raw;visibility.clear();alertOffs.clear();closePanel();dashboard.setSpec(spec,MainActivity.this::tap);
+                    spec=received;specRaw=raw;visibility.clear();alertOffs.clear();silencedBlinks.clear();closePanel();dashboard.setSpec(spec,MainActivity.this::tap);
                     onEvent("dashboard_configured","items="+spec.items.size());
                 }
                 if(received==null&&specRaw==null){spec=DashboardSpec.fallback();dashboard.setSpec(spec,MainActivity.this::tap);}
@@ -344,7 +346,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         dashboard.setIssue(issue);navigation.status(issue==null?"HA: połączono, dane aktualne":issue);
         dashboard.render(states,visibility,live);
         observeAlertOffs();
-        if(service!=null)service.alertBlink(resumed&&spec!=null&&AlertsModel.blink(spec.allItems(),states,live)); // SPEC 0.20 pkt 4b
+        if(service!=null)service.alertBlink(resumed&&spec!=null&&AlertsModel.blink(spec.allItems(),states,live,silencedBlinks)); // SPEC 0.20 pkt 4b/4c
         if(panelRefresh!=null)panelRefresh.run();
     }
     private String coverTitle(DashboardSpec.Item item){
@@ -426,6 +428,14 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             public Map<String,EntityStates.Entity> states(){return states;}
             public boolean live(){return live;}
             public Map<String,AlertsModel.OffState> offs(){return alertOffs.computeIfAbsent(item.id,k->new HashMap<>());}
+            public boolean blinking(){return spec!=null&&AlertsModel.blink(spec.allItems(),states,live,silencedBlinks);}
+            public void silenceBlink(){
+                if(spec==null)return;
+                Map<String,Long> now=AlertsModel.blinkingNow(spec.allItems(),states,live,silencedBlinks);
+                silencedBlinks.putAll(now);
+                onEvent("lamp_silenced",String.join(",",now.keySet()));
+                renderDashboard(); // the lamp stops now, not at the next HA delta
+            }
             public String act(DashboardSpec.Source src,java.util.function.Consumer<String> done){
                 HaDashboardClient client=ha();
                 String why=AlertsModel.actionBlock(src,states,live&&client!=null);
