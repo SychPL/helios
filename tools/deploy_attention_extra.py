@@ -20,6 +20,7 @@ URL = CFG.get("url", "http://192.168.1.212:8123").rstrip("/")
 H = {"Authorization": "Bearer " + CFG["token"], "Content-Type": "application/json"}
 PACKAGE = yaml.safe_load((ROOT / "ha/packages/helios_attention_extra.yaml").read_text(encoding="utf-8"))
 GARAGE = PACKAGE["template"][0]["binary_sensor"][0]
+CALENDAR_BLOCK = next(b for b in PACKAGE["template"] if "triggers" in b)  # the trigger-based calendar sensor
 PKG_AUTOMATIONS = {a["id"]: a for a in PACKAGE["automation"]}
 CEL = PKG_AUTOMATIONS["helios_smieci_odhaczenie"]["actions"][1]["variables"]["cel"]
 APPLY = "--apply" in sys.argv
@@ -39,6 +40,13 @@ TEMPLATES = [
      "{{ states('sensor.helios_smieci_jutro') not in ['unknown', 'unavailable']"
      " and states('input_datetime.smieci_wyniesione_dla') not in ['unknown', 'unavailable'] }}"),
 ]
+# SPEC 0.20 pkt 4b follow-up (2026-09-28): garage open 15+ min, air raid alarm and warning - straight from the package
+_BY_ID = {x["unique_id"]: ("binary_sensor", x) for x in PACKAGE["template"][0]["binary_sensor"]}
+_BY_ID.update({x["unique_id"]: ("sensor", x) for x in PACKAGE["template"][1]["sensor"]})
+for _uid in ["helios_garaz_dlugo_pokaz", "helios_alarm_powietrzny_pokaz", "helios_zagrozenie_powietrzne_pokaz",
+             "helios_garaz_dlugo_tekst", "helios_alarm_powietrzny_tekst"]:
+    _kind, _t = _BY_ID[_uid]
+    TEMPLATES.append((_kind, _t["name"], _t["state"], _t.get("availability")))
 EVENTS_TODAY_TOMORROW = {
     "action": "calendar.get_events", "target": {"entity_id": "calendar.smieci"},
     "data": {"start_date_time": "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}",
@@ -59,8 +67,8 @@ AUTOMATIONS = {
              "data": {"start_date_time": "{{ (now() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}",
                       "end_date_time": "{{ (now() + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"},
              "response_variable": "odpowiedz", "continue_on_error": True},
-            {"variables": {"ok": PACKAGE["template"][1]["actions"][1]["variables"]["ok"],
-                           "rodzaje": PACKAGE["template"][1]["actions"][1]["variables"]["rodzaje"]}},
+            {"variables": {"ok": CALENDAR_BLOCK["actions"][1]["variables"]["ok"],
+                           "rodzaje": CALENDAR_BLOCK["actions"][1]["variables"]["rodzaje"]}},
             {"if": [{"condition": "template", "value_template": "{{ ok }}"}],
              "then": [{"action": "input_text.set_value", "target": {"entity_id": "input_text.helios_smieci_rodzaje"},
                        "data": {"value": "{{ (rodzaje | join(', '))[:250] }}"}},
@@ -148,8 +156,10 @@ def main():
         if APPLY:
             flow = rest("POST", "/api/config/config_entries/flow", {"handler": "template"})
             rest("POST", "/api/config/config_entries/flow/" + flow["flow_id"], {"next_step_id": kind})
-            r = rest("POST", "/api/config/config_entries/flow/" + flow["flow_id"],
-                     {"name": name, "state": state, "additional_options": {"availability": availability}})
+            data = {"name": name, "state": state}
+            if availability:
+                data["additional_options"] = {"availability": availability}
+            r = rest("POST", "/api/config/config_entries/flow/" + flow["flow_id"], data)
             print("  ->", r.get("type"), r.get("errors"))
     for aid, body in AUTOMATIONS.items():
         print("write automation", aid)

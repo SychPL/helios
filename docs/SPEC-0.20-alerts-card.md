@@ -151,7 +151,12 @@ w polu z odstępem >= 10 od dolnej krawędzi):
   lampka wraca do stanu sprzed migania. Miganie nie jest stanem lampki: HA i menu widzą stan sprzed migania, a
   włączenie/wyłączenie lampki w trakcie (z HA albo z menu) zmienia tylko stan, do którego lampka wróci. Mignięcie
   przy nasłuchu jest wtedy pomijane. Brak docka albo usługi OEM - po prostu nie miga.
-- Poza zakresem: odrzucanie ostrzeżeń bez akcji w HA, historia, wyciszanie migania bez końca ostrzeżenia.
+- **4c. "Wycisz lampkę" (Helios 0.18.1, prośba właściciela 2026-09-29).** Gdy lampka miga, nagłówek listy ma przycisk
+  `Wycisz lampkę` (536,0) 184x64, między licznikiem a X. Jedno stuknięcie, bez pytania: wycisza miganie dla wystąpień,
+  które migają w tej chwili (kafelek + warunek -> `last_changed` warunku). Ostrzeżenie zostaje na liście i kafelku;
+  nowe wystąpienie (warunek zgasł i wrócił, więc ma inny `last_changed`) znów miga. Wyciszenia żyją w pamięci
+  aplikacji i znikają z nowym dokumentem albo restartem aplikacji.
+- Poza zakresem: odrzucanie ostrzeżeń bez akcji w HA, historia.
 
 ## 5. Czas "Aktywne od"
 

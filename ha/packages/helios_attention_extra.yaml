@@ -10,8 +10,12 @@
 # "Śmieci jutro - brak danych", nigdy fałszywe "Brak uwag".
 #
 # Encje z tego pakietu (wpis do kafelka alerts w dokumencie zegara):
-#   - {title: Garaż otwarty, entity: sensor.helios_garaz_uwaga, icon: mdi:garage-open,
-#      when: {entity: binary_sensor.helios_garaz_wieczor_pokaz, state: 'on'}}
+#   - {title: Garaż otwarty, entity: sensor.helios_garaz_dlugo_tekst, icon: mdi:garage-open, blink: true,
+#      when: {entity: binary_sensor.helios_garaz_dlugo_pokaz, state: 'on'}}           # blink: Helios 0.18+
+#   - {title: Alarm przeciwlotniczy, entity: sensor.helios_alarm_powietrzny_tekst, icon: mdi:alarm-light, blink: true,
+#      when: {entity: binary_sensor.helios_alarm_powietrzny_pokaz, state: 'on'}}
+#   - {title: Zagrożenie z powietrza, entity: sensor.helios_alarm_powietrzny_tekst, icon: mdi:shield-alert,
+#      when: {entity: binary_sensor.helios_zagrozenie_powietrzne_pokaz, state: 'on'}}
 #   - {title: Śmieci jutro, entity: sensor.helios_smieci_jutro, icon: mdi:trash-can,
 #      when: {entity: binary_sensor.helios_smieci_jutro_pokaz, state: 'on'},
 #      done_entity: input_button.helios_smieci_wyniesione, done_label: Wyniesione}   # Helios 0.17.1+
@@ -59,6 +63,51 @@ template:
              and state_attr('sensor.helios_smieci_jutro', 'query_date') == tomorrow
              and at is not none and (utcnow() - as_datetime(at)).total_seconds() < 65 * 60
              and states('input_datetime.smieci_wyniesione_dla') not in ['unknown', 'unavailable'] }}
+
+      # Garaż otwarty dłużej niż 15 min (o każdej porze; prośba właściciela 2026-09-28) - źródło z miganiem lampki.
+      - name: "Helios garaz dlugo pokaz"
+        unique_id: helios_garaz_dlugo_pokaz
+        icon: mdi:garage-alert
+        state: >-
+          {{ has_value('sensor.camera_garage_garage_gate_classification')
+             and is_state('sensor.camera_garage_garage_gate_classification', 'open')
+             and (now() - states.sensor.camera_garage_garage_gate_classification.last_changed).total_seconds() >= 15 * 60 }}
+        availability: "{{ has_value('sensor.camera_garage_garage_gate_classification') }}"
+
+      # Alarm przeciwlotniczy (integracja Air Alert PL): poziom `alarm` = oficjalny alarm dla województwa i zagrożenie
+      # lecące w naszą stronę - źródło z miganiem lampki. `warning` = zagrożenie z powietrza, tylko informacja.
+      # `watch` (komunikat o ataku na Ukrainę bez zagrożenia w naszą stronę) nie jest pokazywany.
+      - name: "Helios alarm powietrzny pokaz"
+        unique_id: helios_alarm_powietrzny_pokaz
+        icon: mdi:alarm-light
+        state: "{{ is_state('sensor.air_alert_level', 'alarm') }}"
+        availability: "{{ has_value('sensor.air_alert_level') }}"
+      - name: "Helios zagrozenie powietrzne pokaz"
+        unique_id: helios_zagrozenie_powietrzne_pokaz
+        icon: mdi:shield-alert
+        state: "{{ is_state('sensor.air_alert_level', 'warning') }}"
+        availability: "{{ has_value('sensor.air_alert_level') }}"
+
+  - sensor:
+      # Tekst w liście Uwag przy garażu: od kiedy brama stoi otwarta.
+      - name: "Helios garaz dlugo tekst"
+        unique_id: helios_garaz_dlugo_tekst
+        icon: mdi:garage-open
+        state: >-
+          {% if is_state('sensor.camera_garage_garage_gate_classification', 'open') %}Otwarta od {{ as_local(states.sensor.camera_garage_garage_gate_classification.last_changed).strftime('%H:%M') }}{% endif %}
+      # Tekst przy alarmie i zagrożeniu: najbliższe zagrożenie, szacowany czas i pierwszy powód z integracji.
+      - name: "Helios alarm powietrzny tekst"
+        unique_id: helios_alarm_powietrzny_tekst
+        icon: mdi:airplane-alert
+        state: >-
+          {% set ns = namespace(p=[]) %}
+          {% set d = states('sensor.air_alert_closest_threat') %}
+          {% if is_number(d) %}{% set ns.p = ns.p + ['najbliżej ' ~ (d | float) | round(0) | int ~ ' km'] %}{% endif %}
+          {% set eta = states('sensor.air_alert_eta') %}
+          {% if is_number(eta) %}{% set ns.p = ns.p + ['za ok. ' ~ (eta | float) | round(0) | int ~ ' min'] %}{% endif %}
+          {% set r = state_attr('sensor.air_alert_level', 'reasons') %}
+          {% if r %}{% set ns.p = ns.p + [r[0] | regex_replace('^(RCB|RSO|OSINT|NEPTUN): ', '') | regex_replace('^Aktualizacja \d+! ', '') | regex_replace(' \([^()]*->[^()]*\)$', '')] %}{% endif %}
+          {{ (ns.p | join(' · '))[:250] }}
 
   # Wywozy na jutro z kalendarza: przy starcie HA, tuż po północy, o 19:00 i co 30 min.
   # Błąd albo brak odpowiedzi to NIE pusta lista - sensor jest wtedy unavailable.

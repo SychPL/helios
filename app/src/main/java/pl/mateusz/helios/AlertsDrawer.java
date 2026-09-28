@@ -35,6 +35,10 @@ final class AlertsDrawer {
         String act(DashboardSpec.Source source,Consumer<String> done);
         /** "Zgaś" state by source key; owned by the host so it outlives this drawer. */
         Map<String,AlertsModel.OffState> offs();
+        /** SPEC 0.20 pkt 4c: the dock lamp blinks for a warning of this clock right now. */
+        boolean blinking();
+        /** Silences the blink for the occurrences blinking now; a new occurrence blinks again. */
+        void silenceBlink();
         /** The palette confirmation over the drawer; the drawer stays open. Returns the dialog so it can be withdrawn. */
         Dialog confirm(String question,Runnable ok);
     }
@@ -50,6 +54,7 @@ final class AlertsDrawer {
     private final android.graphics.Typeface sans;
     private final FrameLayout root;
     private final IconView headIcon;private final TextView headCount;
+    private final LinearLayout silence;
     private final ScrollView scroll;private final LinearLayout list;
     private final Map<String,RowView> rows=new LinkedHashMap<>();
     private List<String> shownKeys; // null until the first build, so an empty list still gets its "Brak uwag"
@@ -101,6 +106,13 @@ final class AlertsDrawer {
         headCount=text(18,t.muted,1);headCount.setPadding(px(16),0,0,0);head.addView(headCount,new LinearLayout.LayoutParams(0,-2,1));
         root.addView(head,box(16,15,700,34));
         MusicOverlay.IconButton close=new MusicOverlay.IconButton(activity,"mdi:close","Zamknij");root.addView(close,box(728,0,64,64));close.style(t.raised,t.text,s);
+        // "Wycisz lampkę": only while the lamp blinks; one tap, no question - it silences, it does not dismiss the warning
+        silence=new LinearLayout(activity);silence.setOrientation(LinearLayout.HORIZONTAL);silence.setGravity(Gravity.CENTER);
+        silence.setBackground(Theme.card(t.raised,32*s));silence.setClickable(true);silence.setFocusable(true);silence.setContentDescription("Wycisz miganie lampki");
+        IconView bulb=new IconView(activity);bulb.set("mdi:lightbulb-off",Theme.ATTENTION);silence.addView(bulb,new LinearLayout.LayoutParams(px(26),px(26)));
+        TextView silenceText=text(18,t.text,1);silenceText.setText("Wycisz lampkę");silenceText.setPadding(px(8),0,0,0);silence.addView(silenceText,new LinearLayout.LayoutParams(-2,-2));
+        silence.setVisibility(View.GONE);root.addView(silence,box(536,0,184,64));
+        silence.setOnClickListener(v->{if(closed)return;host.silenceBlink();refresh();});
         close.setOnClickListener(v->closeByUser());
         scroll=new ScrollView(activity){
             @Override protected void onScrollChanged(int l,int top,int oldl,int oldt){super.onScrollChanged(l,top,oldl,oldt);lastScroll=SystemClock.uptimeMillis();freeze();main.removeCallbacks(settle);main.postDelayed(settle,250);}
@@ -148,6 +160,7 @@ final class AlertsDrawer {
         Theme t=Theme.current();
         headIcon.set(m.a()>0&&live?"mdi:bell-alert":"mdi:bell",m.a()>0&&live?Theme.ATTENTION:t.muted);
         headCount.setText(m.a()+(m.a()==1?" aktywna":m.a()>=2&&m.a()<=4?" aktywne":" aktywnych"));
+        silence.setVisibility(host.blinking()?View.VISIBLE:View.GONE);
         List<AlertsModel.Row> all=new ArrayList<>(m.active);all.addAll(m.unknown);
         List<String> keys=new ArrayList<>();for(AlertsModel.Row r:all)keys.add(slot(r));
 

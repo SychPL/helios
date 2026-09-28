@@ -172,10 +172,22 @@ final class AlertsModel {
     }
 
     /** SPEC 0.20 pkt 4b: whether the dock lamp should blink - a live, active source marked blink on any alerts tile of any page. */
-    static boolean blink(List<DashboardSpec.Item> items,Map<String,EntityStates.Entity> states,boolean live){
-        if(!live)return false;
-        for(DashboardSpec.Item i:items)for(DashboardSpec.Source s:i.sources)if(s.blink&&cond(s,states,true)==Cond.ACTIVE)return true;
-        return false;
+    static boolean blink(List<DashboardSpec.Item> items,Map<String,EntityStates.Entity> states,boolean live){return blink(items,states,live,Collections.emptyMap());}
+    /** The same, minus the occurrences someone silenced (SPEC 0.20 pkt 4c): a silenced source blinks again once its condition changes. */
+    static boolean blink(List<DashboardSpec.Item> items,Map<String,EntityStates.Entity> states,boolean live,Map<String,Long> silenced){
+        return !blinkingNow(items,states,live,silenced).isEmpty();
+    }
+    /** The occurrences blinking now, as silence key -> the condition's last_changed; what "Wycisz lampkę" stores. */
+    static Map<String,Long> blinkingNow(List<DashboardSpec.Item> items,Map<String,EntityStates.Entity> states,boolean live,Map<String,Long> silenced){
+        Map<String,Long> out=new LinkedHashMap<>();
+        if(!live)return out;
+        for(DashboardSpec.Item i:items)for(DashboardSpec.Source s:i.sources){
+            if(!s.blink||cond(s,states,true)!=Cond.ACTIVE)continue;
+            String key=i.id+"|"+s.whenEntity+"="+s.whenState;long lc=states.get(s.whenEntity).lastChanged;
+            Long quiet=silenced.get(key);
+            if(quiet==null||quiet!=lc)out.put(key,lc);
+        }
+        return out;
     }
 
     /** The 2 s wait before the stand-in card: only while everything stays known and clear; any warning or unknown resets it at once. */
