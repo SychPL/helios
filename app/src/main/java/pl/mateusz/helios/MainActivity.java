@@ -268,7 +268,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         screensaver.forget();
         if(sensors!=null&&lightSensor!=null)sensors.registerListener(light,lightSensor,android.hardware.SensorManager.SENSOR_DELAY_NORMAL);
         tick.run();attachHa();if(pendingVoice){pendingVoice=false;startVoice();}else startWake();dashboard.post(()->onEvent("dashboard_visible","width="+dashboard.getWidth()+" height="+dashboard.getHeight()+" free_mb="+getFilesDir().getUsableSpace()/1048576+" log_kb="+new java.io.File(getFilesDir(),"assist-events.jsonl").length()/1024));}
-    @Override public void onPause(){resumed=false;
+    @Override public void onPause(){resumed=false;if(service!=null)service.alertBlink(false); // no blink for a panel nobody can see or answer
         if(panel!=null&&panelItem!=null&&("climate".equals(panelItem.type)||"alerts".equals(panelItem.type)))closePanel(); // SPEC 0.20: the list too, its timers with it // SPEC 0.19: the thermostat panel goes with the app, its unsent draft dropped
         if(sensors!=null)sensors.unregisterListener(light);
         // the night clock goes away with its dimming: hiding the layer alone would leave the panel at 0.01
@@ -344,6 +344,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         dashboard.setIssue(issue);navigation.status(issue==null?"HA: połączono, dane aktualne":issue);
         dashboard.render(states,visibility,live);
         observeAlertOffs();
+        if(service!=null)service.alertBlink(resumed&&spec!=null&&AlertsModel.blink(spec.allItems(),states,live)); // SPEC 0.20 pkt 4b
         if(panelRefresh!=null)panelRefresh.run();
     }
     private String coverTitle(DashboardSpec.Item item){

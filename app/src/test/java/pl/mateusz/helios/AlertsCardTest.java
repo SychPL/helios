@@ -196,4 +196,19 @@ public class AlertsCardTest {
         rejects(alerts(2,1,source("A","a").put("done_entity","script.a").put("done_label","Bardzo dluga nazwa")),"label over 12");
         rejects(alerts(2,1,source("A","a").put("done_entity","script.a").put("off_entity","light.a")),"one button per row");
     }
+    @Test public void onlySourcesMarkedBlinkMakeTheLampBlinkAndOnlyWhileActiveAndLive() throws Exception {
+        JSONObject item=alerts(2,1,source("Garaż","garaz").put("blink",true),source("Śmieci","smieci"));
+        DashboardSpec spec=DashboardSpec.parse(doc(item));
+        assertTrue(spec.items.get(0).sources.get(0).blink);assertFalse("default: no blink",spec.items.get(0).sources.get(1).blink);
+        List<DashboardSpec.Item> items=spec.allItems();
+        Map<String,EntityStates.Entity> st=new HashMap<>();
+        assertFalse("unknown never blinks",AlertsModel.blink(items,st,true));
+        st.put("binary_sensor.smieci_pokaz",e("on",0));st.put("binary_sensor.garaz_pokaz",e("off",0));
+        assertFalse("an active source without blink",AlertsModel.blink(items,st,true));
+        st.put("binary_sensor.garaz_pokaz",e("on",0));
+        assertTrue(AlertsModel.blink(items,st,true));
+        assertFalse("no session, no blink",AlertsModel.blink(items,st,false));
+        st.put("binary_sensor.garaz_pokaz",e("unavailable",0));assertFalse(AlertsModel.blink(items,st,true));
+        rejects(alerts(2,1,source("A","a").put("blink","tak")),"blink is a boolean");
+    }
 }
