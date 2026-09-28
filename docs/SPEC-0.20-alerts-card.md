@@ -144,7 +144,14 @@ w polu z odstępem >= 10 od dolnej krawędzi):
   `Nie udało się oznaczyć`, odpoczynek po sukcesie); napis zmniejsza się do 13 px, gdy się nie mieści. Skrypt, przycisk
   i input_button w stanie `unknown` są użyteczne (jak intencja `activate`), brak encji albo `unavailable` - nie.
   Wiersz znika, gdy HA zgasi flagę ostrzeżenia.
-- Poza zakresem: odrzucanie ostrzeżeń bez akcji w HA, historia, mruganie lampką.
+- **4b. Lampka docka miga, póki trwa (Helios 0.18.0, prośba właściciela 2026-09-28: "nie każda rzecz, tylko
+  najważniejsze").** Źródło może mieć `blink: true` (domyślnie false). Lampka miga (0,8 s włączona, 1,2 s zgaszona,
+  przy obecnej jasności), dopóki na tym zegarze jest aktywne przynajmniej jedno takie źródło z dowolnego kafelka
+  `alerts` na dowolnej stronie; nieznany warunek, brak połączenia z HA albo aplikacja w tle - nie miga. Po końcu
+  lampka wraca do stanu sprzed migania. Miganie nie jest stanem lampki: HA i menu widzą stan sprzed migania, a
+  włączenie/wyłączenie lampki w trakcie (z HA albo z menu) zmienia tylko stan, do którego lampka wróci. Mignięcie
+  przy nasłuchu jest wtedy pomijane. Brak docka albo usługi OEM - po prostu nie miga.
+- Poza zakresem: odrzucanie ostrzeżeń bez akcji w HA, historia, wyciszanie migania bez końca ostrzeżenia.
 
 ## 5. Czas "Aktywne od"
 

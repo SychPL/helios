@@ -113,6 +113,7 @@ Wszystkie ostrzeżenia w jednym kafelku zamiast osobnego warunkowego kafelka na 
     - title: Garaż otwarty
       entity: sensor.helios_garaz_uwaga               # tekst w drugiej linii listy
       icon: mdi:garage-open                           # opcjonalnie
+      blink: true                                     # opcjonalnie (Helios 0.18): lampka docka miga, póki trwa
       when: {entity: binary_sensor.helios_garaz_uwaga_pokaz, state: 'on'}
     - title: Światła
       entity: sensor.helios_zapalone_swiatla
@@ -132,6 +133,7 @@ Wszystkie ostrzeżenia w jednym kafelku zamiast osobnego warunkowego kafelka na 
 - Ostrzeżenie jest aktywne, gdy encja z `when` ma znany stan równy `state`. Brak encji, `unknown`, `unavailable` albo brak połączenia z HA to "brak danych": kafelek pokazuje wtedy `-` i `Brak danych` (albo stopkę `Brak danych: N` obok aktywnych), a karta `empty` się nie pojawia. Dwa źródła z tym samym warunkiem to błąd.
 - Karta `empty` wchodzi po 2 s ciszy i znika natychmiast, gdy coś się pojawi. Bez `empty` kafelek pokazuje `0` i `Brak uwag`.
 - Lista: najnowsze na górze, godzina z `last_changed` encji warunku (restart HA ją przesuwa). "Zgaś" (`off_entity`) albo przycisk "zrobione" (`done_entity`: `script`/`input_boolean` - włączenie, `input_button`/`button` - naciśnięcie; najwyżej jeden z nich na źródło) pyta o potwierdzenie, sprawdza przed wysłaniem, że ostrzeżenie nadal trwa i cel ma znany stan, i nie ponawia polecenia. Listę zamyka X, wstecz, przesunięcie w prawo albo 2 minuty bez dotyku.
+- `blink: true` przy najważniejszych źródłach: lampka docka miga (0,8 s / 1,2 s), dopóki któreś z nich jest aktywne, i wraca potem do swojego stanu. Miganie nie jest stanem lampki - HA go nie widzi, a włączenie lub wyłączenie lampki w trakcie zmienia tylko stan, do którego wróci.
 - Aktywne ostrzeżenie blokuje wygaszacz tak jak warunkowe kafelki, gdy zegar ma to włączone.
 
 Typ wymaga `version: 6` i Heliosa 0.17 - starszy zegar odrzuci dokument z tym kafelkiem i zostanie przy ostatnim dobrym układzie.

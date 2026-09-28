@@ -171,6 +171,13 @@ final class AlertsModel {
         long due(){long d=-1;if(heldUntil>0)d=heldUntil;if(busy)d=d<0?sentAt+LIMIT_MS:Math.min(d,sentAt+LIMIT_MS);if(message!=null)d=d<0?messageUntil:Math.min(d,messageUntil);return d;}
     }
 
+    /** SPEC 0.20 pkt 4b: whether the dock lamp should blink - a live, active source marked blink on any alerts tile of any page. */
+    static boolean blink(List<DashboardSpec.Item> items,Map<String,EntityStates.Entity> states,boolean live){
+        if(!live)return false;
+        for(DashboardSpec.Item i:items)for(DashboardSpec.Source s:i.sources)if(s.blink&&cond(s,states,true)==Cond.ACTIVE)return true;
+        return false;
+    }
+
     /** The 2 s wait before the stand-in card: only while everything stays known and clear; any warning or unknown resets it at once. */
     static final class EmptyGate {
         private long quietSince=-1;

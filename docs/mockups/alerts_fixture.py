@@ -6,7 +6,8 @@ from aiohttp import web
 
 NOW = time.time()
 SOURCES = [
-    {'title': 'Garaż otwarty', 'entity': 'sensor.helios_garaz_uwaga', 'icon': 'mdi:garage-open', 'when': {'entity': 'binary_sensor.helios_garaz_uwaga_pokaz', 'state': 'on'}},
+    {'title': 'Garaż otwarty', 'entity': 'sensor.helios_garaz_uwaga', 'icon': 'mdi:garage-open', 'when': {'entity': 'binary_sensor.helios_garaz_uwaga_pokaz', 'state': 'on'},
+     'blink': True},
     {'title': 'Śmieci jutro', 'entity': 'sensor.helios_smieci_jutro', 'icon': 'mdi:trash-can', 'when': {'entity': 'binary_sensor.helios_smieci_jutro_pokaz', 'state': 'on'},
      'done_entity': 'input_button.helios_smieci_wyniesione', 'done_label': 'Wyniesione'},
     {'title': 'Światła', 'entity': 'sensor.helios_zapalone_swiatla', 'icon': 'mdi:lightbulb', 'when': {'entity': 'binary_sensor.helios_zapalone_swiatla_pokaz', 'state': 'on'},

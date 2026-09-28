@@ -41,6 +41,8 @@ final class DashboardSpec {
     /** One warning feeding an `alerts` tile (SPEC 0.20 pkt 2): its text entity, its condition, an optional icon and lights to turn off. */
     static final class Source {
         final String title,entity,icon,whenEntity,whenState,offEntity,doneEntity,doneLabel;final boolean showSince;
+        /** SPEC 0.20 pkt 4b: the dock lamp blinks while this source is active. */
+        boolean blink;
         Source(String title,String entity,String icon,String whenEntity,String whenState,String offEntity,boolean showSince){this(title,entity,icon,whenEntity,whenState,offEntity,showSince,null,null);}
         /** doneEntity (SPEC 0.20 pkt 4a): what "done" runs - a script, an input_boolean, an input_button or a button; doneLabel is its button word. */
         Source(String title,String entity,String icon,String whenEntity,String whenState,String offEntity,boolean showSince,String doneEntity,String doneLabel){this.title=title;this.entity=entity;this.icon=icon;this.whenEntity=whenEntity;this.whenState=whenState;this.offEntity=offEntity;this.showSince=showSince;this.doneEntity=doneEntity;this.doneLabel=doneLabel;}
@@ -221,7 +223,7 @@ final class DashboardSpec {
         if(allowed.contains("sources"))alerts(o,out,version);
         return out;
     }
-    private static final Set<String> SOURCE_KEYS=new HashSet<>(Arrays.asList("title","entity","icon","when","off_entity","show_since","done_entity","done_label"));
+    private static final Set<String> SOURCE_KEYS=new HashSet<>(Arrays.asList("title","entity","icon","when","off_entity","show_since","done_entity","done_label","blink"));
     /** The `alerts` parts: 1-12 sources with distinct conditions, and an optional stand-in card of a plain type. */
     private static void alerts(JSONObject o,Item out,int version) throws Exception {
         boolean size=(out.width==1&&out.height==1)||(out.width==1&&out.height==2)||(out.width==2&&out.height==1);
@@ -245,7 +247,11 @@ final class DashboardSpec {
             if(src.has("done_entity")){done=string(src,"done_entity",true,128);if(!done.matches("(script|input_boolean|input_button|button)\\.[a-z0-9_]+"))throw new IllegalArgumentException("done_entity wymaga encji script, input_boolean, input_button albo button");}
             if(src.has("done_label")){if(done==null)throw new IllegalArgumentException("done_label wymaga done_entity");doneLabel=string(src,"done_label",true,12);}
             if(off!=null&&done!=null)throw new IllegalArgumentException("sources: off_entity i done_entity wykluczają się");
-            sources.add(new Source(title,entity,icon,when[0],when[1],off,since==null||(Boolean)since,done,doneLabel));
+            Object blink=src.opt("blink");
+            if(blink!=null&&!(blink instanceof Boolean))throw new IllegalArgumentException("blink musi być boolean");
+            Source source=new Source(title,entity,icon,when[0],when[1],off,since==null||(Boolean)since,done,doneLabel);
+            source.blink=Boolean.TRUE.equals(blink);
+            sources.add(source);
         }
         out.sources=Collections.unmodifiableList(sources);
         if(o.has("empty")){

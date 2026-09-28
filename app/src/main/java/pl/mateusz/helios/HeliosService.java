@@ -137,7 +137,7 @@ public final class HeliosService extends Service {
     private void blinkLamp(){
         network.execute(()->{
             try{
-                if(dock.unavailable()!=null)return;
+                if(dock.unavailable()!=null||dock.blinking())return; // a warning blink already owns the lamp
                 boolean wasOn=Boolean.TRUE.equals(dock.ledOn());
                 if(wasOn)dock.turnOff();else dock.turnOn();
                 Thread.sleep(180);
@@ -145,6 +145,8 @@ public final class HeliosService extends Service {
             }catch(Exception ignored){}
         });
     }
+    /** SPEC 0.20 pkt 4b: the dashboard says whether an important warning is active; the lamp blinks while it is. */
+    void alertBlink(boolean on){dock.setBlink(on);}
     void setOnDeviceLost(Runnable action){onDeviceLost=action;}
     void setOnDeviceChanged(Consumer<String> action){onDeviceChanged=action;}
     void setAppearanceListener(AppearanceListener listener){appearanceListener=listener;if(listener!=null)listener.onAppearance(appearance,background);}
