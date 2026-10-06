@@ -183,7 +183,7 @@ final class Updater {
             android.content.pm.PackageInfo pi=context.getPackageManager().getPackageArchiveInfo(file.getPath(),0);
             if(pi==null||!expectedPackage.equals(pi.packageName)||!version.equals(pi.versionName))return "Nieprawidłowy plik wydania";
             // only our own update has to move forward; another package may be installed for the first time
-            if(context.getPackageName().equals(expectedPackage)&&pi.getLongVersionCode()<=BuildConfig.VERSION_CODE)return "Nieprawidłowy plik wydania";
+            if(context.getPackageName().equals(expectedPackage)&&pi.versionCode<=BuildConfig.VERSION_CODE)return "Nieprawidłowy plik wydania";
             return "ok";
         }
         public int createSession(long size,String packageName) throws IOException {

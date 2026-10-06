@@ -68,7 +68,7 @@ final class MusicOverlay extends FrameLayout {
     private boolean seeking;
     private long pendingSeekUntil; // after a seek the bar shows the user's position until the server's next progress (or 10 s)
     private final Runnable ticker=new Runnable(){public void run(){if(view!=Layer.HANDLE&&snapshot!=null&&snapshot.ui==MusicSession.Ui.PLAYING){showProgress();postDelayed(this,1000);}}};
-    private float scale=1;
+    private float scale=1,fullScale=1;
     private String clockText="";
 
     MusicOverlay(Context context,Typeface sans,Typeface mono){
@@ -141,10 +141,10 @@ final class MusicOverlay extends FrameLayout {
         panel.setBackground(rounded(t.surface,Theme.RADIUS*s,false));full.setBackgroundColor(t.surface);
         closeIcon.set("chevron-right",t.muted);fullIcon.set("fullscreen",t.muted);fullCloseIcon.set("chevron-down",t.muted);
         artwork.setBackground(Theme.card(t.raised,12*s));artworkPlaceholder.set("note",t.muted);
-        fullArtwork.setBackground(Theme.card(t.raised,16*s));fullPlaceholder.set("note",t.muted);
+        fullArtwork.setBackground(Theme.card(t.raised,16*fullScale));fullPlaceholder.set("note",t.muted);
         title.setTextColor(t.text);artist.setTextColor(t.muted);status.setTextColor(t.muted);seekValue.setTextColor(t.text);
         fullClock.setTextColor(t.text);fullTitle.setTextColor(t.text);fullArtist.setTextColor(t.muted);timeLeft.setTextColor(t.muted);timeRight.setTextColor(t.muted);
-        panelControls.style(t,s);fullControls.style(t,s);
+        panelControls.style(t,s);fullControls.style(t,fullScale);
         refresh();
     }
     private static GradientDrawable rounded(int color,float r,boolean leftOnly){
@@ -175,7 +175,7 @@ final class MusicOverlay extends FrameLayout {
             fullTitle.setText(titleText);fullTitle.setContentDescription(titleText);
             String line=snapshot.issue!=null?snapshot.issue:artistText; // the issue takes the artist line, in accent (SPEC 0.11 pkt 3.2)
             fullArtist.setText(line);fullArtist.setContentDescription(line);fullArtist.setTextColor(snapshot.issue!=null?accent:t.muted);
-            fullControls.refresh(t,playing,accent,scale);
+            fullControls.refresh(t,playing,accent,fullScale);
             fullPlaceholder.setVisibility(shownArtwork==null?VISIBLE:GONE);
         }
         showProgress();
@@ -205,12 +205,17 @@ final class MusicOverlay extends FrameLayout {
         panel.setTranslationX(panel.getLayoutParams().width);
         panel.animate().translationX(0).setDuration(Math.round(180*durationScale)).start();
     }
-    /** Geometry from OverlayGeometry and FullscreenGeometry in 800x480 units; s = px per unit. */
-    void arrange(float s,float ox,float oy){
+    /**
+     * Geometry from OverlayGeometry and FullscreenGeometry in 800x480 units; s = px per unit, unitsW x unitsH = the screen in them.
+     * Another screen keeps the handle centred on its right edge, the panel on that edge under the bar, and shrinks the full
+     * screen to fit a narrower width.
+     */
+    void arrange(float s,int unitsW,int unitsH){
         scale=s;
-        place(handle,HANDLE.x,HANDLE.y,HANDLE.w,HANDLE.h,s,ox,oy);
+        int shift=unitsW-DashboardView.WIDTH;
+        place(handle,HANDLE.x+shift,HANDLE.y+(unitsH-DashboardView.HEIGHT)/2f,HANDLE.w,HANDLE.h,s);
         int hi=Math.round(36*s);handleIcon.setLayoutParams(new LayoutParams(hi,hi,Gravity.CENTER));
-        place(panel,PANEL.x,PANEL.y,PANEL.w,PANEL.h,s,ox,oy);
+        place(panel,PANEL.x+shift,PANEL.y,PANEL.w,PANEL.h,s);
         inside(status,STATUS,s);size(status,16,s);
         int ci=Math.round(32*s);
         inside(fullButton,FULL,s);fullIcon.setLayoutParams(new LayoutParams(ci,ci,Gravity.CENTER));
@@ -219,17 +224,18 @@ final class MusicOverlay extends FrameLayout {
         inside(title,TITLE,s);size(title,23,s);inside(artist,ARTIST,s);size(artist,18,s);
         inside(panelControls.previous,PREVIOUS,s);inside(panelControls.playPause,PLAY,s);inside(panelControls.next,NEXT,s);inside(panelControls.stop,STOP,s);inside(panelControls.mute,MUTE,s);
         inside(seekRow,SEEK,s);size(seekValue,16,s);seekValue.setLayoutParams(new LinearLayout.LayoutParams(Math.round(92*s),-2));
-        place(full,FullscreenGeometry.AREA.x,FullscreenGeometry.AREA.y,FullscreenGeometry.AREA.w,FullscreenGeometry.AREA.h,s,ox,oy);
-        inside(fullArtwork,FullscreenGeometry.ART,s);inside(fullPlaceholder,new Box(FullscreenGeometry.ART.x+136,FullscreenGeometry.ART.y+136,128,128),s);
-        inside(fullClose,FullscreenGeometry.CLOSE,s);fullCloseIcon.setLayoutParams(new LayoutParams(ci,ci,Gravity.CENTER));
-        inside(fullClock,FullscreenGeometry.CLOCK,s);size(fullClock,72,s);
-        inside(fullTitle,FullscreenGeometry.TITLE,s);size(fullTitle,26,s);inside(fullArtist,FullscreenGeometry.ARTIST,s);size(fullArtist,20,s);
-        inside(fullControls.previous,FullscreenGeometry.PREVIOUS,s);inside(fullControls.playPause,FullscreenGeometry.PLAY,s);inside(fullControls.next,FullscreenGeometry.NEXT,s);inside(fullControls.stop,FullscreenGeometry.STOP,s);inside(fullControls.mute,FullscreenGeometry.MUTE,s);
-        inside(timeLeft,FullscreenGeometry.TIME_LEFT,s);size(timeLeft,16,s);inside(timeRight,FullscreenGeometry.TIME_RIGHT,s);size(timeRight,16,s);
-        inside(fullControls.seek,FullscreenGeometry.SEEK,s);
+        place(full,FullscreenGeometry.AREA.x,FullscreenGeometry.AREA.y,unitsW,unitsH-FullscreenGeometry.AREA.y,s);
+        float f=fullScale=s*Math.min(1,unitsW/(float)DashboardView.WIDTH);int fi=Math.round(32*f);
+        inside(fullArtwork,FullscreenGeometry.ART,f);inside(fullPlaceholder,new Box(FullscreenGeometry.ART.x+136,FullscreenGeometry.ART.y+136,128,128),f);
+        inside(fullClose,FullscreenGeometry.CLOSE,f);fullCloseIcon.setLayoutParams(new LayoutParams(fi,fi,Gravity.CENTER));
+        inside(fullClock,FullscreenGeometry.CLOCK,f);size(fullClock,72,f);
+        inside(fullTitle,FullscreenGeometry.TITLE,f);size(fullTitle,26,f);inside(fullArtist,FullscreenGeometry.ARTIST,f);size(fullArtist,20,f);
+        inside(fullControls.previous,FullscreenGeometry.PREVIOUS,f);inside(fullControls.playPause,FullscreenGeometry.PLAY,f);inside(fullControls.next,FullscreenGeometry.NEXT,f);inside(fullControls.stop,FullscreenGeometry.STOP,f);inside(fullControls.mute,FullscreenGeometry.MUTE,f);
+        inside(timeLeft,FullscreenGeometry.TIME_LEFT,f);size(timeLeft,16,f);inside(timeRight,FullscreenGeometry.TIME_RIGHT,f);size(timeRight,16,f);
+        inside(fullControls.seek,FullscreenGeometry.SEEK,f);
         applyTheme();
     }
-    private static void place(View v,float x,float y,float w,float h,float s,float ox,float oy){LayoutParams p=new LayoutParams(Math.round(w*s),Math.round(h*s));p.leftMargin=Math.round(ox+x*s);p.topMargin=Math.round(oy+y*s);v.setLayoutParams(p);}
+    private static void place(View v,float x,float y,float w,float h,float s){LayoutParams p=new LayoutParams(Math.round(w*s),Math.round(h*s));p.leftMargin=Math.round(x*s);p.topMargin=Math.round(y*s);v.setLayoutParams(p);}
     private static void inside(View v,Box b,float s){LayoutParams p=new LayoutParams(Math.round(b.w*s),Math.round(b.h*s));p.leftMargin=Math.round(b.x*s);p.topMargin=Math.round(b.y*s);v.setLayoutParams(p);}
     private static void size(TextView v,float px,float s){v.setTextSize(TypedValue.COMPLEX_UNIT_PX,px*s);}
     @Override public boolean onTouchEvent(MotionEvent event){return false;} // only the handle, the panel and the full screen consume; everything else falls through to the tiles

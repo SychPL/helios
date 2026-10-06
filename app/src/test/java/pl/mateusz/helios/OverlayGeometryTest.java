@@ -24,4 +24,11 @@ public class OverlayGeometryTest {
         assertTrue(HANDLE.contains(729,205));assertFalse(HANDLE.contains(727,240));assertFalse(HANDLE.contains(760,276));
         assertTrue(cell(4,2).contains(727,240)); // just left of the handle: the tile's own hit
     }
+    @Test public void aSquareScreenGetsThreeColumnsAndTheClockKeepsFour(){
+        assertEquals(800,DashboardView.units(800,800,480));assertEquals(480,DashboardView.units(480,800,480));assertEquals(4,DashboardView.columns(800));
+        assertEquals(480,DashboardView.units(480,480,480));assertEquals(3,DashboardView.columns(480));
+        assertEquals(819,DashboardView.units(1024,1024,600));assertEquals(4,DashboardView.columns(819)); // a 1024x600 tablet: wider cards, no bars
+        assertEquals(640,DashboardView.units(1024,1024,768));assertEquals(4,DashboardView.columns(640)); // 4:3 still holds four
+        assertEquals(854,DashboardView.units(854,480,854)); // portrait: 480 across, taller rows
+    }
 }

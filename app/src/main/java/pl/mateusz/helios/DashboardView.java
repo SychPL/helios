@@ -12,7 +12,7 @@ import android.view.View;
 import android.widget.*;
 import java.util.*;
 
-/** Fixed top bar plus a 4x3 grid of large tiles rendered from DashboardSpec; nothing here comes from YAML except tile content. */
+/** Fixed top bar plus a grid of large tiles rendered from DashboardSpec (4x3 on the clock, 3x3 on a square screen); nothing here comes from YAML except tile content. */
 public final class DashboardView extends FrameLayout {
     public interface Actions { void onTap(DashboardSpec.Item item); }
     static final int WIDTH=800,HEIGHT=480,BAR=52,GAP=8;
@@ -51,6 +51,12 @@ public final class DashboardView extends FrameLayout {
     private Map<String,EntityStates.Entity> lastStates;private Map<String,Boolean> lastVisibility;private boolean lastLive;
     private int measuredWidth,measuredHeight;
     private float scale=1;
+    /** The screen in grid units and the columns its width holds: 800x480 on the clock, 480x480 on a square panel. */
+    private int unitsW=WIDTH,unitsH=HEIGHT,columns=DashboardSpec.COLUMNS;
+    /** A screen side in grid units: the shorter side is always 480 of them, so the grid fills any screen without bars. */
+    static int units(int side,int width,int height){return Math.round(side*HEIGHT/(float)Math.min(width,height));}
+    /** Four columns from a 4:3 width up; a narrower screen shows three and leaves a document's fourth column off. */
+    static int columns(int unitsW){return unitsW>=640?DashboardSpec.COLUMNS:3;}
 
     public DashboardView(Context context){
         super(context);
@@ -105,7 +111,7 @@ public final class DashboardView extends FrameLayout {
         overlay.applyTheme();
     }
     private TextView text(String value,Typeface face){TextView t=new TextView(getContext());t.setText(value);t.setTypeface(face);t.setGravity(Gravity.CENTER_VERTICAL);t.setIncludeFontPadding(false);addView(t);return t;}
-    private static void box(View v,float x,float y,float w,float h,float s,float ox,float oy){LayoutParams p=new LayoutParams(Math.round(w*s),Math.round(h*s));p.leftMargin=Math.round(ox+x*s);p.topMargin=Math.round(oy+y*s);v.setLayoutParams(p);}
+    private static void box(View v,float x,float y,float w,float h,float s){LayoutParams p=new LayoutParams(Math.round(w*s),Math.round(h*s));p.leftMargin=Math.round(x*s);p.topMargin=Math.round(y*s);v.setLayoutParams(p);}
     private static void size(TextView v,float px,float s){v.setTextSize(TypedValue.COMPLEX_UNIT_PX,px*s);}
     @Override protected void onMeasure(int widthSpec,int heightSpec){
         int w=MeasureSpec.getSize(widthSpec),h=MeasureSpec.getSize(heightSpec);
@@ -114,28 +120,31 @@ public final class DashboardView extends FrameLayout {
     }
     private void arrange(){
         if(measuredWidth==0)return;
-        float s=Math.min(measuredWidth/(float)WIDTH,measuredHeight/(float)HEIGHT),ox=(measuredWidth-WIDTH*s)/2,oy=(measuredHeight-HEIGHT*s)/2;
+        unitsW=units(measuredWidth,measuredWidth,measuredHeight);unitsH=units(measuredHeight,measuredWidth,measuredHeight);
+        if(columns(unitsW)!=columns){columns=columns(unitsW);if(spec!=null){buildPage();return;}} // another set of items fits; buildPage arranges again
+        float s=Math.min(measuredWidth,measuredHeight)/(float)HEIGHT;
         scale=s;
-        box(bar,0,0,WIDTH,BAR,s,ox,oy);
-        box(brand,24,10,120,32,s,ox,oy);size(brand,17,s);
-        box(status,150,10,560,32,s,ox,oy);size(status,16,s);
-        box(connection,744,10,32,32,s,ox,oy);
-        box(dots,300,44,200,6,s,ox,oy); // the strip between the bar's text and the first row: above the cards, over nothing
-        size(nightTime,190,s);size(nightDate,22,s); // 190 of 480 units: the hour fills the screen without touching the edges
-        float cellW=(WIDTH-GAP*(DashboardSpec.COLUMNS+1))/(float)DashboardSpec.COLUMNS,cellH=(HEIGHT-BAR-GAP*(DashboardSpec.ROWS+1))/(float)DashboardSpec.ROWS;
+        box(bar,0,0,unitsW,BAR,s);
+        box(brand,24,10,120,32,s);size(brand,17,s);
+        box(status,150,10,unitsW-240,32,s);size(status,16,s);
+        box(connection,unitsW-56,10,32,32,s);
+        box(dots,unitsW/2f-100,44,200,6,s); // the strip between the bar's text and the first row: above the cards, over nothing
+        // 190 of 480 units fills the clock's screen without touching the edges; a narrower screen fits the hour to its width
+        size(nightTime,TextFit.fit((text,px)->{monoPaint.setTextSize(px);monoPaint.setLetterSpacing(0);return monoPaint.measureText(text);},"00:00",unitsW-48,190),s);size(nightDate,22,s);
+        float cellW=(unitsW-GAP*(columns+1))/(float)columns,cellH=(unitsH-BAR-GAP*(DashboardSpec.ROWS+1))/(float)DashboardSpec.ROWS;
         for(Tile tile:tiles.values()){
             DashboardSpec.Item i=tile.item;
             float w=cellW*i.width+GAP*(i.width-1),h=cellH*i.height+GAP*(i.height-1);
-            box(tile,GAP+(i.column-1)*(cellW+GAP),BAR+GAP+(i.row-1)*(cellH+GAP),w,h,s,ox,oy);
+            box(tile,GAP+(i.column-1)*(cellW+GAP),BAR+GAP+(i.row-1)*(cellH+GAP),w,h,s);
             tile.scale(s,w,h);
         }
         for(AlertsTile tile:alertTiles.values()){
             DashboardSpec.Item i=tile.item;
             float w=cellW*i.width+GAP*(i.width-1),h=cellH*i.height+GAP*(i.height-1);
-            box(tile,GAP+(i.column-1)*(cellW+GAP),BAR+GAP+(i.row-1)*(cellH+GAP),w,h,s,ox,oy);
+            box(tile,GAP+(i.column-1)*(cellW+GAP),BAR+GAP+(i.row-1)*(cellH+GAP),w,h,s);
             tile.scale(s,w,h);
         }
-        overlay.arrange(s,ox,oy);
+        overlay.arrange(s,unitsW,unitsH);
     }
 
     public void setSpec(DashboardSpec spec,Actions actions){
@@ -147,6 +156,7 @@ public final class DashboardView extends FrameLayout {
         for(Tile t:tiles.values())removeView(t);tiles.clear();
         for(AlertsTile t:alertTiles.values())removeView(t);alertTiles.clear();removeCallbacks(emptyCheck);
         for(DashboardSpec.Item item:spec.pages.get(page).items){
+            if(item.column+item.width-1>columns)continue;
             if(item.type.equals("alerts")){
                 AlertsTile a=new AlertsTile(item);alertTiles.put(item.id,a);addView(a,indexOfChild(overlay));
                 if(item.empty!=null){Tile t=new Tile(item.empty);t.substitute=true;t.setVisibility(GONE);tiles.put(item.id,t);addView(t,indexOfChild(overlay));}
