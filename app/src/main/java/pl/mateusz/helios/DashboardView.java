@@ -54,7 +54,9 @@ public final class DashboardView extends FrameLayout {
     /** The screen in grid units and the columns its width holds: 800x480 on the clock, 480x480 on a square panel. */
     private int unitsW=WIDTH,unitsH=HEIGHT,columns=DashboardSpec.COLUMNS;
     /** A screen side in grid units: the shorter side is always 480 of them, so the grid fills any screen without bars. */
-    static int units(int side,int width,int height){return Math.round(side*HEIGHT/(float)Math.min(width,height));}
+    static int units(int side,int width,int height){return Math.round(side/scale(width,height));}
+    /** Pixels per grid unit on a screen or window of that size; the dashboard and every panel over it use the same one. */
+    static float scale(int width,int height){return Math.min(width,height)/(float)HEIGHT;}
     /** Four columns from a 4:3 width up; a narrower screen shows three and leaves a document's fourth column off. */
     static int columns(int unitsW){return unitsW>=640?DashboardSpec.COLUMNS:3;}
 
@@ -122,7 +124,7 @@ public final class DashboardView extends FrameLayout {
         if(measuredWidth==0)return;
         unitsW=units(measuredWidth,measuredWidth,measuredHeight);unitsH=units(measuredHeight,measuredWidth,measuredHeight);
         if(columns(unitsW)!=columns){columns=columns(unitsW);if(spec!=null){buildPage();return;}} // another set of items fits; buildPage arranges again
-        float s=Math.min(measuredWidth,measuredHeight)/(float)HEIGHT;
+        float s=scale(measuredWidth,measuredHeight);
         scale=s;
         box(bar,0,0,unitsW,BAR,s);
         box(brand,24,10,120,32,s);size(brand,17,s);

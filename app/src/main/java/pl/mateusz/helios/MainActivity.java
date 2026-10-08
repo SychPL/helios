@@ -527,33 +527,34 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         }));
         return true;
     }
-    /** "Rolety sypialni": two independent rows (name, state, open/stop/close) sized in 800x480 units (SPEC 0.9 pkt 4.1); music panel folds, playback continues. */
+    /** "Rolety sypialni": two independent rows (name, state, open/stop/close) sized in screen units (SPEC 0.9 pkt 4.1); music panel folds, playback continues. */
     private void coverGroupPanel(DashboardSpec.Item item){
         closePanel();dashboard.musicOverlay().closePanel();
-        float s=Math.min(getResources().getDisplayMetrics().widthPixels/800f,getResources().getDisplayMetrics().heightPixels/480f);
+        int sw=getResources().getDisplayMetrics().widthPixels,sh=getResources().getDisplayMetrics().heightPixels;
+        float s=DashboardView.scale(sw,sh);CoverPanelGeometry g=new CoverPanelGeometry(DashboardView.units(sw,sw,sh));
         Theme t=Theme.current();
         FrameLayout root=new FrameLayout(this);root.setBackground(Theme.card(t.surface,Theme.RADIUS*s));
         TextView header=Theme.label(this,dashboardLabel(item),0,false);header.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,22*s);header.setGravity(Gravity.CENTER_VERTICAL);header.setMaxLines(1);header.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        root.addView(header,box(CoverPanelGeometry.HEADER,s));
+        root.addView(header,box(g.header,s));
         final TextView[] stateViews=new TextView[2];final MusicOverlay.IconButton[][] buttons=new MusicOverlay.IconButton[2][3];
         final String[] services={"open_cover","stop_cover","close_cover"};final int[] bits={CoverText.OPEN,CoverText.STOP,CoverText.CLOSE};
         final String[] glyphs={"arrow-up","stop","arrow-down"};final String[] verbs={"Otwórz","Zatrzymaj","Zamknij"};
         for(int n=0;n<2;n++){
             final DashboardSpec.Cover cover=item.covers.get(n);
-            FrameLayout row=new FrameLayout(this);root.addView(row,box(n==0?CoverPanelGeometry.ROW_A:CoverPanelGeometry.ROW_B,s));
-            LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);label.setGravity(Gravity.CENTER_VERTICAL);row.addView(label,box(CoverPanelGeometry.LABEL,s));
+            FrameLayout row=new FrameLayout(this);root.addView(row,box(n==0?g.rowA:g.rowB,s));
+            LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);label.setGravity(Gravity.CENTER_VERTICAL);row.addView(label,box(g.label,s));
             TextView name=Theme.label(this,cover.title,0,false);name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,20*s);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);label.addView(name);
             TextView state=Theme.label(this,"",0,true);state.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,17*s);state.setMaxLines(1);label.addView(state);stateViews[n]=state;
             for(int k=0;k<3;k++){
                 final String service=services[k];
                 MusicOverlay.IconButton b=new MusicOverlay.IconButton(this,glyphs[k],verbs[k]+" "+cover.title);
                 b.style(k==1?t.accent:t.raised,k==1?t.onColor(t.accent):t.text,s);
-                row.addView(b,box(k==0?CoverPanelGeometry.OPEN:k==1?CoverPanelGeometry.STOP:CoverPanelGeometry.CLOSE,s));
+                row.addView(b,box(k==0?g.open:k==1?g.stop:g.close,s));
                 b.setOnClickListener(v->{if(callEntity(item,cover.entity,"cover",service,null)&&panelRefresh!=null)panelRefresh.run();});
                 buttons[n][k]=b;
             }
         }
-        Button back=Theme.button(this,"Wróć",false,17*s,Theme.RADIUS*s);back.setOnClickListener(v->closePanel());root.addView(back,box(CoverPanelGeometry.BACK,s));
+        Button back=Theme.button(this,"Wróć",false,17*s,Theme.RADIUS*s);back.setOnClickListener(v->closePanel());root.addView(back,box(g.back,s));
         panelRefresh=()->{
             for(int n=0;n<2;n++){
                 DashboardSpec.Cover cover=item.covers.get(n);EntityStates.Entity e=states.get(cover.entity);
@@ -566,7 +567,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         };
         panelRefresh.run();
         Dialog dialog=new Dialog(this);panel=dialog;panelItem=item;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(Math.round(CoverPanelGeometry.PANEL.w*s),Math.round(CoverPanelGeometry.PANEL.h*s)));
+        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(Math.round(g.panel.w*s),Math.round(g.panel.h*s)));
         dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->closePanel());
         if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));dialog.getWindow().setGravity(Gravity.CENTER);}
         dialog.show();

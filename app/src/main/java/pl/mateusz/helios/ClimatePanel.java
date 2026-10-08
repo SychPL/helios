@@ -41,6 +41,7 @@ final class ClimatePanel {
     private final ClimateFlow flow=new ClimateFlow();
     private final Handler main=new Handler(Looper.getMainLooper());
     private final float s;
+    private final ClimatePanelGeometry g;
     private final TextView title,note,nowValue,activity_,setValue,setStatus,modeLabel;
     private final IconView titleIcon;
     private final MusicOverlay.IconButton minus,plus;
@@ -56,7 +57,7 @@ final class ClimatePanel {
         // the activity's own window, as the dashboard measures itself: display metrics may leave out system bars
         View decor=activity.getWindow().getDecorView();
         int sw=decor.getWidth()>0?decor.getWidth():activity.getResources().getDisplayMetrics().widthPixels,sh=decor.getHeight()>0?decor.getHeight():activity.getResources().getDisplayMetrics().heightPixels;
-        s=Math.min(sw/800f,sh/480f);
+        s=DashboardView.scale(sw,sh);g=new ClimatePanelGeometry(DashboardView.units(sw,sw,sh),DashboardView.units(sh,sw,sh));
         Theme t=Theme.current();
         root=new FrameLayout(activity){@Override public boolean dispatchTouchEvent(MotionEvent e){if(e.getActionMasked()==MotionEvent.ACTION_DOWN)touched();return super.dispatchTouchEvent(e);}};
         root.setBackgroundColor(t.background);
@@ -64,24 +65,24 @@ final class ClimatePanel {
         titleIcon=new IconView(activity);head.addView(titleIcon,new LinearLayout.LayoutParams(px(34),px(34)));
         title=text(26,t.text);title.setPadding(px(10),0,0,0);head.addView(title,new LinearLayout.LayoutParams(-2,-2));
         note=text(18,t.muted);note.setPadding(px(16),0,0,0);head.addView(note,new LinearLayout.LayoutParams(0,-2,1)); // why controls are off, or what failed
-        root.addView(head,box(ClimatePanelGeometry.TITLE));
+        root.addView(head,box(g.title));
         title.setText(name);
-        MusicOverlay.IconButton close=new MusicOverlay.IconButton(activity,"mdi:close","Zamknij");root.addView(close,box(ClimatePanelGeometry.CLOSE));close.style(t.raised,t.text,s);
+        MusicOverlay.IconButton close=new MusicOverlay.IconButton(activity,"mdi:close","Zamknij");root.addView(close,box(g.close));close.style(t.raised,t.text,s);
         close.setOnClickListener(v->closeByUser());
-        card(ClimatePanelGeometry.NOW_CARD,t);card(ClimatePanelGeometry.SET_CARD,t);
-        label("W pokoju",ClimatePanelGeometry.NOW_LABEL,18,t.muted);label("Zadana",ClimatePanelGeometry.SET_LABEL,18,t.muted);
-        nowValue=label("",ClimatePanelGeometry.NOW_VALUE,76,t.text);
-        activity_=label("",ClimatePanelGeometry.ACTIVITY,20,t.muted);
-        minus=new MusicOverlay.IconButton(activity,"mdi:minus","Zmniejsz temperaturę zadaną");root.addView(minus,box(ClimatePanelGeometry.MINUS));
-        plus=new MusicOverlay.IconButton(activity,"mdi:plus","Zwiększ temperaturę zadaną");root.addView(plus,box(ClimatePanelGeometry.PLUS));
+        card(g.nowCard,t);card(g.setCard,t);
+        label("W pokoju",g.nowLabel,18,t.muted);label("Zadana",g.setLabel,18,t.muted);
+        nowValue=label("",g.nowValue,g.nowSize,t.text);
+        activity_=label("",g.activity,20,t.muted);
+        minus=new MusicOverlay.IconButton(activity,"mdi:minus","Zmniejsz temperaturę zadaną");root.addView(minus,box(g.minus));
+        plus=new MusicOverlay.IconButton(activity,"mdi:plus","Zwiększ temperaturę zadaną");root.addView(plus,box(g.plus));
         square(minus,t);square(plus,t);
         minus.setOnClickListener(v->step(-1));plus.setOnClickListener(v->step(1));
-        setValue=label("",ClimatePanelGeometry.SET_VALUE,64,t.text);setValue.setGravity(Gravity.CENTER);
-        setStatus=label("",ClimatePanelGeometry.SET_STATUS,18,t.muted);
-        modeLabel=label("Tryb",ClimatePanelGeometry.MODE_LABEL,16,t.muted);
-        modeRow=row(ClimatePanelGeometry.MODES);listRow=row(ClimatePanelGeometry.LISTS);
+        setValue=label("",g.setValue,g.setSize,t.text);setValue.setGravity(Gravity.CENTER);
+        setStatus=label("",g.setStatus,18,t.muted);
+        modeLabel=label("Tryb",g.modeLabel,16,t.muted);
+        modeRow=row(g.modes);listRow=row(g.lists);
         dialog=new Dialog(activity);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        Box w=ClimatePanelGeometry.WINDOW;
+        Box w=g.window;
         dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(px(w.w),px(w.h)));
         Window win=dialog.getWindow();
         if(win!=null){
@@ -220,7 +221,7 @@ final class ClimatePanel {
             LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,px(ClimatePanelGeometry.ROW));rp.bottomMargin=px(ClimatePanelGeometry.ROW_STEP-ClimatePanelGeometry.ROW);list.addView(row,rp);
         }
         close.setOnClickListener(v->d.dismiss());
-        Box p=ClimatePanelGeometry.PICKER;
+        Box p=g.picker;
         d.setContentView(box,new android.view.ViewGroup.LayoutParams(px(p.w),px(p.h)));
         d.setCanceledOnTouchOutside(true); // outside and back close the list only
         d.setOnDismissListener(x->{if(picker==d)picker=null;});
@@ -247,7 +248,7 @@ final class ClimatePanel {
 
     // --- small view helpers ---
     private int px(float units){return Math.round(units*s);}
-    private FrameLayout.LayoutParams box(Box b){return box(b,ClimatePanelGeometry.WINDOW.x,ClimatePanelGeometry.WINDOW.y);}
+    private FrameLayout.LayoutParams box(Box b){return box(b,g.window.x,g.window.y);}
     private FrameLayout.LayoutParams box(Box b,int ox,int oy){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(px(b.w),px(b.h));p.leftMargin=px(b.x-ox);p.topMargin=px(b.y-oy);return p;}
     private TextView text(float size,int color){TextView v=new TextView(activity);v.setTextSize(TypedValue.COMPLEX_UNIT_PX,size*s);v.setTextColor(color);v.setMaxLines(1);v.setEllipsize(TextUtils.TruncateAt.END);v.setIncludeFontPadding(false);return v;}
     private TextView label(String value,Box b,float size,int color){TextView v=text(size,color);v.setText(value);v.setGravity(Gravity.CENTER_VERTICAL);root.addView(v,box(b));return v;}
@@ -269,7 +270,7 @@ final class ClimatePanel {
         int n=modes.size();
         if(n>6)return false;
         if(n==0)return true;
-        float width=(ClimatePanelGeometry.MODES.w-ClimatePanelGeometry.GAP*(n-1))/(float)n-32;
+        float width=(g.modes.w-ClimatePanelGeometry.GAP*(n-1))/(float)n-32;
         android.graphics.Paint paint=new TextView(activity).getPaint();paint.setTextSize(19);
         for(String m:modes)if(paint.measureText(ClimateModel.mode(m,n>=5))>width)return false;
         return true;
