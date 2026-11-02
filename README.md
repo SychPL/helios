@@ -160,6 +160,12 @@ are the authoritative description of every feature, and `docs/INSTALL.md` plus
 this README are the English entry points. Issues and pull requests in English
 are welcome.
 
+## Contributors
+
+[Mark Graham](https://github.com/markgraham924) created the English interface
+translations and the original Spotify, Assist and Predbat cards in his fork.
+They were adapted for Helios 0.21; [NOTICE](NOTICE) links the source commits.
+
 ## Licensing
 
 Apache License 2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE). The app
