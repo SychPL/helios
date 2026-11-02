@@ -25,7 +25,7 @@ final class DockController {
     private int backoffSeconds=5;
     private volatile Boolean dockConnected,charging,ledOn;
     private volatile Integer ledBrightness;
-    private volatile String padVersion,unavailable="Łączenie z usługą docka…";
+    private volatile String padVersion,unavailable=I18n.t("Łączenie z usługą docka…");
     /** SPEC 0.20 pkt 4b: the lamp blinks while an important warning lasts; this is not a lamp state, so HA never sees it. */
     static final long BLINK_ON_MS=800,BLINK_OFF_MS=1200;
     /**
@@ -72,7 +72,7 @@ final class DockController {
             changed();return true;
         }
     };
-    private final IBinder.DeathRecipient death=()->{binder=null;unavailable="Usługa docka przerwana";resetUnknown();changed();scheduleBind();};
+    private final IBinder.DeathRecipient death=()->{binder=null;unavailable=I18n.t("Usługa docka przerwana");resetUnknown();changed();scheduleBind();};
     private final ServiceConnection connection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder service){
             synchronized(lampLock){ // no blink tick between the new binder and its first read
@@ -89,7 +89,7 @@ final class DockController {
             }
             changed();
         }
-        @Override public void onServiceDisconnected(ComponentName name){binder=null;unavailable="Usługa docka rozłączona";resetUnknown();changed();}
+        @Override public void onServiceDisconnected(ComponentName name){binder=null;unavailable=I18n.t("Usługa docka rozłączona");resetUnknown();changed();}
     };
 
     DockController(Context context,Listener listener){this.context=context.getApplicationContext();this.listener=listener;}
@@ -153,13 +153,13 @@ final class DockController {
         transact(OP_SET_BRIGHTNESS,level);ledBrightness=level;changed();
     }
     Boolean isLedOn() throws Exception {
-        IBinder b=binder;if(b==null)throw new IllegalStateException("Brak usługi docka");
+        IBinder b=binder;if(b==null)throw new IllegalStateException(I18n.t("Brak usługi docka"));
         Parcel data=Parcel.obtain(),reply=Parcel.obtain();
         try{data.writeInterfaceToken(SERVICE_DESCRIPTOR);b.transact(OP_IS_LED_ON,data,reply,0);reply.readException();return reply.readInt()!=0;}
         finally{data.recycle();reply.recycle();}
     }
     private void transact(int code,Integer argument) throws Exception {
-        IBinder b=binder;if(b==null)throw new IllegalStateException("Brak usługi docka");
+        IBinder b=binder;if(b==null)throw new IllegalStateException(I18n.t("Brak usługi docka"));
         Parcel data=Parcel.obtain(),reply=Parcel.obtain();
         try{data.writeInterfaceToken(SERVICE_DESCRIPTOR);if(argument!=null)data.writeInt(argument);b.transact(code,data,reply,0);reply.readException();}
         finally{data.recycle();reply.recycle();}
@@ -175,7 +175,7 @@ final class DockController {
         intent.setComponent(new ComponentName("com.google.assistant.oemapp","com.google.assistant.oemapp.ScoriaAssistantOemAccessoryService"));
         try{bound=context.bindService(intent,connection,Context.BIND_AUTO_CREATE);}
         catch(SecurityException e){bound=false;}
-        if(!bound){unavailable="Brak fabrycznej usługi docka";listener.onDiagnostic("dock_bind_failed","");changed();scheduleBind();}
+        if(!bound){unavailable=I18n.t("Brak fabrycznej usługi docka");listener.onDiagnostic("dock_bind_failed","");changed();scheduleBind();}
     }
     private void scheduleBind(){
         if(stopped)return;

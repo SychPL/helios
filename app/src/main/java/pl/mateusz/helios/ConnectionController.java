@@ -25,16 +25,16 @@ final class ConnectionController {
     /** Persist first, then restart everything; HA has already retired the old identity, so a failed save is terminal: nothing old is started again. */
     String pairedWith(JSONObject response,String url){
         String token=response.optString("token",""),pipeline=response.optString("pipeline","");
-        if(token.isEmpty()||pipeline.isEmpty())return "Niepełna odpowiedź HA";
+        if(token.isEmpty()||pipeline.isEmpty())return I18n.t("Niepełna odpowiedź HA");
         JSONObject fresh;
         try{fresh=new JSONObject().put("url",url).put("token",token).put("pipeline",pipeline).put("dashboard_path",response.optString("dashboard_path","helios-clock")).put("protocol",2);}
-        catch(JSONException e){return "Niepełna odpowiedź HA";} // checked on Android's org.json
+        catch(JSONException e){return I18n.t("Niepełna odpowiedź HA");} // checked on Android's org.json
         authInvalidUnsaved=false; // a fresh identity supersedes any remembered refusal
         if(!save(fresh,-1,true)){
             // HA has retired the old identity: the stored old connection must not come back after a restart either
-            if(!store.clear())transports.issue("Nie udało się wyczyścić starego parowania");
+            if(!store.clear())transports.issue(I18n.t("Nie udało się wyczyścić starego parowania"));
             transports.stopAll();
-            return "Nie udało się zapisać parowania - sparuj ponownie";
+            return I18n.t("Nie udało się zapisać parowania - sparuj ponownie");
         }
         transports.restartAll();
         return null;
@@ -45,7 +45,7 @@ final class ConnectionController {
         JSONObject flagged;
         try{flagged=new JSONObject(current.toString()).put("auth_invalid",true);}catch(JSONException e){flagged=null;}
         boolean saved=flagged!=null&&save(flagged,gen,true); // the identity is dead: events of this session are stale from now on
-        if(!saved){synchronized(this){generation++;}authInvalidUnsaved=true;transports.issue("Nie udało się zapisać stanu połączenia - po restarcie zegar spróbuje raz jeszcze");} // SPEC 8.2 cannot be honoured without a durable flag; say so instead of pretending
+        if(!saved){synchronized(this){generation++;}authInvalidUnsaved=true;transports.issue(I18n.t("Nie udało się zapisać stanu połączenia - po restarcie zegar spróbuje raz jeszcze"));} // SPEC 8.2 cannot be honoured without a durable flag; say so instead of pretending
         transports.stopAll();
         return saved?SAVED:SAVE_FAILED;
     }
@@ -56,7 +56,7 @@ final class ConnectionController {
         JSONObject music=merged.optJSONObject("music_assistant"),before=current.optJSONObject("music_assistant");
         if(music!=null&&(before==null||!before.toString().equals(music.toString()))){
             String error=probe.music(music.optString("url"),music.optString("token"));
-            if(error!=null){transports.issue("Muzyka: "+error);try{if(before==null)merged.remove("music_assistant");else merged.put("music_assistant",before);}catch(Exception ignored){}}
+            if(error!=null){transports.issue(I18n.t("Muzyka: ")+error);try{if(before==null)merged.remove("music_assistant");else merged.put("music_assistant",before);}catch(Exception ignored){}}
         }
         if(merged.toString().equals(current.toString()))return;
         boolean restartHa=ConnectionMerge.haRestart(current,merged),restartMa=ConnectionMerge.maRestart(current,merged);

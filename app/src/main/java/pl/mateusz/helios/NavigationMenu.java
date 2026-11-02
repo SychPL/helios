@@ -41,27 +41,32 @@ final class NavigationMenu {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout panel=new LinearLayout(activity);panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(16),dp(12),dp(16),dp(12));panel.setBackgroundColor(Theme.current().surface);
-        TextView title=Theme.label(activity,"Menu Heliosa",20,false);title.setPadding(dp(8),dp(6),0,dp(8));panel.addView(title);
-        button(panel,"Zamknij menu",()->dialog.dismiss());
+        TextView title=Theme.label(activity,I18n.t("Menu Heliosa"),20,false);title.setPadding(dp(8),dp(6),0,dp(8));panel.addView(title);
+        button(panel,I18n.t("Zamknij menu"),()->dialog.dismiss());
         ScrollView scroll=new ScrollView(activity);panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout rows=new LinearLayout(activity);rows.setOrientation(LinearLayout.VERTICAL);scroll.addView(rows);
         TextView diagnostics=Theme.label(activity,"",13,true);diagnostics.setPadding(dp(8),0,dp(8),dp(8));
         org.json.JSONObject cfg=connection.get();
-        diagnostics.setText("Helios "+BuildConfig.VERSION_NAME+"\nHA: "+(cfg==null?"brak parowania":cfg.optString("url",""))+"\n"+status);rows.addView(diagnostics);
-        button(rows,"Rozmowa z Nabu",()->{close();actions.talk();});
-        button(rows,"Anuluj rozmowę",()->{close();actions.cancel();});
-        button(rows,"Urządzenie: głośność i lampka",()->{close();actions.device();});
-        button(rows,"Paruj z HA",()->{close();actions.pair();});
-        button(rows,"Narzędzia zegara",()->{close();actions.tools();});
+        diagnostics.setText("Helios "+BuildConfig.VERSION_NAME+"\nHA: "+(cfg==null?I18n.t("brak parowania"):cfg.optString("url",""))+"\n"+status);rows.addView(diagnostics);
+        button(rows,I18n.t("Rozmowa z Nabu"),()->{close();actions.talk();});
+        button(rows,I18n.t("Anuluj rozmowę"),()->{close();actions.cancel();});
+        Button language=button(rows,languageLabel(),()->{});
+        language.setOnClickListener(v->{
+            I18n.choose(activity,Translations.nextChoice(I18n.choice()));
+            close();activity.recreate();
+        });
+        button(rows,I18n.t("Urządzenie: głośność i lampka"),()->{close();actions.device();});
+        button(rows,I18n.t("Paruj z HA"),()->{close();actions.pair();});
+        button(rows,I18n.t("Narzędzia zegara"),()->{close();actions.tools();});
         Button screensaver=button(rows,actions.screensaverLabel(),()->{});
         screensaver.setOnClickListener(v->{actions.screensaverStep();screensaver.setText(actions.screensaverLabel());}); // stays open: the threshold is picked by watching the reading
-        button(rows,"Konfiguracja ekranu w HA",()->openHa(true));
-        button(rows,"Strona główna HA",()->openHa(false));
-        button(rows,"Ustawienia zegara",()->open(new Intent(Settings.ACTION_SETTINGS)));
-        button(rows,"Dostępność",()->open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-        button(rows,"Ekran główny",()->open(new Intent(Settings.ACTION_HOME_SETTINGS)));
-        button(rows,"Aplikacje",this::apps);
-        Button update=button(rows,"Aktualizacja Heliosa",()->{close();actions.update();});
+        button(rows,I18n.t("Konfiguracja ekranu w HA"),()->openHa(true));
+        button(rows,I18n.t("Strona główna HA"),()->openHa(false));
+        button(rows,I18n.t("Ustawienia zegara"),()->open(new Intent(Settings.ACTION_SETTINGS)));
+        button(rows,I18n.t("Dostępność"),()->open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        button(rows,I18n.t("Ekran główny"),()->open(new Intent(Settings.ACTION_HOME_SETTINGS)));
+        button(rows,I18n.t("Aplikacje"),this::apps);
+        Button update=button(rows,I18n.t("Aktualizacja Heliosa"),()->{close();actions.update();});
         update.setEnabled(!updateBusy.getAsBoolean()); // the menu is rebuilt on every open and busy() is computed on demand, so this is always current
         dialog.setContentView(panel);
         Window window=dialog.getWindow();
@@ -76,6 +81,16 @@ final class NavigationMenu {
     }
     /** Connection diagnostics shown inside the menu; safe to call at any time. */
     void status(String text){status=text==null?"":text;}
+    private String languageLabel(){
+        String selected;
+        switch(I18n.choice()) {
+            case "pl":selected="Polski";break;
+            case "en":selected="English";break;
+            case "de":selected="Deutsch";break;
+            default:selected=I18n.t("Automatycznie");
+        }
+        return I18n.t("Język")+": "+selected;
+    }
     private Button button(LinearLayout parent,String label,Runnable action){
         Button b=Theme.button(activity,label,false,dp(16),dp(Theme.RADIUS));
         b.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);b.setPadding(dp(16),0,dp(12),0);
@@ -102,11 +117,11 @@ final class NavigationMenu {
         if(entries.isEmpty()){unavailable();return;}
         String[] labels=new String[entries.size()];
         for(int i=0;i<labels.length;i++)labels[i]=entries.get(i).loadLabel(activity.getPackageManager()).toString();
-        new AlertDialog.Builder(activity).setTitle("Otwórz aplikację").setItems(labels,(d,index)->{
+        new AlertDialog.Builder(activity).setTitle(I18n.t("Otwórz aplikację")).setItems(labels,(d,index)->{
             ResolveInfo selected=entries.get(index);
             open(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClassName(selected.activityInfo.packageName,selected.activityInfo.name));
-        }).setNegativeButton("Wróć",null).show();
+        }).setNegativeButton(I18n.t("Wróć"),null).show();
     }
-    private void unavailable(){Toast.makeText(activity,"Zegar nie udostępnia tego ekranu lub aplikacji.",Toast.LENGTH_LONG).show();}
+    private void unavailable(){Toast.makeText(activity,I18n.t("Zegar nie udostępnia tego ekranu lub aplikacji."),Toast.LENGTH_LONG).show();}
     void close(){if(dialog!=null){dialog.dismiss();dialog=null;}}
 }

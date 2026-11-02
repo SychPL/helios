@@ -39,20 +39,20 @@ final class MusicOverlay extends FrameLayout {
     private final class Controls {
         final IconButton previous,playPause,next,stop,mute;final SeekBar seek;
         Controls(Context context,FrameLayout parent){
-            previous=button(context,parent,"previous","Poprzedni","previous");playPause=button(context,parent,"play","Odtwórz","play");
-            next=button(context,parent,"next","Następny","next");stop=button(context,parent,"stop","Stop","stop");
-            mute=new IconButton(context,"speaker","Wycisz");mute.setOnClickListener(v->{if(actions!=null&&snapshot!=null)actions.mute(!snapshot.muted);});parent.addView(mute);
-            seek=new SeekBar(context);seek.setMax(1);seek.setContentDescription("Pozycja w utworze");bindSeek(seek);
+            previous=button(context,parent,"previous",I18n.t("Poprzedni"),"previous");playPause=button(context,parent,"play",I18n.t("Odtwórz"),"play");
+            next=button(context,parent,"next",I18n.t("Następny"),"next");stop=button(context,parent,"stop","Stop","stop");
+            mute=new IconButton(context,"speaker",I18n.t("Wycisz"));mute.setOnClickListener(v->{if(actions!=null&&snapshot!=null)actions.mute(!snapshot.muted);});parent.addView(mute);
+            seek=new SeekBar(context);seek.setMax(1);seek.setContentDescription(I18n.t("Pozycja w utworze"));bindSeek(seek);
         }
         void style(Theme t,float s){for(IconButton b:new IconButton[]{previous,next,stop,mute})b.style(t.raised,t.text,s);Theme.tint(seek);playPause.fillColor=0;}
         void refresh(Theme t,boolean playing,int accent,float s){
             if(playPause.fillColor!=accent)playPause.style(accent,t.onColor(accent),s);
-            playPause.glyph(playing?"pause":"play",t.onColor(accent));playPause.setContentDescription(playing?"Pauza":"Odtwórz");
+            playPause.glyph(playing?"pause":"play",t.onColor(accent));playPause.setContentDescription(playing?I18n.t("Pauza"):I18n.t("Odtwórz"));
             java.util.List<String> commands=snapshot.commands;
             previous.setEnabled(commands.contains("previous")||snapshot.maConnected);next.setEnabled(commands.contains("next")||snapshot.maConnected);
             playPause.setEnabled(commands.contains(playing?"pause":"play")||snapshot.maConnected);stop.setEnabled(commands.contains("stop")||snapshot.maConnected);
             mute.setEnabled(snapshot.maConnected||snapshot.localConnected);
-            mute.glyph(snapshot.muted?"speaker-off":"speaker",t.text);mute.setContentDescription(snapshot.muted?"Wyłącz wyciszenie":"Wycisz");
+            mute.glyph(snapshot.muted?"speaker-off":"speaker",t.text);mute.setContentDescription(snapshot.muted?I18n.t("Wyłącz wyciszenie"):I18n.t("Wycisz"));
         }
     }
     private final FrameLayout handle,panel,full;
@@ -75,16 +75,16 @@ final class MusicOverlay extends FrameLayout {
         super(context);
         setVisibility(GONE);
         Theme t=Theme.current();
-        handle=new FrameLayout(context);handle.setContentDescription("Muzyka: rozwiń panel");handle.setClickable(true);handle.setFocusable(true);
+        handle=new FrameLayout(context);handle.setContentDescription(I18n.t("Muzyka: rozwiń panel"));handle.setClickable(true);handle.setFocusable(true);
         handleIcon=new IconView(context);handle.addView(handleIcon);
         handle.setOnClickListener(v->{view=Layer.PANEL;refresh();animateOpen();});addView(handle);
         panel=new FrameLayout(context);panel.setOnTouchListener((v,e)->true);addView(panel);
         status=text(context,sans,t.muted,2);panel.addView(status);
-        fullButton=new FrameLayout(context);fullButton.setContentDescription("Muzyka na pełnym ekranie");fullButton.setClickable(true);fullButton.setFocusable(true);
+        fullButton=new FrameLayout(context);fullButton.setContentDescription(I18n.t("Muzyka na pełnym ekranie"));fullButton.setClickable(true);fullButton.setFocusable(true);
         fullIcon=new IconView(context);fullButton.addView(fullIcon);fullButton.setOnClickListener(v->{view=Layer.FULL;refresh();});panel.addView(fullButton);
-        close=new FrameLayout(context);close.setContentDescription("Schowaj panel muzyki, muzyka gra dalej");close.setClickable(true);close.setFocusable(true);
+        close=new FrameLayout(context);close.setContentDescription(I18n.t("Schowaj panel muzyki, muzyka gra dalej"));close.setClickable(true);close.setFocusable(true);
         closeIcon=new IconView(context);close.addView(closeIcon);close.setOnClickListener(v->{view=Layer.HANDLE;refresh();});panel.addView(close);
-        artwork=new ImageView(context);artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);artwork.setContentDescription("Okładka");artwork.setClipToOutline(true);panel.addView(artwork);
+        artwork=new ImageView(context);artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);artwork.setContentDescription(I18n.t("Okładka"));artwork.setClipToOutline(true);panel.addView(artwork);
         artworkPlaceholder=new IconView(context);panel.addView(artworkPlaceholder);
         title=text(context,sans,t.text,3);artist=text(context,sans,t.muted,2);panel.addView(title);panel.addView(artist);
         panelControls=new Controls(context,panel);
@@ -93,9 +93,9 @@ final class MusicOverlay extends FrameLayout {
         seekValue=text(context,sans,t.text,1);seekValue.setGravity(Gravity.CENTER);seekRow.addView(seekValue);
         // full screen (SPEC 0.11 pkt 3.1): third layer, consumes every touch below the bar
         full=new FrameLayout(context);full.setOnTouchListener((v,e)->true);addView(full);
-        fullArtwork=new ImageView(context);fullArtwork.setScaleType(ImageView.ScaleType.CENTER_CROP);fullArtwork.setContentDescription("Okładka");fullArtwork.setClipToOutline(true);full.addView(fullArtwork);
+        fullArtwork=new ImageView(context);fullArtwork.setScaleType(ImageView.ScaleType.CENTER_CROP);fullArtwork.setContentDescription(I18n.t("Okładka"));fullArtwork.setClipToOutline(true);full.addView(fullArtwork);
         fullPlaceholder=new IconView(context);full.addView(fullPlaceholder);
-        fullClose=new FrameLayout(context);fullClose.setContentDescription("Zamknij pełny ekran, muzyka gra dalej");fullClose.setClickable(true);fullClose.setFocusable(true);
+        fullClose=new FrameLayout(context);fullClose.setContentDescription(I18n.t("Zamknij pełny ekran, muzyka gra dalej"));fullClose.setClickable(true);fullClose.setFocusable(true);
         fullCloseIcon=new IconView(context);fullClose.addView(fullCloseIcon);fullClose.setOnClickListener(v->closeFullscreen());full.addView(fullClose);
         fullClock=text(context,mono,t.text,1);fullClock.setGravity(Gravity.CENTER_VERTICAL);full.addView(fullClock);
         fullTitle=text(context,sans,t.text,3);fullArtist=text(context,sans,t.muted,2);full.addView(fullTitle);full.addView(fullArtist);
@@ -160,15 +160,15 @@ final class MusicOverlay extends FrameLayout {
         if(view==Layer.HANDLE)return;
         if(snapshot.ui==MusicSession.Ui.PLAYING)postDelayed(ticker,1000);
         Theme t=Theme.current();
-        String titleText=snapshot.title==null||snapshot.title.isEmpty()?"Nieznany utwór":snapshot.title;
+        String titleText=snapshot.title==null||snapshot.title.isEmpty()?I18n.t("Nieznany utwór"):snapshot.title;
         String artistText=snapshot.artist==null?"":snapshot.artist;
         boolean playing=snapshot.ui==MusicSession.Ui.PLAYING;
         int accent=snapshot.accent!=0?snapshot.accent:t.accent;
-        if(snapshot.issue!=null&&snapshot.issue.startsWith("Przewijanie:"))pendingSeekUntil=0; // failed seek: back to the server's position
+        if(snapshot.issue!=null&&snapshot.issue.startsWith(I18n.t("Przewijanie:")))pendingSeekUntil=0; // failed seek: back to the server's position
         if(snapshot.artwork!=shownArtwork){shownArtwork=snapshot.artwork;artwork.setImageBitmap(shownArtwork);fullArtwork.setImageBitmap(shownArtwork);} // decoded once in the service; here only the reference changes
         if(view==Layer.PANEL){
             title.setText(titleText);title.setContentDescription(titleText);artist.setText(artistText);artist.setContentDescription(artistText);
-            status.setText(snapshot.issue!=null?snapshot.issue:snapshot.ui==MusicSession.Ui.PAUSED?"Pauza":"Teraz gra");
+            status.setText(snapshot.issue!=null?snapshot.issue:snapshot.ui==MusicSession.Ui.PAUSED?I18n.t("Pauza"):I18n.t("Teraz gra"));
             panelControls.refresh(t,playing,accent,scale);
             artworkPlaceholder.setVisibility(shownArtwork==null?VISIBLE:GONE);
         }else{

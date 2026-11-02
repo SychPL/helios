@@ -76,7 +76,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
     private void rejected(int gen,String code){
         boolean unauthorized="unauthorized".equals(code);
         ended(gen,!unauthorized);
-        if(unauthorized&&listener!=null)listener.onChannelIssue("Zegar usunięty z HA - sparuj ponownie");
+        if(unauthorized&&listener!=null)listener.onChannelIssue(I18n.t("Zegar usunięty z HA - sparuj ponownie"));
     }
     private void handle(int gen,JSONObject event){
         if(gen!=generation)return;
@@ -100,7 +100,7 @@ final class HeliosDeviceClient implements HaDashboardClient.Listener {
             case "appearance":{JSONObject a=event.optJSONObject("appearance");if(a!=null&&listener!=null)listener.onAppearance(a);break;}
             case "connection":{if(listener!=null)listener.onConnection(event);break;}
             case "removed":ended(gen,true);break; // integration reloaded or the entry is going: try again, the socket is still ours
-            case "replaced":ended(gen,false);if(listener!=null)listener.onChannelIssue("Inne urządzenie przejęło to parowanie");break;
+            case "replaced":ended(gen,false);if(listener!=null)listener.onChannelIssue(I18n.t("Inne urządzenie przejęło to parowanie"));break;
             default:break;
         }
     }

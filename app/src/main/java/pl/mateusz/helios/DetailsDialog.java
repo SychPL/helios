@@ -28,7 +28,7 @@ final class DetailsDialog {
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,Theme.dp(a,56),1);p.rightMargin=Theme.dp(a,8);row.addView(b,p);
             b.setOnClickListener(v->runner.run(i));actions.add(b);intents.add(i);
         }
-        Button close=Theme.button(a,"Zamknij",false,Theme.dp(a,17),Theme.dp(a,Theme.RADIUS));close.setOnClickListener(v->dialog.cancel());
+        Button close=Theme.button(a,I18n.t("Zamknij"),false,Theme.dp(a,17),Theme.dp(a,Theme.RADIUS));close.setOnClickListener(v->dialog.cancel());
         LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Theme.dp(a,56));c.topMargin=Theme.dp(a,actions.isEmpty()?0:12);column.addView(close,c);
         dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);
         if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));

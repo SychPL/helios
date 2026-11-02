@@ -62,9 +62,9 @@ final class AlertsModel {
     /** The big number: how many apply, a dash while only unknowns are left, 0 when all is clear. */
     String count(){return !active.isEmpty()?String.valueOf(active.size()):!unknown.isEmpty()?"-":"0";}
     /** The word in place of the preview when nothing is active; null while something is. */
-    String idleWord(){return !active.isEmpty()?null:!unknown.isEmpty()?"Brak danych":"Brak uwag";}
+    String idleWord(){return !active.isEmpty()?null:!unknown.isEmpty()?I18n.t("Brak danych"):I18n.t("Brak uwag");}
     /** "Brak danych: U" under an active preview; null when there is none to report or no active row to report it under. */
-    String footer(){return active.isEmpty()||unknown.isEmpty()?null:"Brak danych: "+unknown.size();}
+    String footer(){return active.isEmpty()||unknown.isEmpty()?null:I18n.t("Brak danych: ")+unknown.size();}
     /** 1x1: the newest title, and " +N" for the rest (the view reserves room for the suffix and ellipsizes only the title). */
     String summaryTitle(){return active.isEmpty()?null:active.get(0).source.title;}
     String summarySuffix(){return active.size()>1?" +"+(active.size()-1):"";}
@@ -73,18 +73,18 @@ final class AlertsModel {
         List<Slot> out=new ArrayList<>();
         int n=active.size(),shown=n<=max?n:max-1;
         for(int i=0;i<shown;i++){Row r=active.get(i);out.add(new Slot(r.icon(),r.source.title));}
-        if(n>max)out.add(new Slot("mdi:dots-horizontal","+"+(n-shown)+" pozostałych"));
+        if(n>max)out.add(new Slot("mdi:dots-horizontal","+"+(n-shown)+I18n.t(" pozostałych")));
         return out;
     }
     /** Screen reader line for the whole tile. */
     String description(String title){
         StringBuilder b=new StringBuilder(title).append(": ");
-        if(!live)b.append("brak połączenia, dane nieaktualne");
-        else if(active.isEmpty())b.append(unknown.isEmpty()?"brak uwag":"brak danych");
+        if(!live)b.append(I18n.t("brak połączenia, dane nieaktualne"));
+        else if(active.isEmpty())b.append(unknown.isEmpty()?I18n.t("brak uwag"):I18n.t("brak danych"));
         else{
-            b.append(active.size()).append(active.size()==1?" uwaga":" uwagi").append(": ");
+            b.append(active.size()).append(active.size()==1?I18n.t(" uwaga"):I18n.t(" uwagi")).append(": ");
             for(int i=0;i<active.size();i++){if(i>0)b.append(", ");b.append(active.get(i).source.title);}
-            if(!unknown.isEmpty())b.append("; brak danych: ").append(unknown.size());
+            if(!unknown.isEmpty())b.append(I18n.t("; brak danych: ")).append(unknown.size());
         }
         return b.toString();
     }
@@ -97,9 +97,9 @@ final class AlertsModel {
         java.time.ZonedDateTime then=java.time.Instant.ofEpochMilli(at).atZone(z);
         long days=java.time.temporal.ChronoUnit.DAYS.between(then.toLocalDate(),java.time.Instant.ofEpochMilli(now).atZone(z).toLocalDate());
         String hm=then.getHour()+":"+String.format(Locale.ROOT,"%02d",then.getMinute());
-        if(days<=0)return "Aktywne od "+hm; // today, or a clock a little behind HA's
-        if(days==1)return "Aktywne od wczoraj "+hm;
-        return "Aktywne od "+then.getDayOfMonth()+" "+MONTHS[then.getMonthValue()-1]+" "+hm;
+        if(days<=0)return I18n.t("Aktywne od ")+hm; // today, or a clock a little behind HA's
+        if(days==1)return I18n.t("Aktywne od wczoraj ")+hm;
+        return I18n.t("Aktywne od ")+then.getDayOfMonth()+" "+I18n.t(MONTHS[then.getMonthValue()-1])+" "+hm;
     }
 
     /**
@@ -115,22 +115,22 @@ final class AlertsModel {
     static final String DEFAULT_DONE_LABEL="Zrobione";
     /** The row's action, or null for a source without one. */
     static Action action(DashboardSpec.Source s){
-        if(s.offEntity!=null)return new Action("light","turn_off",s.offEntity,"Zgaś","Zgasić wszystkie obserwowane światła?","Nie udało się zgasić","Gaszenie świateł, czekam na Home Assistant","Zgaś światła: "+s.title);
+        if(s.offEntity!=null)return new Action("light","turn_off",s.offEntity,I18n.t("Zgaś"),I18n.t("Zgasić wszystkie obserwowane światła?"),I18n.t("Nie udało się zgasić"),I18n.t("Gaszenie świateł, czekam na Home Assistant"),I18n.t("Zgaś światła: ")+s.title);
         if(s.doneEntity==null)return null;
-        String domain=s.doneEntity.substring(0,s.doneEntity.indexOf('.')),label=s.doneLabel!=null?s.doneLabel:DEFAULT_DONE_LABEL;
+        String domain=s.doneEntity.substring(0,s.doneEntity.indexOf('.')),label=s.doneLabel!=null?s.doneLabel:I18n.t(DEFAULT_DONE_LABEL);
         String service=domain.equals("input_button")||domain.equals("button")?"press":"turn_on";
-        return new Action(domain,service,s.doneEntity,label,s.title+": "+label.toLowerCase(new Locale("pl"))+"?","Nie udało się oznaczyć","Oznaczanie, czekam na Home Assistant",label+": "+s.title);
+        return new Action(domain,service,s.doneEntity,label,s.title+": "+label.toLowerCase(I18n.locale())+"?",I18n.t("Nie udało się oznaczyć"),I18n.t("Oznaczanie, czekam na Home Assistant"),label+": "+s.title);
     }
     /** Why the row's action must not go out now (SPEC 0.20 pkt 4), or null when it may. Checked at the tap and again after the confirmation. */
     static String actionBlock(DashboardSpec.Source s,Map<String,EntityStates.Entity> states,boolean live){
         Action a=action(s);
-        if(a==null)return "Brak akcji dla tej uwagi";
-        if(!live)return "Brak połączenia z Home Assistant";
-        if(cond(s,states,true)!=Cond.ACTIVE)return s.title+" - już nieaktywne";
+        if(a==null)return I18n.t("Brak akcji dla tej uwagi");
+        if(!live)return I18n.t("Brak połączenia z Home Assistant");
+        if(cond(s,states,true)!=Cond.ACTIVE)return s.title+I18n.t(" - już nieaktywne");
         EntityStates.Entity e=states.get(a.entity);
         // a script, button or input_button reads unknown until first used and still works; only a missing or unavailable one is refused
         boolean usable=a.service.equals("press")||a.domain.equals("script")?ActionPolicy.usable("activate",e):e!=null&&e.known();
-        if(!usable)return s.title+" - brak danych";
+        if(!usable)return s.title+I18n.t(" - brak danych");
         return null;
     }
 
@@ -144,7 +144,7 @@ final class AlertsModel {
         /** A call with no answer after this long counts as failed (the transport gives up at 10 s). */
         static final long LIMIT_MS=10_500;
         private final String failure;
-        OffState(){this("Nie udało się zgasić");}
+        OffState(){this(I18n.t("Nie udało się zgasić"));}
         /** failure: the word shown in the row when the call fails ("Nie udało się zgasić", "Nie udało się oznaczyć"). */
         OffState(String failure){this.failure=failure;}
         private boolean busy;private int call;private long heldUntil,messageUntil,sentAt;private String message,messageKey;

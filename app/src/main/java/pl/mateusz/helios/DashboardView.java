@@ -150,7 +150,7 @@ public final class DashboardView extends FrameLayout {
     }
 
     public void setSpec(DashboardSpec spec,Actions actions){
-        this.spec=spec;this.actions=actions;
+        this.spec=spec;this.actions=actions;dayPlans.clear();
         if(page>=spec.pages.size())page=0;
         buildPage();
     }
@@ -232,8 +232,8 @@ public final class DashboardView extends FrameLayout {
     public void setIssue(String issue){this.issue=issue;refreshStatus();}
     public void setMessage(String message){this.message=message==null?"":message;refreshStatus();}
     private void refreshStatus(){Theme t=Theme.current();status.setText(issue!=null?issue:message);status.setTextColor(issue!=null?t.accent:t.muted);}
-    public void connected(boolean value){haConnected=value;connection.setImageTintList(ColorStateList.valueOf(value?Theme.HA_CONNECTED:Theme.current().muted));connection.setContentDescription(value?"Home Assistant: połączono":"Home Assistant: brak aktualnego połączenia");}
-    public void onBrandHold(Runnable action){brand.setContentDescription("Helios. Przytrzymaj, aby otworzyć menu.");brand.setOnLongClickListener(v->{action.run();return true;});}
+    public void connected(boolean value){haConnected=value;connection.setImageTintList(ColorStateList.valueOf(value?Theme.HA_CONNECTED:Theme.current().muted));connection.setContentDescription(value?I18n.t("Home Assistant: połączono"):I18n.t("Home Assistant: brak aktualnego połączenia"));}
+    public void onBrandHold(Runnable action){brand.setContentDescription(I18n.t("Helios. Przytrzymaj, aby otworzyć menu."));brand.setOnLongClickListener(v->{action.run();return true;});}
     /** Calls in flight by item id, kept apart from the views: a page rebuilt mid-call shows its spinner again. */
     private final Set<String> pendingIds=new HashSet<>();
     public void pending(String id,boolean on){if(on)pendingIds.add(id);else pendingIds.remove(id);Tile t=tiles.get(id);if(t!=null)t.pending(on);}
@@ -266,10 +266,16 @@ public final class DashboardView extends FrameLayout {
         tomorrowKey=key;tomorrow=t;
         if(lastStates!=null)render(lastStates,lastVisibility,lastLive);
     }
+    public void dayPlan(String id,DayPlan plan){
+        if(plan==null)dayPlans.remove(id);else dayPlans.put(id,plan);
+        if(lastStates!=null)render(lastStates,lastVisibility,lastLive);
+    }
+    private final Map<String,DayPlan> dayPlans=new HashMap<>();
     private Tomorrow tomorrow;private String tomorrowKey="";
     private final CardBodies.Env env=new CardBodies.Env(){
         public String time(){return time;}public String weekday(){return weekday;}public String date(){return date;}public String musicInfo(){return musicInfo;}public long now(){return System.currentTimeMillis();}
         public Tomorrow tomorrow(){return tomorrow;}
+        public DayPlan dayPlan(String id){return dayPlans.get(id);}
     };
     /** The frame every card shares: grid box, theme, pending spinner, accessibility. What it shows comes from CardBodies, how it taps from CardDefinition. */
     private final class Tile extends FrameLayout {

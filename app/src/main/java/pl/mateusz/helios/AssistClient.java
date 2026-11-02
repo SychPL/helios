@@ -69,7 +69,7 @@ public final class AssistClient {
             if(type.equals("stt-vad-end"))audioDone=true;
             if(type.equals("stt-end")){
                 audioDone=true;sttDone=true;vadStarted=true;
-                String text=data.getJSONObject("stt_output").optString("text","");log("transcript",text);state("Usłyszano: "+text);
+                String text=data.getJSONObject("stt_output").optString("text","");log("transcript",text);state(I18n.t("Usłyszano: ")+text);
             }
             if(type.equals("intent-end")){
                 JSONObject output=data.optJSONObject("intent_output");
@@ -88,7 +88,7 @@ public final class AssistClient {
         Socket socket=null;ToneGenerator tone=null;
         long started=SystemClock.elapsedRealtime();
         try{
-            log("test_start","");state("Łączenie z HA…");
+            log("test_start","");state(I18n.t("Łączenie z HA…"));
             URI base=new URI(config.getString("url"));
             URI endpoint=new URI(base.getScheme().equals("https")?"wss":"ws",base.getUserInfo(),base.getHost(),base.getPort(),"/api/websocket",null,null);
             socket=new Socket(endpoint);
@@ -111,8 +111,8 @@ public final class AssistClient {
                 // ponytail: after every answer listen again without the wake word; HA's continue_conversation only lengthens the window.
                 followUp=events.continueConversation?15000:6000;
             }
-            log("test_completed","elapsed_ms="+(SystemClock.elapsedRealtime()-started));state("Gotowe · mikrofon wyłączony");
-        }catch(Exception e){log("test_error",e.getClass().getSimpleName()+": "+e.getMessage());state("Błąd: "+e.getMessage());}
+            log("test_completed","elapsed_ms="+(SystemClock.elapsedRealtime()-started));state(I18n.t("Gotowe · mikrofon wyłączony"));
+        }catch(Exception e){log("test_error",e.getClass().getSimpleName()+": "+e.getMessage());state(I18n.t("Błąd: ")+e.getMessage());}
         finally{
             if(tone!=null)tone.release();
             ((AudioManager)ctx.getSystemService(Context.AUDIO_SERVICE)).abandonAudioFocus(focus);
@@ -138,7 +138,7 @@ public final class AssistClient {
             // VOICE_RECOGNITION (6): the same source as the wake listener; VOICE_COMMUNICATION's AEC chain made the flood jitter (86-95 k/s), which breaks factor calibration.
             recorder=new AudioRecord(6,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(16384,min*4));
             if(tone!=null){tone.startTone(ToneGenerator.TONE_PROP_BEEP,120);SystemClock.sleep(150);}
-            recorder.startRecording();log("microphone_started","source=6 rate=16000 mono PCM16 gain=1 run="+run);state(followUp>0?"Słucham dalej…":"Mów teraz\nKtóra jest godzina?");
+            recorder.startRecording();log("microphone_started","source=6 rate=16000 mono PCM16 gain=1 run="+run);state(followUp>0?I18n.t("Słucham dalej…"):I18n.t("Mów teraz\nKtóra jest godzina?"));
             // Same HAL sample flood as the wake listener: decimate the measured factor back to 16 kHz before sending to HA's STT
             // (artifacts/wakeword-microphone-20260915.md). Short window so the start of the utterance is not clipped while calibrating.
             // raw is the read buffer (>= 20 ms even at 96 k/s, so the AudioRecord buffer never overruns), pcm the 20 ms output packet.
@@ -167,7 +167,7 @@ public final class AssistClient {
             if(closed)throw new IOException("Cancelled");
             if(quiet){log("follow_up_quiet","run="+run);return null;}
             if(!events.sttDone&&!events.ended)socket.send(new byte[]{(byte)events.handler});
-            state("Czekam na odpowiedź…");long responseDeadline=SystemClock.elapsedRealtime()+45000;
+            state(I18n.t("Czekam na odpowiedź…"));long responseDeadline=SystemClock.elapsedRealtime()+45000;
             while(!events.ended)events.accept(socket.next(responseDeadline));
             if(events.ttsUrl==null)throw new IOException("No TTS response");
             play(base.resolve(events.ttsUrl).toString());
@@ -184,7 +184,7 @@ public final class AssistClient {
             player.setOnPreparedListener(p->{if(!closed){p.start();log("playback_started","");}});
             player.setOnCompletionListener(p->finished.set(true));
             player.setOnErrorListener((p,what,extra)->{failed.set(true);finished.set(true);return true;});
-            player.setDataSource(url);player.prepareAsync();state("Odpowiadam…");
+            player.setDataSource(url);player.prepareAsync();state(I18n.t("Odpowiadam…"));
             long deadline=SystemClock.elapsedRealtime()+30000;
             while(!closed&&!finished.get()&&SystemClock.elapsedRealtime()<deadline)SystemClock.sleep(50);
             if(closed||failed.get()||!finished.get())throw new IOException("Playback failed or cancelled");

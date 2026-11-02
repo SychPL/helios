@@ -45,16 +45,16 @@ final class MusicAssistantClient {
         try{
             String ws=wsUrl(base);
             if(!ws.startsWith("ws://")&&!ws.startsWith("wss://"))return "Adres MA musi zaczynać się od http:// lub https://";
-            if(token==null||token.trim().isEmpty())return "Pusty token MA";
+            if(token==null||token.trim().isEmpty())return I18n.t("Pusty token MA");
             holder[0]=new MusicAssistantClient(ws,token,new Listener(){
                 public void onConnection(boolean connected,String detail){outcome.offer(connected?"":detail);}
                 public void onPlayerUpdated(JSONObject player){}
             });
             holder[0].start();
             String result=outcome.poll(12,TimeUnit.SECONDS);
-            if(result==null)return "Music Assistant nie odpowiada";
+            if(result==null)return I18n.t("Music Assistant nie odpowiada");
             return result.isEmpty()?null:result;
-        }catch(InterruptedException e){Thread.currentThread().interrupt();return "Przerwano";}
+        }catch(InterruptedException e){Thread.currentThread().interrupt();return I18n.t("Przerwano");}
         finally{if(holder[0]!=null)holder[0].stop();}
     }
     void start(){worker=new Thread(this::loop,"helios-ma");worker.start();}
@@ -70,50 +70,50 @@ final class MusicAssistantClient {
     void players(Consumer<JSONArray> ok,Consumer<String> fail){call("players/all",new JSONObject(),"players",r->ok.accept(r instanceof JSONArray?(JSONArray)r:new JSONArray()),fail);}
     void search(String query,Consumer<JSONObject> ok,Consumer<String> fail){
         String q=query==null?"":query.trim();
-        if(q.length()<QUERY_MIN||q.length()>QUERY_MAX){fail.accept("Wpisz od 2 do 100 znaków");return;}
+        if(q.length()<QUERY_MIN||q.length()>QUERY_MAX){fail.accept(I18n.t("Wpisz od 2 do 100 znaków"));return;}
         try{
             JSONObject args=new JSONObject().put("search_query",q).put("limit",SEARCH_LIMIT).put("providers",new JSONArray().put("library"))
                 .put("media_types",new JSONArray().put("track").put("album").put("playlist").put("radio"));
             call("music/search",args,"search",r->ok.accept(r instanceof JSONObject?(JSONObject)r:new JSONObject()),fail);
-        }catch(JSONException e){fail.accept("Błąd zapytania");}
+        }catch(JSONException e){fail.accept(I18n.t("Błąd zapytania"));}
     }
     /** The player's active queue; its own lane so a pause check never blocks or is blocked by players/all, and a newer check supersedes an older one. */
     void activeQueue(String playerId,Consumer<JSONObject> ok,Consumer<String> fail){
-        try{call("player_queues/get_active_queue",new JSONObject().put("player_id",playerId),"queue",r->{if(r instanceof JSONObject)ok.accept((JSONObject)r);else fail.accept("Brak kolejki");},fail);}catch(JSONException e){fail.accept("Błąd");}
+        try{call("player_queues/get_active_queue",new JSONObject().put("player_id",playerId),"queue",r->{if(r instanceof JSONObject)ok.accept((JSONObject)r);else fail.accept(I18n.t("Brak kolejki"));},fail);}catch(JSONException e){fail.accept(I18n.t("Błąd"));}
     }
     /** Tracks play now; albums, playlists and radio replace the queue and start from the first item. */
     void playMedia(String queueId,String uri,boolean replace,Consumer<Object> ok,Consumer<String> fail){
-        try{call("player_queues/play_media",new JSONObject().put("queue_id",queueId).put("media",uri).put("option",replace?"replace":"play"),"play",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
+        try{call("player_queues/play_media",new JSONObject().put("queue_id",queueId).put("media",uri).put("option",replace?"replace":"play"),"play",ok,fail);}catch(JSONException e){fail.accept(I18n.t("Błąd"));}
     }
     /** play, pause, next, previous; stop has its own lane and is never blocked by a pending command (SPEC 0.6 pkt 9). */
     void playerCommand(String playerId,String command,Consumer<Object> ok,Consumer<String> fail){
-        if(!Arrays.asList("play","pause","next","previous","stop").contains(command)){fail.accept("Nieobsługiwane polecenie");return;}
-        try{call("players/cmd/"+command,new JSONObject().put("player_id",playerId),command.equals("stop")?"stop":"cmd",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
+        if(!Arrays.asList("play","pause","next","previous","stop").contains(command)){fail.accept(I18n.t("Nieobsługiwane polecenie"));return;}
+        try{call("players/cmd/"+command,new JSONObject().put("player_id",playerId),command.equals("stop")?"stop":"cmd",ok,fail);}catch(JSONException e){fail.accept(I18n.t("Błąd"));}
     }
     void volume(String playerId,int level,Consumer<Object> ok,Consumer<String> fail){
-        try{call("players/cmd/volume_set",new JSONObject().put("player_id",playerId).put("volume_level",Math.max(0,Math.min(100,level))),"cmd",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
+        try{call("players/cmd/volume_set",new JSONObject().put("player_id",playerId).put("volume_level",Math.max(0,Math.min(100,level))),"cmd",ok,fail);}catch(JSONException e){fail.accept(I18n.t("Błąd"));}
     }
     /** player_queues/seek: position in seconds on the player's active queue (queue_id == player_id when not grouped). */
     void seek(String queueId,int seconds,Consumer<Object> ok,Consumer<String> fail){
-        try{call("player_queues/seek",new JSONObject().put("queue_id",queueId).put("position",Math.max(0,seconds)),"cmd",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
+        try{call("player_queues/seek",new JSONObject().put("queue_id",queueId).put("position",Math.max(0,seconds)),"cmd",ok,fail);}catch(JSONException e){fail.accept(I18n.t("Błąd"));}
     }
     void mute(String playerId,boolean muted,Consumer<Object> ok,Consumer<String> fail){
-        try{call("players/cmd/volume_mute",new JSONObject().put("player_id",playerId).put("muted",muted),"cmd",ok,fail);}catch(JSONException e){fail.accept("Błąd");}
+        try{call("players/cmd/volume_mute",new JSONObject().put("player_id",playerId).put("muted",muted),"cmd",ok,fail);}catch(JSONException e){fail.accept(I18n.t("Błąd"));}
     }
 
     synchronized void call(String command,JSONObject args,String lane,Consumer<Object> ok,Consumer<String> fail){
         Socket s=socket;
-        if(s==null||!authenticated||s.failed){fail.accept("Brak połączenia z Music Assistant");return;}
+        if(s==null||!authenticated||s.failed){fail.accept(I18n.t("Brak połączenia z Music Assistant"));return;}
         String previous=lanes.get(lane);
         if(previous!=null&&pending.containsKey(previous)){
             if(lane.equals("search")||lane.equals("queue")){Pending old=pending.remove(previous);if(old!=null)old.fail.accept("superseded");}
-            else if(!lane.equals("stop")){fail.accept("Poprzednie polecenie jeszcze trwa");return;}
+            else if(!lane.equals("stop")){fail.accept(I18n.t("Poprzednie polecenie jeszcze trwa"));return;}
         }
         String id=String.valueOf(nextId++);
         pending.put(id,new Pending(lane,ok,fail,System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(TIMEOUT_MS)));
         if(!lane.equals("stop"))lanes.put(lane,id);
         try{s.send(new JSONObject().put("message_id",id).put("command",command).put("args",args).toString());}
-        catch(Exception e){pending.remove(id);fail.accept("Nie udało się wysłać polecenia");}
+        catch(Exception e){pending.remove(id);fail.accept(I18n.t("Nie udało się wysłać polecenia"));}
     }
     private void finish(String id,Object result,String error){
         Pending p=pending.remove(id);if(p==null)return;
@@ -122,7 +122,7 @@ final class MusicAssistantClient {
     private void failAll(String reason){for(String id:new ArrayList<>(pending.keySet()))finish(id,null,reason);}
     private void expire(){
         long now=System.nanoTime();
-        for(Map.Entry<String,Pending> e:new ArrayList<>(pending.entrySet()))if(now>e.getValue().deadline)finish(e.getKey(),null,"Music Assistant nie odpowiedział w czasie "+(TIMEOUT_MS/1000)+" s");
+        for(Map.Entry<String,Pending> e:new ArrayList<>(pending.entrySet()))if(now>e.getValue().deadline)finish(e.getKey(),null,I18n.t("Music Assistant nie odpowiedział w czasie ")+(TIMEOUT_MS/1000)+" s");
     }
 
     private final class Socket extends WebSocketClient {
@@ -140,7 +140,7 @@ final class MusicAssistantClient {
             try{session();delay=2;}
             catch(InterruptedException e){break;}
             catch(Exception e){if(!stopped)listener.onConnection(false,e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());}
-            finally{authenticated=false;Socket old=socket;socket=null;if(old!=null)old.close();failAll("Połączenie z Music Assistant przerwane");lanes.clear();}
+            finally{authenticated=false;Socket old=socket;socket=null;if(old!=null)old.close();failAll(I18n.t("Połączenie z Music Assistant przerwane"));lanes.clear();}
             if(stopped)break;
             try{Thread.sleep(delay*1000L);}catch(InterruptedException e){break;}
             delay=Math.min(30,delay*2);
@@ -148,32 +148,32 @@ final class MusicAssistantClient {
     }
     private void session() throws Exception {
         URI base=new URI(url);
-        if(!"ws".equals(base.getScheme())&&!"wss".equals(base.getScheme()))throw new java.io.IOException("Adres MA musi zaczynać się od ws:// lub wss://");
+        if(!"ws".equals(base.getScheme())&&!"wss".equals(base.getScheme()))throw new java.io.IOException(I18n.t("Adres MA musi zaczynać się od ws:// lub wss://"));
         Socket s=new Socket(base);socket=s;
-        if(!s.connectBlocking(10,TimeUnit.SECONDS))throw new java.io.IOException("Music Assistant nie odpowiada");
+        if(!s.connectBlocking(10,TimeUnit.SECONDS))throw new java.io.IOException(I18n.t("Music Assistant nie odpowiada"));
         String authId="auth-"+System.nanoTime();
         s.send(new JSONObject().put("message_id",authId).put("command","auth").put("args",new JSONObject().put("token",token)).toString());
         long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);
         while(!authenticated){
-            if(s.failed)throw new java.io.IOException("Music Assistant rozłączył");
-            if(System.nanoTime()>deadline)throw new java.io.IOException("Music Assistant nie odpowiedział na auth");
+            if(s.failed)throw new java.io.IOException(I18n.t("Music Assistant rozłączył"));
+            if(System.nanoTime()>deadline)throw new java.io.IOException(I18n.t("Music Assistant nie odpowiedział na auth"));
             String raw=s.inbox.poll(200,TimeUnit.MILLISECONDS);if(raw==null)continue;
             JSONObject m=new JSONObject(raw);
             if(authId.equals(m.optString("message_id"))){
                 JSONObject result=m.optJSONObject("result");
-                if(result==null||!result.optBoolean("authenticated",false))throw new java.io.IOException("Music Assistant odrzucił token");
+                if(result==null||!result.optBoolean("authenticated",false))throw new java.io.IOException(I18n.t("Music Assistant odrzucił token"));
                 authenticated=true;
             }
         }
         listener.onConnection(true,"connected");
         while(!stopped){
-            if(s.failed)throw new java.io.IOException("Połączenie z Music Assistant przerwane");
+            if(s.failed)throw new java.io.IOException(I18n.t("Połączenie z Music Assistant przerwane"));
             expire();
             String raw=s.inbox.poll(200,TimeUnit.MILLISECONDS);if(raw==null)continue;
             JSONObject m=new JSONObject(raw);
             if(m.has("message_id")){
                 String id=m.optString("message_id");
-                if(m.has("error_code")||m.has("error"))finish(id,null,m.optString("details",m.optString("error_code",m.optString("error","Błąd Music Assistant"))));
+                if(m.has("error_code")||m.has("error"))finish(id,null,m.optString("details",m.optString("error_code",m.optString("error",I18n.t("Błąd Music Assistant")))));
                 else finish(id,m.opt("result"),null);
             }else if("player_updated".equals(m.optString("event"))){
                 JSONObject data=m.optJSONObject("data");if(data!=null)listener.onPlayerUpdated(data);

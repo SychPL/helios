@@ -11,5 +11,5 @@ final class Version {
         }
         return 0;
     }
-    private static int part(String s){if(!s.matches("[0-9]{1,9}"))throw new IllegalArgumentException("Nieprawidłowa wersja: "+s);return Integer.parseInt(s);}
+    private static int part(String s){if(!s.matches("[0-9]{1,9}"))throw new IllegalArgumentException(I18n.t("Nieprawidłowa wersja: ")+s);return Integer.parseInt(s);}
 }

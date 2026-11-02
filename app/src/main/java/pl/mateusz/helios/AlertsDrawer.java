@@ -106,12 +106,12 @@ final class AlertsDrawer {
         TextView title=text(26,t.text,1);title.setText(CardBodies.defaultLabel(item));title.setPadding(px(10),0,0,0);head.addView(title,new LinearLayout.LayoutParams(-2,-2));
         headCount=text(18,t.muted,1);headCount.setPadding(px(16),0,0,0);head.addView(headCount,new LinearLayout.LayoutParams(0,-2,1));
         root.addView(head,box(16,15,winW-100,34));
-        MusicOverlay.IconButton close=new MusicOverlay.IconButton(activity,"mdi:close","Zamknij");root.addView(close,box(winW-72,0,64,64));close.style(t.raised,t.text,s);
+        MusicOverlay.IconButton close=new MusicOverlay.IconButton(activity,"mdi:close",I18n.t("Zamknij"));root.addView(close,box(winW-72,0,64,64));close.style(t.raised,t.text,s);
         // "Wycisz lampkę": only while the lamp blinks; one tap, no question - it silences, it does not dismiss the warning
         silence=new LinearLayout(activity);silence.setOrientation(LinearLayout.HORIZONTAL);silence.setGravity(Gravity.CENTER);
-        silence.setBackground(Theme.card(t.raised,32*s));silence.setClickable(true);silence.setFocusable(true);silence.setContentDescription("Wycisz miganie lampki");
+        silence.setBackground(Theme.card(t.raised,32*s));silence.setClickable(true);silence.setFocusable(true);silence.setContentDescription(I18n.t("Wycisz miganie lampki"));
         IconView bulb=new IconView(activity);bulb.set("mdi:lightbulb-off",Theme.ATTENTION);silence.addView(bulb,new LinearLayout.LayoutParams(px(26),px(26)));
-        TextView silenceText=text(18,t.text,1);silenceText.setText("Wycisz lampkę");silenceText.setPadding(px(8),0,0,0);silence.addView(silenceText,new LinearLayout.LayoutParams(-2,-2));
+        TextView silenceText=text(18,t.text,1);silenceText.setText(I18n.t("Wycisz lampkę"));silenceText.setPadding(px(8),0,0,0);silence.addView(silenceText,new LinearLayout.LayoutParams(-2,-2));
         silence.setVisibility(View.GONE);root.addView(silence,box(winW-264,0,184,64));
         silence.setOnClickListener(v->{if(closed)return;host.silenceBlink();refresh();});
         close.setOnClickListener(v->closeByUser());
@@ -160,7 +160,7 @@ final class AlertsDrawer {
         AlertsModel m=new AlertsModel(item.sources,states,live);
         Theme t=Theme.current();
         headIcon.set(m.a()>0&&live?"mdi:bell-alert":"mdi:bell",m.a()>0&&live?Theme.ATTENTION:t.muted);
-        headCount.setText(m.a()+(m.a()==1?" aktywna":m.a()>=2&&m.a()<=4?" aktywne":" aktywnych"));
+        headCount.setText(m.a()+(m.a()==1?I18n.t(" aktywna"):m.a()>=2&&m.a()<=4?I18n.t(" aktywne"):I18n.t(" aktywnych")));
         silence.setVisibility(host.blinking()?View.VISIBLE:View.GONE);
         List<AlertsModel.Row> all=new ArrayList<>(m.active);all.addAll(m.unknown);
         List<String> keys=new ArrayList<>();for(AlertsModel.Row r:all)keys.add(slot(r));
@@ -222,7 +222,7 @@ final class AlertsDrawer {
         Map<String,RowView> keep=new HashMap<>(rows);
         rows.clear();list.removeAllViews();
         if(all.isEmpty()){
-            TextView none=text(22,Theme.current().muted,1);none.setText("Brak uwag");none.setGravity(Gravity.CENTER);
+            TextView none=text(22,Theme.current().muted,1);none.setText(I18n.t("Brak uwag"));none.setGravity(Gravity.CENTER);
             list.addView(none,new LinearLayout.LayoutParams(-1,px(winH-LIST_Y-8)));
         }
         for(AlertsModel.Row r:all){
@@ -269,7 +269,7 @@ final class AlertsDrawer {
             Theme t=Theme.current();
             boolean active=r.cond==AlertsModel.Cond.ACTIVE;
             icon.set(r.icon(),active?Theme.ATTENTION:t.muted);
-            title.setText(active?r.source.title:r.source.title+" - brak danych");title.setTextColor(active?t.text:t.muted);
+            title.setText(active?r.source.title:r.source.title+I18n.t(" - brak danych"));title.setTextColor(active?t.text:t.muted);
             String when=active&&r.source.showSince?AlertsModel.since(r.since,now,TimeZone.getDefault()):null;
             since.setText(when==null?"":when);since.setVisibility(when==null?View.GONE:View.VISIBLE);
             String sig=r.cond+"|"+r.text;
@@ -280,7 +280,7 @@ final class AlertsDrawer {
                 showingMessage=true;text.setText(msg);text.setTextColor(Theme.ATTENTION);text.setMaxLines(1);
             }else{
                 if(showingMessage){showingMessage=false;text.setMinHeight(0);}
-                text.setText(active?(r.text==null?"Brak treści":r.text):"");text.setTextColor(t.muted);if(!frozen)text.setMaxLines(3);
+                text.setText(active?(r.text==null?I18n.t("Brak treści"):r.text):"");text.setTextColor(t.muted);if(!frozen)text.setMaxLines(3);
             }
             text.setVisibility(active?View.VISIBLE:View.GONE);
             if(button!=null){

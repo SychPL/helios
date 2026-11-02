@@ -162,6 +162,54 @@ Wszystkie ostrzeżenia w jednym kafelku zamiast osobnego warunkowego kafelka na 
 
 Typ wymaga `version: 6` i Heliosa 0.17 - starszy zegar odrzuci dokument z tym kafelkiem i zostanie przy ostatnim dobrym układzie.
 
+## Skróty lokalne i Predbat (Helios 0.20)
+
+Trzy dodatkowe karty wymagają `version: 6` i aplikacji Helios 0.20 lub nowszej.
+Można je wybrać w edytorze dashboardu integracji `ha-helios` 0.21 lub dodać do
+listy `items` w YAML:
+
+```yaml
+- { id: spotify, type: spotify, column: 1, row: 1, width: 1, height: 1 }
+- { id: asystent, type: assistant, entity: sensor.helios_voice_state, column: 2, row: 1, width: 1, height: 1 }
+- { id: predbat, type: predbat, entity: predbat.status, column: 3, row: 1, width: 1, height: 1 }
+```
+
+`spotify` otwiera wyłącznie zainstalowaną aplikację `com.spotify.music`; nie
+przyjmuje nazwy pakietu z YAML. `assistant` uruchamia tę samą rozmowę Assist co
+przycisk zegara; encja z domeny `sensor` służy tylko do pokazania stanu.
+`predbat` przyjmuje encję z domeny `predbat` i pokazuje jej stan oraz bieżący
+atrybut `detail`. Przyszły plan ładowania i eksportu nie jest częścią tej karty.
+Zastąp przykładową encję głosu rzeczywistą encją swojego zegara.
+
+## Plan dnia `day_plan` (Helios 0.21)
+
+Karta tylko do odczytu pokazuje najbliższe pozostałe dziś wydarzenie z
+wybranego kalendarza i najwyżej dwa otwarte zadania. Lista `todo` jest
+opcjonalna; bez niej karta pokazuje tylko wydarzenie. Domyślnie zajmuje 2×2
+pola, ale rozmiar można zmienić. Wymaga `version: 6` oraz edytora integracji
+`ha-helios` 0.21 lub nowszego, jeżeli konfigurujesz ją wizualnie. Edytor
+pokazuje minimalną wymaganą wersję aplikacji oraz wersje zegarów korzystających
+z pulpitu i odmawia zapisu, jeśli którykolwiek jest za stary.
+
+```yaml
+- id: plan_dnia
+  type: day_plan
+  column: 1
+  row: 1
+  width: 2
+  height: 2
+  calendar_entity: calendar.dom
+  todo_entity: todo.domowe_zadania  # opcjonalnie
+```
+
+Zegar pobiera dane przez swoje istniejące, uwierzytelnione połączenie z HA:
+`calendar.get_events` od teraz do lokalnej północy oraz `todo.get_items` ze
+stanem `needs_action`. Odświeżanie następuje co pięć minut; karta nie zapisuje
+wydarzeń ani zadań. Brak uprawnień do wybranej encji daje „Brak danych” dla jej
+części, bez ukrywania drugiego źródła.
+Kontrakt odpowiedzi opisują dokumentacje HA: [kalendarz](https://www.home-assistant.io/actions/calendar.get_events/)
+i [lista zadań](https://www.home-assistant.io/actions/todo.get_items/).
+
 ## Sterowanie i bezpieczeństwo
 
 Zegar wywołuje wyłącznie usługi przypisane w kodzie do intencji (`ActionPolicy`): `toggle`/`turn_on`/`turn_off` w domenach przełączalnych, `cover.open_cover`/`stop_cover`/`close_cover`, `lock.lock`/`unlock`, `script.turn_on`, `scene.turn_on`, `input_button.press`, `button.press` oraz `light.turn_off` dla `off_entity` (także w źródłach kafelka `alerts`) i `turn_on`/`press` dla `done_entity` źródła `alerts` - zawsze dla encji wpisanej w YAML. Nazwy usług, cele ani dane usług nie pochodzą z konfiguracji; konfiguracja może natomiast uruchomić jawnie wybrany `script`/`scene`, którego skutki należą do HA. Polecenie nie jest ponawiane ani kolejkowane offline; brak odpowiedzi HA w 10 s daje komunikat. Token na zegarze ma prawa użytkownika HA, więc użyj dedykowanego użytkownika bez uprawnień administratora.

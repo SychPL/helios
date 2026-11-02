@@ -1,5 +1,33 @@
 # Helios — prototyp głosu na Lenovo Smart Clock 2
 
+> Ta część README opisuje historyczny rozwój wersji 0.5–0.8. Aktualny opis
+> projektu znajduje się w [README.md](README.md).
+
+Interfejs zegara obsługuje polski, angielski i niemiecki. Domyślnie korzysta z
+języka Androida; w menu Heliosa można wybrać „Automatycznie”, „Polski”,
+„English” lub „Deutsch”. Dla innych języków systemu używa polskiego. Katalogi
+tłumaczeń są w `app/src/main/assets/i18n/`.
+
+Od wersji 0.20 dostępne są też karty `spotify` (otwiera lokalną aplikację
+Spotify), `assistant` (rozpoczyna rozmowę z Assist) i `predbat` (pokazuje
+bieżący stan oraz atrybut `detail` bez wykonywania akcji). Wymagają schematu
+dashboardu 6; można je dodać w edytorze integracji `ha-helios` 0.21 lub z YAML
+według [instrukcji](docs/ha-dashboard.md). Za podstawę posłużyły zmiany
+Marka Grahama: [karty lokalne](https://github.com/markgraham924/helios/commit/c61dcafc2ee75bdca99914c785a6545a80d60eeb)
+i [Predbat](https://github.com/markgraham924/helios/commit/20a1b92912bbd3f7c9091f32235ba01edf57361c).
+
+Karta `day_plan` (Helios 0.21, edytor integracji 0.21) pokazuje najbliższe
+pozostałe dziś wydarzenie z kalendarza HA i najwyżej dwa otwarte zadania z
+opcjonalnej listy `todo`. Odświeża się co pięć minut i niczego nie zmienia w HA.
+Konfiguracja i przykład YAML są w [instrukcji dashboardu](docs/ha-dashboard.md).
+
+Od wydania 0.21 aplikacja i integracja mają ten sam numer główny i poboczny:
+Helios 0.21.x odpowiada `ha-helios` 0.21.x. Wydania poprawkowe mogą mieć różne
+numery. Edytor pokazuje wersję każdego zegara i minimalną wersję wymaganą przez
+karty na pulpicie. Odmawia zapisu, jeżeli choć jeden zegar korzystający z tego
+pulpitu ma zbyt starą lub nieznaną wersję. Najpierw zaktualizuj zegary albo
+utwórz osobny pulpit. Wersja protokołu urządzenia jest numerowana oddzielnie.
+
 Natywna aplikacja Android jest w `app/`: stały pasek statusu, dashboard 4×3 konfigurowany w Home Assistant (zegar, pogoda, encje, światła, rolety, brama) i lokalny nasłuch Okay Nabu. Pakiet `pl.mateusz.helios`, wersja 0.8.0. Dotychczasowy Clock ADB Probe pozostaje osobną aplikacją.
 
 ## Dashboard 0.5.0

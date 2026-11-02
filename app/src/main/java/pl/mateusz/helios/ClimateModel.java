@@ -45,8 +45,8 @@ final class ClimateModel {
         List<Group> g=new ArrayList<>();
         group(g,e,PRESET_MODE,PROFILE,"set_preset_mode","preset_mode","preset_modes");
         group(g,e,FAN_MODE,FAN,"set_fan_mode","fan_mode","fan_modes");
-        group(g,e,SWING_MODE,"Kierunek pionowy","set_swing_mode","swing_mode","swing_modes");
-        group(g,e,SWING_HORIZONTAL,"Kierunek poziomy","set_swing_horizontal_mode","swing_horizontal_mode","swing_horizontal_modes");
+        group(g,e,SWING_MODE,I18n.t("Kierunek pionowy"),"set_swing_mode","swing_mode","swing_modes");
+        group(g,e,SWING_HORIZONTAL,I18n.t("Kierunek poziomy"),"set_swing_horizontal_mode","swing_horizontal_mode","swing_horizontal_modes");
         groups=Collections.unmodifiableList(g);
     }
     private void group(List<Group> out,EntityStates.Entity e,int bit,String label,String service,String key,String listKey){
@@ -96,19 +96,19 @@ final class ClimateModel {
     /** null when HA does not say what the device is doing: an absent action is never shown as "idle". */
     String actionWord(){
         if(action==null)return null;
-        switch(action){case "heating":return "Grzeje";case "preheating":return "Nagrzewa";case "cooling":return "Chłodzi";case "drying":return "Osusza";
-            case "fan":return "Wentyluje";case "idle":return "Bezczynny";case "off":return "Wyłączony";case "defrosting":return "Odszrania";default:return human(action);}
+        switch(action){case "heating":return I18n.t("Grzeje");case "preheating":return I18n.t("Nagrzewa");case "cooling":return I18n.t("Chłodzi");case "drying":return I18n.t("Osusza");
+            case "fan":return I18n.t("Wentyluje");case "idle":return I18n.t("Bezczynny");case "off":return I18n.t("Wyłączony");case "defrosting":return I18n.t("Odszrania");default:return human(action);}
     }
     static String mode(String m,boolean compact){
-        switch(m){case "heat":return "Grzanie";case "cool":return "Chłodzenie";case "heat_cool":return "Grzanie/chł.";case "auto":return "Auto";
-            case "dry":return "Osuszanie";case "fan_only":return "Wentylator";case "off":return compact?"Wył.":"Wyłączony";default:return human(m);}
+        switch(m){case "heat":return I18n.t("Grzanie");case "cool":return I18n.t("Chłodzenie");case "heat_cool":return I18n.t("Grzanie/chł.");case "auto":return "Auto";
+            case "dry":return I18n.t("Osuszanie");case "fan_only":return I18n.t("Wentylator");case "off":return compact?I18n.t("Wył."):I18n.t("Wyłączony");default:return human(m);}
     }
     /** Standard HA option words in Polish; direction values word by word; anything else is HA's own text made readable. */
     static String option(String group,String v){
         if(v==null)return "—";
-        if(group.equals(PROFILE))switch(v){case "none":return "Standardowy";case "away":return "Poza domem";case "eco":return "Eco";case "boost":return "Boost";case "sleep":return "Sen";
-            case "comfort":return "Komfort";case "home":return "Dom";case "activity":return "Aktywność";default:return human(v);}
-        if(group.equals(FAN))switch(v){case "auto":return "Auto";case "low":return "Niska";case "medium":return "Średnia";case "high":return "Wysoka";case "off":return "Wyłączona";default:return human(v);}
+        if(group.equals(PROFILE))switch(v){case "none":return I18n.t("Standardowy");case "away":return I18n.t("Poza domem");case "eco":return "Eco";case "boost":return "Boost";case "sleep":return I18n.t("Sen");
+            case "comfort":return I18n.t("Komfort");case "home":return I18n.t("Dom");case "activity":return I18n.t("Aktywność");default:return human(v);}
+        if(group.equals(FAN))switch(v){case "auto":return "Auto";case "low":return I18n.t("Niska");case "medium":return I18n.t("Średnia");case "high":return I18n.t("Wysoka");case "off":return I18n.t("Wyłączona");default:return human(v);}
         return direction(v);
     }
     private static final Map<String,String> HEADS=new HashMap<>(),PARTS=new HashMap<>();
@@ -120,11 +120,11 @@ final class ClimateModel {
     /** "fixed_upper_middle" -> "Stały: góra-środek", "full_swing" -> "Ruch: pełny"; only when every word is known, else HA's text. */
     static String direction(String v){
         String[] w=v.split("_");
-        if(w.length==1&&HEADS.containsKey(w[0]))return HEADS.get(w[0]);
+        if(w.length==1&&HEADS.containsKey(w[0]))return I18n.t(HEADS.get(w[0]));
         String head=null;List<String> rest=new ArrayList<>();
         for(String word:w){
-            if(head==null&&HEADS.containsKey(word)&&!word.equals("default"))head=HEADS.get(word);
-            else if(PARTS.containsKey(word))rest.add(PARTS.get(word));
+            if(head==null&&HEADS.containsKey(word)&&!word.equals("default"))head=I18n.t(HEADS.get(word));
+            else if(PARTS.containsKey(word))rest.add(I18n.t(PARTS.get(word)));
             else return human(v);
         }
         if(rest.isEmpty())return human(v);
@@ -135,18 +135,18 @@ final class ClimateModel {
 
     /** The line under the tile's value (pkt 4). */
     String tileDetail(){
-        if(!known)return "Brak połączenia";
-        if(state.equals("off"))return "Wyłączony";
-        if(editable()||range())return "Zadana "+setpoint();
+        if(!known)return I18n.t("Brak połączenia");
+        if(state.equals("off"))return I18n.t("Wyłączony");
+        if(editable()||range())return I18n.t("Zadana ")+setpoint();
         return mode(state,false);
     }
     /** Always a measured temperature: never the setpoint in its place, never an old value while unavailable. */
     String currentText(){return !known||current==null?"—":degrees1(current);}
 
     // --- parsing ---
-    static String degrees(double v){return String.format(new Locale("pl"),"%.1f°",v).replace(",0°","°").replace("-0°","0°");}
+    static String degrees(double v){return String.format(I18n.locale(),"%.1f°",v).replace(",0°","°").replace(".0°","°").replace("-0°","0°");}
     /** One decimal always on the big "now" value, so it does not jump between 23° and 23,5°. */
-    static String degrees1(double v){return String.format(new Locale("pl"),"%.1f°",v);}
+    static String degrees1(double v){return String.format(I18n.locale(),"%.1f°",v);}
     private static Double number(EntityStates.Entity e,String key){
         String raw=e==null?null:e.attribute(key);
         if(raw==null)return null;

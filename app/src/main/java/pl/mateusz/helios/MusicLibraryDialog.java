@@ -52,23 +52,23 @@ final class MusicLibraryDialog {
             public void onItemSelected(AdapterView<?> parent,View view,int position,long id){if(position<players.size())selectPlayer(players.get(position));}
             public void onNothingSelected(AdapterView<?> parent){}
         });
-        Button close=Theme.button(activity,"Zamknij",false,dp(16),dp(Theme.RADIUS));close.setOnClickListener(v->close());LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(dp(110),dp(44));cl.leftMargin=dp(8);top.addView(close,cl);
+        Button close=Theme.button(activity,I18n.t("Zamknij"),false,dp(16),dp(Theme.RADIUS));close.setOnClickListener(v->close());LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(dp(110),dp(44));cl.leftMargin=dp(8);top.addView(close,cl);
         LinearLayout searchRow=new LinearLayout(activity);searchRow.setOrientation(LinearLayout.HORIZONTAL);root.addView(searchRow);
-        query=new EditText(activity);query.setHint("Szukaj w bibliotece (2-100 znaków)");query.setTextColor(t.text);query.setHintTextColor(t.muted);query.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t.accent));query.setSingleLine(true);query.setInputType(InputType.TYPE_CLASS_TEXT);query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        query=new EditText(activity);query.setHint(I18n.t("Szukaj w bibliotece (2-100 znaków)"));query.setTextColor(t.text);query.setHintTextColor(t.muted);query.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t.accent));query.setSingleLine(true);query.setInputType(InputType.TYPE_CLASS_TEXT);query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setOnEditorActionListener((v,actionId,event)->{search();return true;});
         searchRow.addView(query,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button go=Theme.button(activity,"Szukaj",true,dp(16),dp(Theme.RADIUS));go.setOnClickListener(v->search());LinearLayout.LayoutParams gl=new LinearLayout.LayoutParams(dp(110),dp(44));gl.leftMargin=dp(8);searchRow.addView(go,gl);
-        status=Theme.label(activity,"Ostatnio odtwarzane",14,true);root.addView(status);
+        Button go=Theme.button(activity,I18n.t("Szukaj"),true,dp(16),dp(Theme.RADIUS));go.setOnClickListener(v->search());LinearLayout.LayoutParams gl=new LinearLayout.LayoutParams(dp(110),dp(44));gl.leftMargin=dp(8);searchRow.addView(go,gl);
+        status=Theme.label(activity,I18n.t("Ostatnio odtwarzane"),14,true);root.addView(status);
         ListView list=new ListView(activity);resultsAdapter=new ArrayAdapter<>(activity,android.R.layout.simple_list_item_1,new ArrayList<>());list.setAdapter(resultsAdapter);
         list.setOnItemClickListener((parent,view,position,id)->{if(position<results.size())play(results.get(position));});
         root.addView(list,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout bottom=new LinearLayout(activity);bottom.setOrientation(LinearLayout.HORIZONTAL);bottom.setGravity(Gravity.CENTER_VERTICAL);root.addView(bottom);
         nowPlaying=Theme.label(activity,"",15,false);nowPlaying.setMaxLines(1);bottom.addView(nowPlaying,new LinearLayout.LayoutParams(0,-2,1));
-        for(String[] b:new String[][]{{"previous","Poprzedni"},{"play","Odtwórz"},{"pause","Pauza"},{"next","Następny"},{"stop","Stop"}}){
+        for(String[] b:new String[][]{{"previous",I18n.t("Poprzedni")},{"play",I18n.t("Odtwórz")},{"pause",I18n.t("Pauza")},{"next",I18n.t("Następny")},{"stop","Stop"}}){
             MusicOverlay.IconButton button=new MusicOverlay.IconButton(activity,b[0],b[1]);button.style(b[0].equals("play")?t.accent:t.raised,b[0].equals("play")?t.onColor(t.accent):t.text,dp(48)/72f);
             button.setOnClickListener(v->command(b[0]));LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(dp(48),dp(48));bl.leftMargin=dp(4);bottom.addView(button,bl);
         }
-        SeekBar volume=new SeekBar(activity);volume.setMax(100);volume.setContentDescription("Głośność wybranego gracza");Theme.tint(volume);bottom.addView(volume,new LinearLayout.LayoutParams(dp(140),dp(40)));
+        SeekBar volume=new SeekBar(activity);volume.setMax(100);volume.setContentDescription(I18n.t("Głośność wybranego gracza"));Theme.tint(volume);bottom.addView(volume,new LinearLayout.LayoutParams(dp(140),dp(40)));
         volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar s,int p,boolean u){}
             public void onStartTrackingTouch(SeekBar s){}
@@ -89,7 +89,7 @@ final class MusicLibraryDialog {
     }
     private void loadPlayers(){
         MusicAssistantClient ma=service.ma();
-        if(ma==null||!ma.connected()){status.setText("Brak połączenia z Music Assistant");return;}
+        if(ma==null||!ma.connected()){status.setText(I18n.t("Brak połączenia z Music Assistant"));return;}
         ma.players(list->main.post(()->{
             players.clear();playersAdapter.clear();int select=0;
             for(int i=0;i<list.length();i++){
@@ -109,15 +109,15 @@ final class MusicLibraryDialog {
     private void showRecent(){
         showingRecent=true;results.clear();resultsAdapter.clear();
         for(RecentPlays.Entry e:service.recent().entries()){results.add(e);resultsAdapter.add(label(e));}
-        status.setText(results.isEmpty()?"Ostatnio odtwarzane: pusto":"Ostatnio odtwarzane");resultsAdapter.notifyDataSetChanged();
+        status.setText(results.isEmpty()?I18n.t("Ostatnio odtwarzane: pusto"):I18n.t("Ostatnio odtwarzane"));resultsAdapter.notifyDataSetChanged();
     }
     private static String label(RecentPlays.Entry e){
-        switch(e.mediaType){case "album":return "Album: "+e.name;case "playlist":return "Playlista: "+e.name;case "radio":return "Radio: "+e.name;default:return e.name;}
+        switch(e.mediaType){case "album":return "Album: "+e.name;case "playlist":return I18n.t("Playlista: ")+e.name;case "radio":return "Radio: "+e.name;default:return e.name;}
     }
     private void search(){
         MusicAssistantClient ma=service.ma();
-        if(ma==null){toast("Brak połączenia z Music Assistant");return;}
-        hideKeyboard();status.setText("Szukam…");
+        if(ma==null){toast(I18n.t("Brak połączenia z Music Assistant"));return;}
+        hideKeyboard();status.setText(I18n.t("Szukam…"));
         ma.search(query.getText().toString(),found->main.post(()->{
             showingRecent=false;results.clear();resultsAdapter.clear();
             for(String type:new String[]{"tracks","albums","playlists","radio"}){
@@ -130,7 +130,7 @@ final class MusicLibraryDialog {
                     resultsAdapter.add(label(results.get(results.size()-1)));
                 }
             }
-            status.setText(results.isEmpty()?"Brak wyników":"Wyniki: "+results.size());resultsAdapter.notifyDataSetChanged();
+            status.setText(results.isEmpty()?I18n.t("Brak wyników"):I18n.t("Wyniki: ")+results.size());resultsAdapter.notifyDataSetChanged();
         }),e->main.post(()->{if(!"superseded".equals(e))status.setText(e);}));
     }
     private static String artists(JSONObject item){
@@ -139,13 +139,13 @@ final class MusicLibraryDialog {
     }
     private void play(RecentPlays.Entry entry){
         MusicAssistantClient ma=service.ma();
-        if(ma==null||selectedQueueId==null){toast("Wybierz odtwarzacz");return;}
+        if(ma==null||selectedQueueId==null){toast(I18n.t("Wybierz odtwarzacz"));return;}
         boolean replace=!entry.mediaType.equals("track");
-        ma.playMedia(selectedQueueId,entry.uri,replace,r->main.post(()->{service.rememberPlay(entry);if(showingRecent)showRecent();status.setText("Odtwarzanie: "+entry.name);}),e->toast(e));
+        ma.playMedia(selectedQueueId,entry.uri,replace,r->main.post(()->{service.rememberPlay(entry);if(showingRecent)showRecent();status.setText(I18n.t("Odtwarzanie: ")+entry.name);}),e->toast(e));
     }
     private void command(String command){
         MusicAssistantClient ma=service.ma();
-        if(ma==null||selectedPlayerId==null){toast("Wybierz odtwarzacz");return;}
+        if(ma==null||selectedPlayerId==null){toast(I18n.t("Wybierz odtwarzacz"));return;}
         ma.playerCommand(selectedPlayerId,command,r->{},e->toast(e));
     }
 }

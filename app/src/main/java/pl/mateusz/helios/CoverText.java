@@ -7,15 +7,15 @@ final class CoverText {
     /** "<prefix>: <stan>": zamknięta / otwieranie / zamykanie / NN% (open with position) / otwarta / brak danych. */
     static String line(String prefix,EntityStates.Entity e){return prefix+": "+state(e);}
     static String state(EntityStates.Entity e){
-        if(e==null||!e.known())return "brak danych";
+        if(e==null||!e.known())return I18n.t("brak danych");
         switch(e.state){
-            case "closed":return "zamknięta";
-            case "opening":return "otwieranie";
-            case "closing":return "zamykanie";
+            case "closed":return I18n.t("zamknięta");
+            case "opening":return I18n.t("otwieranie");
+            case "closing":return I18n.t("zamykanie");
             case "open":{
                 String position=e.attribute("current_position");
                 if(position!=null)try{return Math.round(Double.parseDouble(position))+"%";}catch(NumberFormatException ignored){}
-                return "otwarta";
+                return I18n.t("otwarta");
             }
             default:return e.state;
         }

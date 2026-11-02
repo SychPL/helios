@@ -3,21 +3,21 @@ public final class WeatherLabels {
     private WeatherLabels(){}
     public static String polish(String state){
         switch(state){
-            case "clear-night":return "Pogodna noc";
-            case "cloudy":return "Pochmurno";
-            case "fog":return "Mgła";
-            case "hail":return "Grad";
-            case "lightning":return "Burza";
-            case "lightning-rainy":return "Burza z deszczem";
-            case "partlycloudy":return "Częściowe zachmurzenie";
-            case "pouring":return "Ulewa";
-            case "rainy":return "Deszcz";
-            case "snowy":return "Śnieg";
-            case "snowy-rainy":return "Deszcz ze śniegiem";
-            case "sunny":return "Słonecznie";
-            case "windy":case "windy-variant":return "Wietrznie";
-            case "exceptional":return "Nietypowe warunki";
-            default:return "Brak opisu pogody";
+            case "clear-night":return I18n.t("Pogodna noc");
+            case "cloudy":return I18n.t("Pochmurno");
+            case "fog":return I18n.t("Mgła");
+            case "hail":return I18n.t("Grad");
+            case "lightning":return I18n.t("Burza");
+            case "lightning-rainy":return I18n.t("Burza z deszczem");
+            case "partlycloudy":return I18n.t("Częściowe zachmurzenie");
+            case "pouring":return I18n.t("Ulewa");
+            case "rainy":return I18n.t("Deszcz");
+            case "snowy":return I18n.t("Śnieg");
+            case "snowy-rainy":return I18n.t("Deszcz ze śniegiem");
+            case "sunny":return I18n.t("Słonecznie");
+            case "windy":case "windy-variant":return I18n.t("Wietrznie");
+            case "exceptional":return I18n.t("Nietypowe warunki");
+            default:return I18n.t("Brak opisu pogody");
         }
     }
     /** The Material Design icon Home Assistant itself uses for a weather condition; an unknown condition gets none. */
