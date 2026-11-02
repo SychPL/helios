@@ -72,7 +72,7 @@ final class Theme {
         android.widget.LinearLayout column=dialogColumn(activity,20);column.setMinimumWidth(dp(activity,320));
         android.widget.TextView text=label(activity,message,18,false);text.setPadding(0,0,0,dp(activity,16));column.addView(text);
         android.widget.LinearLayout row=new android.widget.LinearLayout(activity);row.setOrientation(android.widget.LinearLayout.HORIZONTAL);column.addView(row);
-        android.widget.Button cancel=button(activity,"Anuluj",false,dp(activity,17),dp(activity,RADIUS)),ok=button(activity,okLabel,true,dp(activity,17),dp(activity,RADIUS));
+        android.widget.Button cancel=button(activity,I18n.t("Anuluj"),false,dp(activity,17),dp(activity,RADIUS)),ok=button(activity,okLabel,true,dp(activity,17),dp(activity,RADIUS));
         android.widget.LinearLayout.LayoutParams a=new android.widget.LinearLayout.LayoutParams(0,dp(activity,56),1);a.rightMargin=dp(activity,8);row.addView(cancel,a);row.addView(ok,new android.widget.LinearLayout.LayoutParams(0,dp(activity,56),1));
         cancel.setOnClickListener(v->dialog.cancel());ok.setOnClickListener(v->{dialog.setOnCancelListener(null);dialog.dismiss();onOk.run();});
         dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->onCancel.run());

@@ -16,7 +16,7 @@ final class AudioTrackSink implements AudioSink {
     private long frames,generation;
     private int frameBytes=4;
     @Override public synchronized void open(String codec,int sampleRate,int channels,int bitDepth) throws Exception {
-        if(!"pcm".equals(codec)||bitDepth!=16||channels<1||channels>2)throw new IllegalArgumentException("Nieobsługiwany format: "+codec+"/"+bitDepth+"/"+channels);
+        if(!"pcm".equals(codec)||bitDepth!=16||channels<1||channels>2)throw new IllegalArgumentException(I18n.t("Nieobsługiwany format: ")+codec+"/"+bitDepth+"/"+channels);
         stop();
         int mask=channels==1?AudioFormat.CHANNEL_OUT_MONO:AudioFormat.CHANNEL_OUT_STEREO;
         frameBytes=2*channels;

@@ -7,7 +7,7 @@ import java.util.*;
  * target is always the tile's own entity (SPEC 0.5 pkt 11.4, redrawn for version 6 in docs/ha-dashboard.md). Pure.
  */
 final class ActionPolicy {
-    enum Panel {COVER,COVER_GROUP,MUSIC_LIBRARY,DETAILS,CLIMATE,ALERTS}
+    enum Panel {COVER,COVER_GROUP,MUSIC_LIBRARY,DETAILS,CLIMATE,ALERTS,SPOTIFY,ASSISTANT}
     /** What a `tile` may do on tap; `Item.action` stores the lower-case name. Legacy types keep their own action words. */
     enum Intent {NONE,TOGGLE,TURN_ON,TURN_OFF,OPEN,CLOSE,STOP,CONTROLS,DETAILS,ACTIVATE,LOCK,UNLOCK}
     /** One hard-coded service on one entity, asked about with `question` when the item wants a confirmation. */
@@ -58,17 +58,17 @@ final class ActionPolicy {
     }
     static String question(Intent i,String label){
         switch(i){
-            case TOGGLE:return "Przełączyć: "+label+"?";case TURN_ON:return "Włączyć: "+label+"?";case TURN_OFF:return "Wyłączyć: "+label+"?";
-            case OPEN:return "Otworzyć: "+label+"?";case CLOSE:return "Zamknąć: "+label+"?";case STOP:return "Zatrzymać: "+label+"?";
-            case ACTIVATE:return "Uruchomić: "+label+"?";case LOCK:return "Zamknąć zamek: "+label+"?";case UNLOCK:return "Otworzyć zamek: "+label+"?";
+            case TOGGLE:return I18n.t("Przełączyć: ")+label+"?";case TURN_ON:return I18n.t("Włączyć: ")+label+"?";case TURN_OFF:return I18n.t("Wyłączyć: ")+label+"?";
+            case OPEN:return I18n.t("Otworzyć: ")+label+"?";case CLOSE:return I18n.t("Zamknąć: ")+label+"?";case STOP:return I18n.t("Zatrzymać: ")+label+"?";
+            case ACTIVATE:return I18n.t("Uruchomić: ")+label+"?";case LOCK:return I18n.t("Zamknąć zamek: ")+label+"?";case UNLOCK:return I18n.t("Otworzyć zamek: ")+label+"?";
             default:return null;
         }
     }
     /** Button word in the details dialog. */
     static String verb(Intent i){
         switch(i){
-            case TOGGLE:return "Przełącz";case TURN_ON:return "Włącz";case TURN_OFF:return "Wyłącz";case OPEN:return "Otwórz";case CLOSE:return "Zamknij";case STOP:return "Zatrzymaj";
-            case CONTROLS:return "Sterowanie";case ACTIVATE:return "Uruchom";case LOCK:return "Zamknij zamek";case UNLOCK:return "Otwórz zamek";default:return null;
+            case TOGGLE:return I18n.t("Przełącz");case TURN_ON:return I18n.t("Włącz");case TURN_OFF:return I18n.t("Wyłącz");case OPEN:return I18n.t("Otwórz");case CLOSE:return I18n.t("Zamknij");case STOP:return I18n.t("Zatrzymaj");
+            case CONTROLS:return I18n.t("Sterowanie");case ACTIVATE:return I18n.t("Uruchom");case LOCK:return I18n.t("Zamknij zamek");case UNLOCK:return I18n.t("Otwórz zamek");default:return null;
         }
     }
     /** The six climate services the panel may call and the one data key each takes (SPEC 0.19 pkt 6). */
@@ -87,12 +87,14 @@ final class ActionPolicy {
     /** Actions that open a panel instead of calling a service; null otherwise. */
     static Panel panel(String action){
         if(action==null)return null;
+        if(action.equals("spotify"))return Panel.SPOTIFY;
+        if(action.equals("assistant"))return Panel.ASSISTANT;
         switch(action){case "controls":return Panel.COVER;case "covers":return Panel.COVER_GROUP;case "library":return Panel.MUSIC_LIBRARY;case "details":return Panel.DETAILS;case "climate":return Panel.CLIMATE;case "alerts":return Panel.ALERTS;default:return null;}
     }
     /** The service call an item's action stands for; null when the action opens a panel or the item is not tappable. */
     static Call call(DashboardSpec.Item item,String label){
         if(item.action==null)return null;
-        if(item.action.equals("lights_off"))return new Call("light","turn_off",item.offEntity,"Zgasić światła?");
+        if(item.action.equals("lights_off"))return new Call("light","turn_off",item.offEntity,I18n.t("Zgasić światła?"));
         Intent i=intent(item.action);
         return i==null?null:call(item,i,label);
     }
@@ -100,7 +102,7 @@ final class ActionPolicy {
     static Call call(DashboardSpec.Item item,Intent i,String label){
         String domain=item.entity.substring(0,item.entity.indexOf('.')),service=service(i,domain);
         if(service==null)return null;
-        return new Call(domain,service,item.entity,i==Intent.CLOSE&&item.type.equals("garage")?"Zamknąć bramę?":question(i,label));
+        return new Call(domain,service,item.entity,i==Intent.CLOSE&&item.type.equals("garage")?I18n.t("Zamknąć bramę?"):question(i,label));
     }
     /** The state an action can work on: a known one, except that a button, scene or script reads `unknown` until first used and may still be activated (never a missing or unavailable entity). */
     static boolean usable(String action,EntityStates.Entity e){

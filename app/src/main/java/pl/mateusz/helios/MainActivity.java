@@ -73,20 +73,21 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     /** SPEC 0.20 pkt 4c: blink occurrences silenced with "Wycisz lampkę" (tile|condition -> its last_changed); cleared with a new document. */
     private final Map<String,Long> silencedBlinks=new HashMap<>();
     private boolean live;
-    private String connectionIssue="Łączenie z konfiguracją ekranu w HA…",configIssue;
+    private String connectionIssue=I18n.t("Łączenie z konfiguracją ekranu w HA…"),configIssue;
     private final Set<String> pendingActions=new HashSet<>();
     private boolean fahrenheit; // HA's unit system (get_config), read once per session: the default setpoint step is 1 in °F, 0.5 in °C
     private final ServiceConnection serviceConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             service=((HeliosService.Local)binder).service();
+            if(screensaver.luxKnown())service.setLux(screensaver.lux());
             service.setOnDeviceLost(()->{if(voice!=null)voice.cancelFollowUp();});
             service.setDiagnostics(MainActivity.this::onEvent);
             service.setAppearanceListener((appearance,background)->{
                 applyScreensaverConfig(appearance.screensaver);
                 dashboard.setBackdrop(background,appearance.image?appearance.dim:0);dashboard.applyTheme();});
-            service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage("Sparowano z HA");main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
+            service.setOnDeviceChanged(id->{if(pairing&&id!=null){pairing=false;dashboard.setMessage(I18n.t("Sparowano z HA"));main.postDelayed(()->{if(!isDestroyed())dashboard.setMessage("");},4000);}});
             service.setOnConnectionChanged(()->{config=service.connection();detachHa();if(resumed)attachHa();}); // diagnostics_url and the HA client follow every persisted change
-            service.setOnAuthInvalid(()->dashboard.setMessage("HA odrzucił token - sparuj ponownie"));
+            service.setOnAuthInvalid(()->dashboard.setMessage(I18n.t("HA odrzucił token - sparuj ponownie")));
             service.setOnChannelIssue(text->dashboard.setMessage(text));
             service.setOnStatus(text->dashboard.setMessage(text));
             service.setMusicListener(snapshot->{
@@ -116,6 +117,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 if(received==null&&specRaw==null){spec=DashboardSpec.fallback();dashboard.setSpec(spec,MainActivity.this::tap);}
                 configIssue=issue;connectionIssue=null;states=snapshot;live=true;decideVisibility();dashboard.connected(true);renderDashboard();
                 subscribeForecast(); // the layout names the weather entity, so the forecast can only be asked for once it is here
+                scheduleDayPlans();
             });
         }
         @Override public void onStates(Map<String,EntityStates.Entity> snapshot){update(()->{states=snapshot;live=true;decideVisibility();renderDashboard();});}
@@ -131,8 +133,9 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private boolean resumed,busy,recording,pendingVoice,pairing;
     private final Runnable tick=new Runnable(){public void run(){
         Date now=new Date();
-        String weekday=new SimpleDateFormat("EEEE",new Locale("pl","PL")).format(now),date=new SimpleDateFormat("d MMMM",new Locale("pl","PL")).format(now);
-        dashboard.clock(new SimpleDateFormat("HH:mm",Locale.ROOT).format(now),weekday.substring(0,1).toUpperCase(new Locale("pl"))+weekday.substring(1),date);
+        Locale language=I18n.locale();
+        String weekday=new SimpleDateFormat("EEEE",language).format(now),date=new SimpleDateFormat("d MMMM",language).format(now);
+        dashboard.clock(new SimpleDateFormat("HH:mm",Locale.ROOT).format(now),weekday.substring(0,1).toUpperCase(language)+weekday.substring(1),date);
         applyScreensaver();
         if(resumed)main.postDelayed(this,1000);
     }};
@@ -157,22 +160,22 @@ public final class MainActivity extends Activity implements AssistClient.Listene
      * clock never appears" is a question nobody can answer from a log that only says it did not.
      */
     private String panelWanted(){
-        if(busy)return "rozmowa";
-        if(pairing)return "parowanie";
-        if(musicActive)return "muzyka";
-        if(panel!=null)return "panel rolet";
+        if(busy)return I18n.t("rozmowa");
+        if(pairing)return I18n.t("parowanie");
+        if(musicActive)return I18n.t("muzyka");
+        if(panel!=null)return I18n.t("panel rolet");
         if(onboardingDialog!=null)return "onboarding";
         if(navigation.isShowing())return "menu";
-        if(library!=null&&library.isShowing())return "biblioteka";
-        if(dashboard.musicOverlay().isOpen())return "odtwarzacz";
-        if(connectionIssue!=null)return "brak HA: "+connectionIssue;
-        if(configIssue!=null)return "konfiguracja: "+configIssue;
+        if(library!=null&&library.isShowing())return I18n.t("biblioteka");
+        if(dashboard.musicOverlay().isOpen())return I18n.t("odtwarzacz");
+        if(connectionIssue!=null)return I18n.t("brak HA: ")+connectionIssue;
+        if(configIssue!=null)return I18n.t("konfiguracja: ")+configIssue;
         // A conditional tile is this panel's notification. Whether one holds the panel up is the house's call:
         // where a tile stays lit for days, blocking on it means the night clock never appears at all.
         if(notificationsBlock)for(Map.Entry<String,Boolean> e:visibility.entrySet())
-            if(Boolean.TRUE.equals(e.getValue()))return "kafelek "+e.getKey();
+            if(Boolean.TRUE.equals(e.getValue()))return I18n.t("kafelek ")+e.getKey();
         if(notificationsBlock&&spec!=null)for(DashboardSpec.Item i:spec.allItems()) // SPEC 0.20: an active warning on any page's alerts tile
-            if(!i.sources.isEmpty()&&new AlertsModel(i.sources,states,live).a()>0)return "uwagi "+i.id;
+            if(!i.sources.isEmpty()&&new AlertsModel(i.sources,states,live).a()>0)return I18n.t("uwagi ")+i.id;
         return null;
     }
     private String lastWait;
@@ -181,7 +184,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         boolean night=screensaver.update(android.os.SystemClock.elapsedRealtime(),blocked!=null);
         if(!night&&blocked==null)blocked=screensaver.environmentBlock(); // still null = simply counting down
         // Logged on change only, because the tick runs every second: enough to answer "why is it not on".
-        String wait=night?null:"tryb="+screensaver.mode()+" blokada="+(blocked==null?"odliczanie":blocked);
+        String wait=night?null:I18n.t("tryb=")+screensaver.mode()+I18n.t(" blokada=")+(blocked==null?I18n.t("odliczanie"):blocked);
         if(wait!=null&&!wait.equals(lastWait))onEvent("screensaver_wait",wait);
         lastWait=wait;
         if(night==dashboard.nightVisible())return;
@@ -190,7 +193,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         // dark bedroom and wrong in daylight, where it would hide the slideshow instead of showing it.
         if(night&&screensaver.mode()==ScreensaverPolicy.Mode.DARK){main.removeCallbacks(unboost);dim();}
         else restoreBrightness();
-        onEvent(night?"screensaver_on":"screensaver_off","tryb="+screensaver.mode()+" lux="+(screensaver.luxKnown()?screensaver.lux():-1));
+        onEvent(night?"screensaver_on":"screensaver_off",I18n.t("tryb=")+screensaver.mode()+" lux="+(screensaver.luxKnown()?screensaver.lux():-1));
     }
     private void dim(){
         WindowManager.LayoutParams p=getWindow().getAttributes();p.screenBrightness=.01f;getWindow().setAttributes(p);
@@ -235,7 +238,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             public void update(){if(service!=null)service.update();}
             public void tools(){toolsDialog();}
             public String screensaverLabel(){
-                return "Wygaszacz: ciemno ≤ "+screensaver.darkEnter()+" lx (teraz "+(screensaver.luxKnown()?screensaver.lux()+" lx":"brak odczytu")+")";
+                return I18n.t("Wygaszacz: ciemno ≤ ")+screensaver.darkEnter()+I18n.t(" lx (teraz ")+(screensaver.luxKnown()?screensaver.lux()+" lx":I18n.t("brak odczytu"))+")";
             }
             public void screensaverStep(){
                 int[] steps={1,2,3,5,8,12,20};int next=steps[0];
@@ -251,7 +254,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         MdiIcons.install(this); // before the cache parse: a version-6 layout names its icons by mdi: catalogue
         String cached=getSharedPreferences("helios",MODE_PRIVATE).getString("dashboard_v2",null);
         if(cached!=null)try{specRaw=new JSONObject(cached);spec=DashboardSpec.parse(specRaw);}catch(Exception ignored){specRaw=null;}
-        if(spec==null){spec=DashboardSpec.fallback();configIssue=DashboardSpec.VERSION_ERROR;}
+        if(spec==null){spec=DashboardSpec.fallback();configIssue=I18n.t(DashboardSpec.VERSION_ERROR);}
         dashboard.setSpec(spec,this::tap);renderDashboard();
         Intent intent=new Intent(this,HeliosService.class);
         startForegroundService(intent);bindService(intent,serviceConnection,Context.BIND_AUTO_CREATE);
@@ -288,7 +291,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
         super.onRequestPermissionsResult(request,permissions,grants);
         if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED){if(request==1){if(resumed)startVoice();else pendingVoice=true;}else startWake();}
-        else dashboard.setMessage("Zezwól na mikrofon, aby rozmawiać.");
+        else dashboard.setMessage(I18n.t("Zezwól na mikrofon, aby rozmawiać."));
     }
     private static JSONObject get(String url,String token) throws Exception{
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();c.setConnectTimeout(8000);c.setReadTimeout(8000);c.setInstanceFollowRedirects(false);
@@ -325,6 +328,29 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             code->main.post(()->{if(resumed){if(subscribed.equals(forecastFor))forecastFor=null;dashboard.tomorrow(null);}}));
     }
     private String forecastFor; // the weather entity whose forecast this session already asked for
+    /** Response actions are read-only; a bounded refresh also catches list edits that do not change an entity state. */
+    private final Runnable dayPlanRefresh=new Runnable(){public void run(){
+        if(!resumed||spec==null)return;
+        HaDashboardClient client=ha();
+        if(client!=null&&client.live())for(DashboardSpec.Item item:spec.allItems())if("day_plan".equals(item.type))fetchDayPlan(client,item);
+        main.postDelayed(this,300_000);
+    }};
+    private void scheduleDayPlans(){
+        main.removeCallbacks(dayPlanRefresh);
+        if(spec!=null)for(DashboardSpec.Item item:spec.allItems())if("day_plan".equals(item.type)){main.post(dayPlanRefresh);break;}
+    }
+    private void fetchDayPlan(HaDashboardClient client,DashboardSpec.Item item){
+        final int generation=attachGeneration;
+        final JSONObject[] results=new JSONObject[2];
+        final boolean[] received={false,item.todoEntity==null};
+        Runnable complete=()->{
+            if(!received[0]||!received[1]||!resumed||generation!=attachGeneration||ha()!=client||spec==null||spec.item(item.id)!=item)return;
+            DayPlan plan=DayPlan.fromResponses(item.calendarEntity,item.todoEntity,results[0],results[1],java.time.Instant.now(),ZoneId.systemDefault());
+            dashboard.dayPlan(item.id,plan);
+        };
+        client.request(DayPlan.calendarRequest(item.calendarEntity,java.time.ZonedDateTime.now()),result->main.post(()->{results[0]=result;received[0]=true;complete.run();}));
+        if(item.todoEntity!=null)client.request(DayPlan.todoRequest(item.todoEntity),result->main.post(()->{results[1]=result;received[1]=true;complete.run();}));
+    }
     /** The unit the weather entity itself reports, so tomorrow is written the same way as today. */
     private String unitOf(String entity){
         EntityStates.Entity e=states==null?null:states.get(entity);
@@ -338,12 +364,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         detachHa();attachGeneration++;attachedTo=client;client.attach(haListener);
         readUnits(); // onSessionStarted is not replayed to a new listener; a failure here (no session yet) is simply ignored
     }
-    private void detachHa(){if(attachedTo!=null){attachedTo.detach(haListener);attachedTo=null;attachGeneration++;}live=false;}
+    private void detachHa(){main.removeCallbacks(dayPlanRefresh);if(attachedTo!=null){attachedTo.detach(haListener);attachedTo=null;attachGeneration++;}live=false;}
 
     // --- dashboard ---
     private void renderDashboard(){
         String issue=connectionIssue!=null?connectionIssue:configIssue;
-        dashboard.setIssue(issue);navigation.status(issue==null?"HA: połączono, dane aktualne":issue);
+        dashboard.setIssue(issue);navigation.status(issue==null?I18n.t("HA: połączono, dane aktualne"):issue);
         dashboard.render(states,visibility,live);
         observeAlertOffs();
         if(service!=null)service.alertBlink(resumed&&spec!=null&&AlertsModel.blink(spec.allItems(),states,live,silencedBlinks)); // SPEC 0.20 pkt 4b/4c
@@ -370,9 +396,15 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     private void tap(DashboardSpec.Item item){
         ActionPolicy.Panel panel=ActionPolicy.panel(item.action);
+        if(panel==ActionPolicy.Panel.SPOTIFY){
+            android.content.Intent launch=getPackageManager().getLaunchIntentForPackage("com.spotify.music");
+            if(launch==null){Toast.makeText(this,I18n.t("Spotify nie jest zainstalowany"),Toast.LENGTH_SHORT).show();return;}
+            startActivity(launch);return;
+        }
+        if(panel==ActionPolicy.Panel.ASSISTANT){wakePanel();startVoice();return;}
         if(panel==ActionPolicy.Panel.MUSIC_LIBRARY){openMusicLibrary();return;} // library and remote control depend on MA, not on HA
         if(panel==ActionPolicy.Panel.ALERTS){alertsDrawer(item);return;} // offline the list still opens: every row then says it has no data
-        if(!live||ha()==null){Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();return;}
+        if(!live||ha()==null){Toast.makeText(this,I18n.t("Brak połączenia z Home Assistant"),Toast.LENGTH_SHORT).show();return;}
         EntityStates.Entity e=item.entity==null?null:states.get(item.entity);
         if(ActionPolicy.needsKnown(item.action)&&!ActionPolicy.usable(item.action,e))return; // unknown/unavailable: the tile is visible but inactive, nothing is sent (SPEC 0.9 pkt 5)
         if(panel==ActionPolicy.Panel.COVER){coverPanel(item);return;}
@@ -405,13 +437,13 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             public boolean fahrenheit(){return fahrenheit;}
             public String send(String service,Object value,java.util.function.Consumer<String> done){
                 HaDashboardClient client=ha();
-                if(!live||client==null)return "Brak połączenia z Home Assistant";
-                if(!new ClimateModel(states.get(item.entity),fahrenheit).allows(service,value))return "Termostat nie przyjmie tej wartości";
+                if(!live||client==null)return I18n.t("Brak połączenia z Home Assistant");
+                if(!new ClimateModel(states.get(item.entity),fahrenheit).allows(service,value))return I18n.t("Termostat nie przyjmie tej wartości");
                 org.json.JSONObject data=ActionPolicy.climateData(service,value);
-                if(data==null)return "Niedozwolone polecenie";
+                if(data==null)return I18n.t("Niedozwolone polecenie");
                 onEvent("service_call","climate."+service+" "+item.entity+" "+data);
                 client.callService("climate",service,item.entity,data,error->main.post(()->{
-                    if(error!=null){onEvent("service_error",error);if(panel==null||panelItem!=item)Toast.makeText(MainActivity.this,"Nie wykonano: "+error,Toast.LENGTH_LONG).show();}
+                    if(error!=null){onEvent("service_error",error);if(panel==null||panelItem!=item)Toast.makeText(MainActivity.this,I18n.t("Nie wykonano: ")+error,Toast.LENGTH_LONG).show();}
                     done.accept(error);
                 }));
                 return null;
@@ -445,7 +477,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 client.callService(a.domain,a.service,a.entity,error->main.post(()->{if(error!=null)onEvent("service_error",error);done.accept(error);}));
                 return null;
             }
-            public Dialog confirm(String question,Runnable ok){return Theme.confirm(MainActivity.this,question,"Potwierdź",ok,()->{});}
+            public Dialog confirm(String question,Runnable ok){return Theme.confirm(MainActivity.this,question,I18n.t("Potwierdź"),ok,()->{});}
         });
         d.onUserClose=this::closePanel;
         panel=d.dialog;panelItem=item;panelRefresh=d::refresh;
@@ -460,7 +492,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         });}catch(org.json.JSONException ignored){}
     }
     private void openMusicLibrary(){
-        if(service==null||!service.musicConfigured()){Toast.makeText(this,"Music Assistant nie jest skonfigurowany (Odśwież parowanie)",Toast.LENGTH_LONG).show();return;}
+        if(service==null||!service.musicConfigured()){Toast.makeText(this,I18n.t("Music Assistant nie jest skonfigurowany (Odśwież parowanie)"),Toast.LENGTH_LONG).show();return;}
         closePanel();dashboard.musicOverlay().closePanel();
         library=new MusicLibraryDialog(this,service);library.show();
     }
@@ -475,7 +507,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void confirm(boolean gate,DashboardSpec.Item item,String fallbackText,Runnable action){
         if(!gate){action.run();return;}
         closePanel();
-        confirmDialog(item.confirmText!=null?item.confirmText:fallbackText,"Potwierdź",()->{if(live)action.run();else Toast.makeText(this,"Brak połączenia z Home Assistant",Toast.LENGTH_SHORT).show();},()->{});
+        confirmDialog(item.confirmText!=null?item.confirmText:fallbackText,I18n.t("Potwierdź"),()->{if(live)action.run();else Toast.makeText(this,I18n.t("Brak połączenia z Home Assistant"),Toast.LENGTH_SHORT).show();},()->{});
     }
     /** Palette confirmation with finger-sized buttons; cancel, outside touch and dismiss all run onCancel without sending anything. */
     private void confirmDialog(String message,String okLabel,Runnable onOk,Runnable onCancel){
@@ -490,10 +522,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         final TextView titleView=panelTitle;panelRefresh=()->titleView.setText(coverTitle(item));
         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
         // ponytail: stop is never confirmed and never blocked by another pending action, so a moving cover can always be halted.
-        panelButton(row,"▲","Otwórz",item,"open_cover",true);
-        panelButton(row,"■","Zatrzymaj",item,"stop_cover",false);
-        panelButton(row,"▼","Zamknij",item,"close_cover",true);
-        Button close=Theme.button(this,"Zamknij panel",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));close.setOnClickListener(v->closePanel());
+        panelButton(row,"▲",I18n.t("Otwórz"),item,"open_cover",true);
+        panelButton(row,"■",I18n.t("Zatrzymaj"),item,"stop_cover",false);
+        panelButton(row,"▼",I18n.t("Zamknij"),item,"close_cover",true);
+        Button close=Theme.button(this,I18n.t("Zamknij panel"),false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));close.setOnClickListener(v->closePanel());
         LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Theme.dp(this,56));c.topMargin=pad;column.addView(close,c);
         dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->{panel=null;panelTitle=null;panelItem=null;});
         if(dialog.getWindow()!=null){dialog.getWindow().setGravity(Gravity.CENTER);dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));}
@@ -522,38 +554,39 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         client.callService(domain,service,entity,error->main.post(()->{
             if(tracked){pendingActions.remove(key);dashboard.pending(item.id,anyPending(item.id));}
             if(done!=null)done.run();
-            if(error!=null){onEvent("service_error",error);Toast.makeText(MainActivity.this,"Nie wykonano: "+error,Toast.LENGTH_LONG).show();}
+            if(error!=null){onEvent("service_error",error);Toast.makeText(MainActivity.this,I18n.t("Nie wykonano: ")+error,Toast.LENGTH_LONG).show();}
             if(panelRefresh!=null)panelRefresh.run();
         }));
         return true;
     }
-    /** "Rolety sypialni": two independent rows (name, state, open/stop/close) sized in 800x480 units (SPEC 0.9 pkt 4.1); music panel folds, playback continues. */
+    /** "Rolety sypialni": two independent rows (name, state, open/stop/close) sized in screen units (SPEC 0.9 pkt 4.1); music panel folds, playback continues. */
     private void coverGroupPanel(DashboardSpec.Item item){
         closePanel();dashboard.musicOverlay().closePanel();
-        float s=Math.min(getResources().getDisplayMetrics().widthPixels/800f,getResources().getDisplayMetrics().heightPixels/480f);
+        int sw=getResources().getDisplayMetrics().widthPixels,sh=getResources().getDisplayMetrics().heightPixels;
+        float s=DashboardView.scale(sw,sh);CoverPanelGeometry g=new CoverPanelGeometry(DashboardView.units(sw,sw,sh));
         Theme t=Theme.current();
         FrameLayout root=new FrameLayout(this);root.setBackground(Theme.card(t.surface,Theme.RADIUS*s));
         TextView header=Theme.label(this,dashboardLabel(item),0,false);header.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,22*s);header.setGravity(Gravity.CENTER_VERTICAL);header.setMaxLines(1);header.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        root.addView(header,box(CoverPanelGeometry.HEADER,s));
+        root.addView(header,box(g.header,s));
         final TextView[] stateViews=new TextView[2];final MusicOverlay.IconButton[][] buttons=new MusicOverlay.IconButton[2][3];
         final String[] services={"open_cover","stop_cover","close_cover"};final int[] bits={CoverText.OPEN,CoverText.STOP,CoverText.CLOSE};
-        final String[] glyphs={"arrow-up","stop","arrow-down"};final String[] verbs={"Otwórz","Zatrzymaj","Zamknij"};
+        final String[] glyphs={"arrow-up","stop","arrow-down"};final String[] verbs={I18n.t("Otwórz"),I18n.t("Zatrzymaj"),I18n.t("Zamknij")};
         for(int n=0;n<2;n++){
             final DashboardSpec.Cover cover=item.covers.get(n);
-            FrameLayout row=new FrameLayout(this);root.addView(row,box(n==0?CoverPanelGeometry.ROW_A:CoverPanelGeometry.ROW_B,s));
-            LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);label.setGravity(Gravity.CENTER_VERTICAL);row.addView(label,box(CoverPanelGeometry.LABEL,s));
+            FrameLayout row=new FrameLayout(this);root.addView(row,box(n==0?g.rowA:g.rowB,s));
+            LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);label.setGravity(Gravity.CENTER_VERTICAL);row.addView(label,box(g.label,s));
             TextView name=Theme.label(this,cover.title,0,false);name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,20*s);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);label.addView(name);
             TextView state=Theme.label(this,"",0,true);state.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,17*s);state.setMaxLines(1);label.addView(state);stateViews[n]=state;
             for(int k=0;k<3;k++){
                 final String service=services[k];
                 MusicOverlay.IconButton b=new MusicOverlay.IconButton(this,glyphs[k],verbs[k]+" "+cover.title);
                 b.style(k==1?t.accent:t.raised,k==1?t.onColor(t.accent):t.text,s);
-                row.addView(b,box(k==0?CoverPanelGeometry.OPEN:k==1?CoverPanelGeometry.STOP:CoverPanelGeometry.CLOSE,s));
+                row.addView(b,box(k==0?g.open:k==1?g.stop:g.close,s));
                 b.setOnClickListener(v->{if(callEntity(item,cover.entity,"cover",service,null)&&panelRefresh!=null)panelRefresh.run();});
                 buttons[n][k]=b;
             }
         }
-        Button back=Theme.button(this,"Wróć",false,17*s,Theme.RADIUS*s);back.setOnClickListener(v->closePanel());root.addView(back,box(CoverPanelGeometry.BACK,s));
+        Button back=Theme.button(this,I18n.t("Wróć"),false,17*s,Theme.RADIUS*s);back.setOnClickListener(v->closePanel());root.addView(back,box(g.back,s));
         panelRefresh=()->{
             for(int n=0;n<2;n++){
                 DashboardSpec.Cover cover=item.covers.get(n);EntityStates.Entity e=states.get(cover.entity);
@@ -566,7 +599,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         };
         panelRefresh.run();
         Dialog dialog=new Dialog(this);panel=dialog;panelItem=item;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(Math.round(CoverPanelGeometry.PANEL.w*s),Math.round(CoverPanelGeometry.PANEL.h*s)));
+        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(Math.round(g.panel.w*s),Math.round(g.panel.h*s)));
         dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(d->closePanel());
         if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));dialog.getWindow().setGravity(Gravity.CENTER);}
         dialog.show();
@@ -585,7 +618,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private void startWake(){
         if(!resumed||isDestroyed()||busy||config==null||config.optBoolean("auth_invalid",false)||wakeListener!=null)return; // SPEC 0.10 pkt 8.2: no socket to HA at all while the token is refused - the assist pipeline included
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
-            dashboard.setMessage("Mikrofon wymaga zgody. Przytrzymaj HELIOS → Rozmowa.");
+            dashboard.setMessage(I18n.t("Mikrofon wymaga zgody. Przytrzymaj HELIOS → Rozmowa."));
             if(!getSharedPreferences("helios",MODE_PRIVATE).getBoolean("microphone_requested",false)){
                 getSharedPreferences("helios",MODE_PRIVATE).edit().putBoolean("microphone_requested",true).apply();
                 requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},2);
@@ -593,7 +626,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             return;
         }
         final WakeWordListener current=new WakeWordListener();wakeListener=current;
-        dashboard.setMessage("Uruchamiam nasłuch Okay Nabu…");
+        dashboard.setMessage(I18n.t("Uruchamiam nasłuch Okay Nabu…"));
         audio.execute(()->{
             boolean detected=false;String failure=null;
             try{detected=current.listen(this,()->{
@@ -604,7 +637,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             onEvent("wake_microphone_released",found?"detected":"stopped");
             main.post(()->{
                 if(wakeListener!=current)return;wakeListener=null;
-                if(error!=null){onEvent("wake_error",error);dashboard.setMessage("Nasłuch hasła niedostępny.\nPrzytrzymaj HELIOS → Rozmowa.");}
+                if(error!=null){onEvent("wake_error",error);dashboard.setMessage(I18n.t("Nasłuch hasła niedostępny.\nPrzytrzymaj HELIOS → Rozmowa."));}
                 else if(found&&resumed&&!busy){onEvent("wake_detected","Okay Nabu");wakePanel();startVoice();}
             });
         });
@@ -647,17 +680,17 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     private TextView onboardingText(String text,float px,boolean muted){TextView v=new TextView(this);v.setText(text);v.setTextColor(muted?Theme.current().muted:Theme.current().text);v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px);return v;}
     private void showList(android.widget.FrameLayout root,float s,boolean allowLater){
         root.removeAllViews();if(discovery!=null){discovery.stop();discovery=null;}
-        place(root,onboardingText("Wybierz Home Assistant",26*s,false),OnboardingGeometry.TITLE,s);
+        place(root,onboardingText(I18n.t("Wybierz Home Assistant"),26*s,false),OnboardingGeometry.TITLE,s);
         LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);place(root,list,OnboardingGeometry.LIST,s);
-        TextView status=onboardingText("Szukam HA w sieci…",15*s,true);place(root,status,OnboardingGeometry.STATUS,s);
-        Button manual=Theme.button(this,"Wpisz adres",true,18*s,Theme.RADIUS*s);place(root,manual,OnboardingGeometry.MANUAL,s);manual.setOnClickListener(v->showManual(root,s,allowLater));
-        if(allowLater){Button later=Theme.button(this,"Później",false,18*s,Theme.RADIUS*s);place(root,later,OnboardingGeometry.LATER,s);later.setOnClickListener(v->closeOnboarding());}
-        else if(config!=null){Button cancel=Theme.button(this,"Anuluj",false,18*s,Theme.RADIUS*s);place(root,cancel,OnboardingGeometry.CANCEL,s);cancel.setOnClickListener(v->closeOnboarding());}
+        TextView status=onboardingText(I18n.t("Szukam HA w sieci…"),15*s,true);place(root,status,OnboardingGeometry.STATUS,s);
+        Button manual=Theme.button(this,I18n.t("Wpisz adres"),true,18*s,Theme.RADIUS*s);place(root,manual,OnboardingGeometry.MANUAL,s);manual.setOnClickListener(v->showManual(root,s,allowLater));
+        if(allowLater){Button later=Theme.button(this,I18n.t("Później"),false,18*s,Theme.RADIUS*s);place(root,later,OnboardingGeometry.LATER,s);later.setOnClickListener(v->closeOnboarding());}
+        else if(config!=null){Button cancel=Theme.button(this,I18n.t("Anuluj"),false,18*s,Theme.RADIUS*s);place(root,cancel,OnboardingGeometry.CANCEL,s);cancel.setOnClickListener(v->closeOnboarding());}
         final boolean[] any={false};
         discovery=new HaDiscovery(this,servers->{
             if(onboardingDialog==null||list.getParent()==null)return;
             list.removeAllViews();any[0]=!servers.isEmpty();
-            if(any[0])status.setText(servers.size()==1?"Znaleziono 1 serwer":"Znaleziono "+servers.size()+" serwery - wybierz świadomie");
+            if(any[0])status.setText(servers.size()==1?I18n.t("Znaleziono 1 serwer"):I18n.t("Znaleziono ")+servers.size()+I18n.t(" serwery - wybierz świadomie"));
             for(HaDiscovery.Server server:servers){
                 Button row=Theme.button(this,server.name+"\n"+server.host+":"+server.port+(server.version.isEmpty()?"":" · "+server.version),false,16*s,Theme.RADIUS*s);
                 row.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);row.setPadding(Math.round(12*s),0,Math.round(12*s),0);
@@ -666,19 +699,19 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             }
         });
         discovery.start();
-        main.postDelayed(()->{if(onboardingDialog!=null&&status.getParent()!=null&&!any[0])status.setText("Nie znaleziono HA w sieci - wpisz adres");},10000);
+        main.postDelayed(()->{if(onboardingDialog!=null&&status.getParent()!=null&&!any[0])status.setText(I18n.t("Nie znaleziono HA w sieci - wpisz adres"));},10000);
     }
     private void chooseServer(android.widget.FrameLayout root,float s,boolean allowLater,String url){
         if(discovery!=null){discovery.stop();discovery=null;}
         if(config!=null&&config.optInt("protocol",1)>=2&&!config.optBoolean("auth_invalid",false)){
-            confirmDialog("Zegar jest sparowany z "+config.optString("url","")+". Nowe parowanie zastąpi to połączenie; stary wpis usuń w HA.","Dalej",()->showInstruction(root,s,allowLater,url,null),()->showList(root,s,allowLater));
+            confirmDialog(I18n.t("Zegar jest sparowany z ")+config.optString("url","")+I18n.t(". Nowe parowanie zastąpi to połączenie; stary wpis usuń w HA."),I18n.t("Dalej"),()->showInstruction(root,s,allowLater,url,null),()->showList(root,s,allowLater));
             return;
         }
         showInstruction(root,s,allowLater,url,null);
     }
     private void showManual(android.widget.FrameLayout root,float s,boolean allowLater){
         root.removeAllViews();if(discovery!=null){discovery.stop();discovery=null;}
-        place(root,onboardingText("Adres Home Assistant (np. 192.168.1.20 lub 192.168.1.20:8123)",18*s,true),OnboardingGeometry.TITLE,s);
+        place(root,onboardingText(I18n.t("Adres Home Assistant (np. 192.168.1.20 lub 192.168.1.20:8123)"),18*s,true),OnboardingGeometry.TITLE,s);
         LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setGravity(Gravity.CENTER_HORIZONTAL);
         TextView typed=onboardingText("",28*s,false);typed.setGravity(Gravity.CENTER);column.addView(typed,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
         String[][] keys={{"1","2","3","."},{"4","5","6",":"},{"7","8","9","⌫"},{"0","OK"}};
@@ -690,37 +723,37 @@ public final class MainActivity extends Activity implements AssistClient.Listene
                 b.setOnClickListener(v->{
                     String current=typed.getText().toString();
                     if(key.equals("⌫")){if(!current.isEmpty())typed.setText(current.substring(0,current.length()-1));}
-                    else if(key.equals("OK")){String url=AddressInput.parse(current);if(url==null)dashboard.setMessage("Nieprawidłowy adres");else showInstruction(root,s,allowLater,url,null);}
+                    else if(key.equals("OK")){String url=AddressInput.parse(current);if(url==null)dashboard.setMessage(I18n.t("Nieprawidłowy adres"));else showInstruction(root,s,allowLater,url,null);}
                     else if(current.length()<64)typed.setText(current+key);
                 });
             }
         }
         place(root,column,new OverlayGeometry.Box(20,64,440,400),s);
-        Button back=Theme.button(this,"Wróć",false,18*s,Theme.RADIUS*s);place(root,back,OnboardingGeometry.CANCEL,s);back.setOnClickListener(v->showList(root,s,allowLater));
+        Button back=Theme.button(this,I18n.t("Wróć"),false,18*s,Theme.RADIUS*s);place(root,back,OnboardingGeometry.CANCEL,s);back.setOnClickListener(v->showList(root,s,allowLater));
     }
     private void showInstruction(android.widget.FrameLayout root,float s,boolean allowLater,String url,String error){
         root.removeAllViews();
         place(root,onboardingText(url,18*s,true),OnboardingGeometry.TITLE,s);
-        TextView text=onboardingText(error!=null?error:"W HA: Ustawienia → Integracje → Dodaj → Helios. Gdy zobaczysz kod, dotknij Dalej.",22*s,false);place(root,text,new OverlayGeometry.Box(20,64,440,360),s);
-        Button next=Theme.button(this,error!=null?"Ponów":"Dalej",true,18*s,Theme.RADIUS*s);place(root,next,OnboardingGeometry.MANUAL,s);
-        Button back=Theme.button(this,"Wróć",false,18*s,Theme.RADIUS*s);place(root,back,OnboardingGeometry.CANCEL,s);back.setOnClickListener(v->showList(root,s,allowLater));
+        TextView text=onboardingText(error!=null?error:I18n.t("W HA: Ustawienia → Integracje → Dodaj → Helios. Gdy zobaczysz kod, dotknij Dalej."),22*s,false);place(root,text,new OverlayGeometry.Box(20,64,440,360),s);
+        Button next=Theme.button(this,error!=null?I18n.t("Ponów"):I18n.t("Dalej"),true,18*s,Theme.RADIUS*s);place(root,next,OnboardingGeometry.MANUAL,s);
+        Button back=Theme.button(this,I18n.t("Wróć"),false,18*s,Theme.RADIUS*s);place(root,back,OnboardingGeometry.CANCEL,s);back.setOnClickListener(v->showList(root,s,allowLater));
         next.setOnClickListener(v->{
-            next.setEnabled(false);text.setText("Sprawdzam "+url+"…");
+            next.setEnabled(false);text.setText(I18n.t("Sprawdzam ")+url+"…");
             network.execute(()->{int status=PairingClient.probe(url);main.post(()->{
                 if(onboardingDialog==null||root.getParent()==null)return;
                 if(status==200)showCode(root,s,allowLater,url);
-                else showInstruction(root,s,allowLater,url,status==404?"HA pod tym adresem nie ma integracji Helios ≥ 0.8 albo kreator nie jest otwarty. Zainstaluj ją z HACS, otwórz Dodaj → Helios i dotknij Ponów.":"HA nie odpowiada pod tym adresem.");
+                else showInstruction(root,s,allowLater,url,status==404?I18n.t("HA pod tym adresem nie ma integracji Helios ≥ 0.8 albo kreator nie jest otwarty. Zainstaluj ją z HACS, otwórz Dodaj → Helios i dotknij Ponów."):I18n.t("HA nie odpowiada pod tym adresem."));
             });});
         });
     }
     private void showCode(android.widget.FrameLayout root,float s,boolean allowLater,String url){
         root.removeAllViews();
-        place(root,onboardingText("Kod z HA: Ustawienia → Integracje → Dodaj → Helios",18*s,true),OnboardingGeometry.TITLE,s);
+        place(root,onboardingText(I18n.t("Kod z HA: Ustawienia → Integracje → Dodaj → Helios"),18*s,true),OnboardingGeometry.TITLE,s);
         LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);column.setGravity(Gravity.CENTER_HORIZONTAL);
         TextView code=onboardingText("",30*s,false);code.setGravity(Gravity.CENTER);code.setLetterSpacing(.3f);column.addView(code,new LinearLayout.LayoutParams(-1,Math.round(44*s)));
         final java.util.List<Button> keys=new java.util.ArrayList<>();
         String[][] layout={{"1","2","3"},{"4","5","6"},{"7","8","9"},{"⌫","0","OK"}};
-        Button cancel=Theme.button(this,"Anuluj",false,18*s,Theme.RADIUS*s);
+        Button cancel=Theme.button(this,I18n.t("Anuluj"),false,18*s,Theme.RADIUS*s);
         final Runnable[] lock=new Runnable[2];
         lock[0]=()->{for(Button b:keys)b.setEnabled(false);cancel.setEnabled(false);}; // from POST to answer: the HA-side transaction cannot be undone from the clock
         lock[1]=()->{for(Button b:keys)b.setEnabled(true);cancel.setEnabled(true);code.setText("");}; // a refused code is cleared: the next six digits start fresh
@@ -728,7 +761,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);column.addView(row);
             for(String key:rowKeys){
                 Button b=Theme.button(this,key,key.equals("OK"),22*s,Theme.RADIUS*s);keys.add(b);
-                b.setContentDescription(key.equals("⌫")?"Usuń ostatnią cyfrę":key.equals("OK")?"Zatwierdź kod":"Cyfra "+key);
+                b.setContentDescription(key.equals("⌫")?I18n.t("Usuń ostatnią cyfrę"):key.equals("OK")?I18n.t("Zatwierdź kod"):I18n.t("Cyfra ")+key);
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.round(84*s),Math.round(58*s));p.rightMargin=Math.round(6*s);p.bottomMargin=Math.round(6*s);row.addView(b,p);
                 b.setOnClickListener(v->{
                     String current=code.getText().toString();
@@ -743,17 +776,17 @@ public final class MainActivity extends Activity implements AssistClient.Listene
     }
     /** unlock runs on every error path; a success closes the window. The service persists a 200 even if this activity is gone meanwhile. */
     private void startPairing(String url,String code,Runnable unlock){
-        if(service==null){dashboard.setMessage("Serwis Heliosa jeszcze startuje - spróbuj za chwilę");unlock.run();return;}
-        dashboard.setMessage("Paruję z HA…");
+        if(service==null){dashboard.setMessage(I18n.t("Serwis Heliosa jeszcze startuje - spróbuj za chwilę"));unlock.run();return;}
+        dashboard.setMessage(I18n.t("Paruję z HA…"));
         service.pair(url,code,error->{
             if(isDestroyed())return;
             if(error!=null){
                 dashboard.setMessage(error);config=service.connection();unlock.run();
-                if(error.startsWith("Nie udało się zapisać")&&onboardingDialog!=null){android.widget.FrameLayout root=(android.widget.FrameLayout)onboardingDialog.findViewById(android.R.id.content);if(root!=null&&root.getChildCount()>0)showList((android.widget.FrameLayout)root.getChildAt(0),units(),false);} // terminal save failure only: a fresh pairing from the list; a wrong code keeps the keypad
+                if(error.startsWith(I18n.t("Nie udało się zapisać"))&&onboardingDialog!=null){android.widget.FrameLayout root=(android.widget.FrameLayout)onboardingDialog.findViewById(android.R.id.content);if(root!=null&&root.getChildCount()>0)showList((android.widget.FrameLayout)root.getChildAt(0),units(),false);} // terminal save failure only: a fresh pairing from the list; a wrong code keeps the keypad
                 return;
             }
             pairing=true;closeOnboarding();config=service.connection();onEvent("configured","Helios "+BuildConfig.VERSION_NAME);startWake();attachHa();
-            main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage("HA nie potwierdził połączenia");}},20000);
+            main.postDelayed(()->{if(pairing){pairing=false;dashboard.setMessage(I18n.t("HA nie potwierdził połączenia"));}},20000);
         });
     }
 
@@ -803,15 +836,15 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         ToolsState state=ToolsBridge.stateFrom(this,toolsSnapshot);
         java.util.List<String> items=ToolsMenu.items(state);
         LinearLayout column=Theme.dialogColumn(this,16);
-        column.addView(Theme.label(this,"Narzędzia zegara",20,false));
+        column.addView(Theme.label(this,I18n.t("Narzędzia zegara"),20,false));
         String pending=ToolsBridge.pendingOpId(this);
-        if(pending!=null)column.addView(Theme.label(this,"Trwa: "+ToolsBridge.pendingOp(this),13,true));
+        if(pending!=null)column.addView(Theme.label(this,I18n.t("Trwa: ")+ToolsBridge.pendingOp(this),13,true));
         String explain=ToolsTrust.explain(state.trust);
         if(!explain.isEmpty())column.addView(Theme.label(this,explain,13,true));
         ScrollView scroll=new ScrollView(this);
         LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);scroll.addView(rows);
         for(String item:items){
-            Button button=Theme.button(this,item,false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
+            Button button=Theme.button(this,I18n.t(item),false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
             button.setOnClickListener(v->{closePanel();toolsAction(item);});
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,Theme.dp(this,52));p.topMargin=Theme.dp(this,8);
             rows.addView(button,p);
@@ -819,7 +852,7 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         // seven entries plus a header do not fit on an 800x480 screen, and the ones that fall off are the repairs
         // wrap_content with a weight: the list takes the room it needs, and gives it back when the screen is short
         column.addView(scroll,new LinearLayout.LayoutParams(-1,-2,1));
-        Button close=Theme.button(this,"Zamknij",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
+        Button close=Theme.button(this,I18n.t("Zamknij"),false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));
         close.setOnClickListener(v->closePanel());
         LinearLayout.LayoutParams c=new LinearLayout.LayoutParams(-1,Theme.dp(this,52));c.topMargin=Theme.dp(this,12);
         column.addView(close,c);
@@ -831,11 +864,11 @@ public final class MainActivity extends Activity implements AssistClient.Listene
 
     private void toolsAction(String item){
         if(ToolsMenu.INSTALL.equals(item)||ToolsMenu.UPDATE.equals(item)){
-            if(service==null){toast("Usługa Heliosa jeszcze nie działa");return;}
+            if(service==null){toast(I18n.t("Usługa Heliosa jeszcze nie działa"));return;}
             ToolsTrust.Installed tool=ToolsBridge.installed(this);
             // the installed version of the tool decides, not the version of Helios
             service.install(ReleaseInfo.TOOLS,tool==null?"":ToolsBridge.installedVersionName(this));
-            toast("Pobieram narzędzia zegara…");
+            toast(I18n.t("Pobieram narzędzia zegara…"));
             return;
         }
         if(ToolsMenu.ACCEPT.equals(item)){acceptTools();return;}
@@ -850,10 +883,10 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         else if(ToolsMenu.SET_HOME.equals(item))op="set_home";
         else if(ToolsMenu.PERMISSION_MIC.equals(item)){op="grant_permission";args=ToolsBridge.grantArgs("android.permission.RECORD_AUDIO");}
         if(op==null)return;
-        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){toast("Poprzednia operacja jeszcze trwa");return;}
+        if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){toast(I18n.t("Poprzednia operacja jeszcze trwa"));return;}
         if(ToolsBridge.start(this,op,args,null)==null){
             String why=ToolsTrust.explain(ToolsBridge.status(this));
-            toast(why.isEmpty()?"Nie udało się uruchomić narzędzi":why);
+            toast(why.isEmpty()?I18n.t("Nie udało się uruchomić narzędzi"):why);
         }
     }
 
@@ -861,12 +894,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
 
     /** Downloads our own update and lets the tools install it, so no installer dialog appears on the clock. */
     private void silentUpdate(){
-        if(service==null){toast("Usługa Heliosa jeszcze nie działa");return;}
+        if(service==null){toast(I18n.t("Usługa Heliosa jeszcze nie działa"));return;}
         if(!ToolsTrust.mayCall(ToolsBridge.status(this))){toast(ToolsTrust.explain(ToolsBridge.status(this)));return;}
         if(!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){
-            toast("Poprzednia operacja jeszcze trwa");return;
+            toast(I18n.t("Poprzednia operacja jeszcze trwa"));return;
         }
-        toast("Szukam nowej wersji…");
+        toast(I18n.t("Szukam nowej wersji…"));
         service.fetchForBridge(file->main.post(()->{
             if(file==null)return;                                  // the updater already said why
             if(gone()){file.delete();return;}                      // nobody left to hand the result to
@@ -874,17 +907,17 @@ public final class MainActivity extends Activity implements AssistClient.Listene
             if(!ToolsTrust.mayCall(ToolsBridge.status(this))
                     ||!ToolsCall.mayStartAnother(ToolsBridge.pendingOpId(this),
                             ToolsCall.stageOf(toolsSnapshot,ToolsBridge.pendingOpId(this)))){
-                file.delete();toast("Poprzednia operacja jeszcze trwa");return;
+                file.delete();toast(I18n.t("Poprzednia operacja jeszcze trwa"));return;
             }
             // a file per hand-off: the tools may still be copying the previous one
             String opId=ToolsCall.newOpId();
             java.io.File shared=ApkProvider.shared(this,opId);
-            if(!moveInto(file,shared)){shared.delete();toast("Nie udało się przygotować pliku");return;}
+            if(!moveInto(file,shared)){shared.delete();toast(I18n.t("Nie udało się przygotować pliku"));return;}
             android.net.Uri uri=ApkProvider.uriFor(this,opId);
-            if(uri==null){shared.delete();toast("Nie udało się przygotować pliku");return;}
+            if(uri==null){shared.delete();toast(I18n.t("Nie udało się przygotować pliku"));return;}
             if(!ToolsBridge.startWithFile(this,"install_apk","",opId,uri)){
                 shared.delete();
-                toast("Nie udało się uruchomić narzędzi");
+                toast(I18n.t("Nie udało się uruchomić narzędzi"));
             }
         }));
     }
@@ -903,12 +936,12 @@ public final class MainActivity extends Activity implements AssistClient.Listene
 
     private void acceptTools(){
         ToolsTrust.Installed tool=ToolsBridge.installed(this);
-        if(tool==null){toast("Narzędzia nie są zainstalowane");return;}
+        if(tool==null){toast(I18n.t("Narzędzia nie są zainstalowane"));return;}
         String fingerprint=tool.fingerprint.length()<=16?tool.fingerprint:tool.fingerprint.substring(0,16)+"...";
-        confirmDialog("Pozwolić narzędziom zegara nadawać uprawnienia Heliosowi?\n\nPodpis "+fingerprint,
-                "Pozwól",()->{
-                    if(ToolsBridge.accept(this,tool.fingerprint))toast("Narzędzia zaakceptowane");
-                    else toast("Narzędzia zmieniły się w międzyczasie, spróbuj ponownie");
+        confirmDialog(I18n.t("Pozwolić narzędziom zegara nadawać uprawnienia Heliosowi?\n\nPodpis ")+fingerprint,
+                I18n.t("Pozwól"),()->{
+                    if(ToolsBridge.accept(this,tool.fingerprint))toast(I18n.t("Narzędzia zaakceptowane"));
+                    else toast(I18n.t("Narzędzia zmieniły się w międzyczasie, spróbuj ponownie"));
                 },()->{});
     }
 
@@ -958,26 +991,26 @@ public final class MainActivity extends Activity implements AssistClient.Listene
         float d=getResources().getDisplayMetrics().density;int pad=Math.round(12*d);
         DockController dock=service.dock();DeviceVolume volume=service.volume();
         LinearLayout column=Theme.dialogColumn(this,16);column.setMinimumWidth(Math.round(360*d));
-        TextView volumeLabel=Theme.label(this,"Głośność urządzenia: "+volume.percent()+"%",16,false);column.addView(volumeLabel);
+        TextView volumeLabel=Theme.label(this,I18n.t("Głośność urządzenia: ")+volume.percent()+"%",16,false);column.addView(volumeLabel);
         android.widget.SeekBar volumeBar=new android.widget.SeekBar(this);volumeBar.setMax(100);volumeBar.setProgress(volume.percent());Theme.tint(volumeBar);column.addView(volumeBar,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
         volumeBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){volumeLabel.setText("Głośność urządzenia: "+p+"%");}
+            public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){volumeLabel.setText(I18n.t("Głośność urządzenia: ")+p+"%");}
             public void onStartTrackingTouch(android.widget.SeekBar s){}
-            public void onStopTrackingTouch(android.widget.SeekBar s){int applied=volume.set(s.getProgress());volumeLabel.setText("Głośność urządzenia: "+applied+"%");service.publish();}
+            public void onStopTrackingTouch(android.widget.SeekBar s){int applied=volume.set(s.getProgress());volumeLabel.setText(I18n.t("Głośność urządzenia: ")+applied+"%");service.publish();}
         });
         boolean lampAvailable=dock.unavailable()==null&&!Boolean.FALSE.equals(dock.dockConnected());
         TextView lampLabel=Theme.label(this,"",16,false);lampLabel.setPadding(0,pad,0,0);
-        lampLabel.setText(lampAvailable?"Lampka docka":"Lampka docka: "+(dock.unavailable()!=null?dock.unavailable():"dock odłączony"));column.addView(lampLabel);
-        android.widget.Switch lamp=new android.widget.Switch(this);lamp.setText("Włączona");lamp.setTextColor(Theme.current().text);lamp.setThumbTintList(android.content.res.ColorStateList.valueOf(Theme.current().accent));lamp.setChecked(Boolean.TRUE.equals(dock.ledOn()));lamp.setEnabled(lampAvailable);column.addView(lamp,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
-        TextView brightLabel=Theme.label(this,"Jasność: "+(dock.ledBrightness()==null?"—":dock.ledBrightness()+"/10"),16,false);column.addView(brightLabel);
+        lampLabel.setText(lampAvailable?I18n.t("Lampka docka"):I18n.t("Lampka docka: ")+(dock.unavailable()!=null?dock.unavailable():I18n.t("dock odłączony")));column.addView(lampLabel);
+        android.widget.Switch lamp=new android.widget.Switch(this);lamp.setText(I18n.t("Włączona"));lamp.setTextColor(Theme.current().text);lamp.setThumbTintList(android.content.res.ColorStateList.valueOf(Theme.current().accent));lamp.setChecked(Boolean.TRUE.equals(dock.ledOn()));lamp.setEnabled(lampAvailable);column.addView(lamp,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
+        TextView brightLabel=Theme.label(this,I18n.t("Jasność: ")+(dock.ledBrightness()==null?"—":dock.ledBrightness()+"/10"),16,false);column.addView(brightLabel);
         android.widget.SeekBar bright=new android.widget.SeekBar(this);bright.setMax(9);bright.setProgress(dock.ledBrightness()==null?6:dock.ledBrightness()-1);bright.setEnabled(lampAvailable);Theme.tint(bright);column.addView(bright,new LinearLayout.LayoutParams(-1,Math.round(48*d)));
-        lamp.setOnCheckedChangeListener((b,on)->network.execute(()->{try{if(on)dock.turnOn();else dock.turnOff();}catch(Exception e){main.post(()->Toast.makeText(this,"Lampka: "+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}}));
+        lamp.setOnCheckedChangeListener((b,on)->network.execute(()->{try{if(on)dock.turnOn();else dock.turnOff();}catch(Exception e){main.post(()->Toast.makeText(this,I18n.t("Lampka: ")+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}}));
         bright.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){brightLabel.setText("Jasność: "+(p+1)+"/10");}
+            public void onProgressChanged(android.widget.SeekBar s,int p,boolean u){brightLabel.setText(I18n.t("Jasność: ")+(p+1)+"/10");}
             public void onStartTrackingTouch(android.widget.SeekBar s){}
-            public void onStopTrackingTouch(android.widget.SeekBar s){int level=s.getProgress()+1;network.execute(()->{try{dock.setBrightness(level);if(lamp.isChecked())dock.turnOn();}catch(Exception e){main.post(()->Toast.makeText(MainActivity.this,"Lampka: "+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}});}
+            public void onStopTrackingTouch(android.widget.SeekBar s){int level=s.getProgress()+1;network.execute(()->{try{dock.setBrightness(level);if(lamp.isChecked())dock.turnOn();}catch(Exception e){main.post(()->Toast.makeText(MainActivity.this,I18n.t("Lampka: ")+e.getClass().getSimpleName(),Toast.LENGTH_SHORT).show());}});}
         });
-        Button close=Theme.button(this,"Zamknij",false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));close.setOnClickListener(v->closePanel());
+        Button close=Theme.button(this,I18n.t("Zamknij"),false,Theme.dp(this,17),Theme.dp(this,Theme.RADIUS));close.setOnClickListener(v->closePanel());
         LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,Math.round(56*d));cl.topMargin=pad;column.addView(close,cl);
         Dialog dialog=new Dialog(this);panel=dialog;dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);dialog.setContentView(column);dialog.setCanceledOnTouchOutside(true);dialog.setOnCancelListener(x->panel=null);
         if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));

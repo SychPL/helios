@@ -8,7 +8,7 @@ import static org.junit.Assert.*;
 public class CardRegistryTest {
     @Test public void everyDefinedTypeHasABodyAndNothingElseDoes(){
         assertEquals(CardDefinition.ALL.keySet(),CardBodies.FOR.keySet());
-        assertEquals(Arrays.asList("clock","weather","entity","light","cover","garage","music","cover_group","tile","climate","alerts","energy","entities"),new ArrayList<>(CardDefinition.ALL.keySet()));
+        assertEquals(Arrays.asList("clock","weather","entity","light","cover","garage","music","cover_group","tile","climate","alerts","energy","entities","spotify","assistant","predbat","day_plan"),new ArrayList<>(CardDefinition.ALL.keySet()));
     }
     @Test public void everyActionOpensAPanelOrCallsOneServiceNeverBoth(){
         for(CardDefinition def:CardDefinition.ALL.values()){

@@ -40,7 +40,7 @@ final class HaDashboardClient {
     private JSONObject lastRaw;
     private DashboardSpec lastSpec;
     private Map<String,EntityStates.Entity> lastStates=Collections.emptyMap();
-    private String lastIssue,lastReason="Łączenie z konfiguracją ekranu w HA…";
+    private String lastIssue,lastReason=I18n.t("Łączenie z konfiguracją ekranu w HA…");
     private final AtomicInteger ids=new AtomicInteger(1);
     private final Map<Integer,Pending> pending=new ConcurrentHashMap<>();
     private final Map<Integer,Subscription> subscriptions=new ConcurrentHashMap<>();
@@ -70,13 +70,13 @@ final class HaDashboardClient {
     void callService(String domain,String service,String entityId,Consumer<String> done){callService(domain,service,entityId,null,done);}
     /** The same with service_data - built only by ActionPolicy.climateData, never from config text. */
     void callService(String domain,String service,String entityId,JSONObject data,Consumer<String> done){
-        if(!live){done.accept("Brak połączenia z Home Assistant");return;}
+        if(!live){done.accept(I18n.t("Brak połączenia z Home Assistant"));return;}
         try{
             JSONObject call=new JSONObject().put("type","call_service").put("domain",domain).put("service",service).put("target",new JSONObject().put("entity_id",entityId));
             if(data!=null)call.put("service_data",data);
             request(call,
-                m->done.accept(m.optBoolean("success")?null:errorText(m,"HA odrzucił polecenie")));
-        }catch(JSONException e){done.accept("Nie udało się wysłać polecenia");}
+                m->done.accept(m.optBoolean("success")?null:errorText(m,I18n.t("HA odrzucił polecenie"))));
+        }catch(JSONException e){done.accept(I18n.t("Nie udało się wysłać polecenia"));}
     }
     private static String errorText(JSONObject m,String fallback){JSONObject error=m.optJSONObject("error");return error==null?fallback:error.optString("message",fallback);}
     /** HA's structural error.code of a result; subscriptions end with this code (never the translated message), "subscription_rejected" without one. */
@@ -84,7 +84,7 @@ final class HaDashboardClient {
     /** Sends a command on the authenticated session; result receives HA's whole result message or a synthesized failure. Returns the id or -1. */
     int request(JSONObject payload,Consumer<JSONObject> result){
         Socket s=socket;
-        if(s==null||!authenticated){result.accept(failure("Brak połączenia z Home Assistant"));return -1;}
+        if(s==null||!authenticated){result.accept(failure(I18n.t("Brak połączenia z Home Assistant")));return -1;}
         try{
             synchronized(this){
                 int id=ids.getAndIncrement();
@@ -92,7 +92,7 @@ final class HaDashboardClient {
                 try{s.send(payload.put("id",id).toString());}catch(Exception e){pending.remove(id);throw e;}
                 return id;
             }
-        }catch(Exception e){result.accept(failure("Nie udało się wysłać polecenia"));return -1;}
+        }catch(Exception e){result.accept(failure(I18n.t("Nie udało się wysłać polecenia")));return -1;}
     }
     /** Like request, but events with this id go to event until the session ends (ended receives a code: HA's error.code, "disconnected", "send_failed"). Not renewed automatically: subscribe again in onSessionStarted. */
     int subscribe(JSONObject payload,Consumer<JSONObject> event,Consumer<String> ended){
@@ -115,7 +115,7 @@ final class HaDashboardClient {
     }
     private void expirePending(){
         long now=System.nanoTime();
-        for(Map.Entry<Integer,Pending> e:new ArrayList<>(pending.entrySet()))if(now>e.getValue().deadline&&pending.remove(e.getKey())!=null)e.getValue().done.accept(failure("HA nie potwierdził polecenia w czasie "+(CALL_TIMEOUT_MS/1000)+" s"));
+        for(Map.Entry<Integer,Pending> e:new ArrayList<>(pending.entrySet()))if(now>e.getValue().deadline&&pending.remove(e.getKey())!=null)e.getValue().done.accept(failure(I18n.t("HA nie potwierdził polecenia w czasie ")+(CALL_TIMEOUT_MS/1000)+" s"));
     }
     private void emitDashboard(JSONObject raw,DashboardSpec spec,Map<String,EntityStates.Entity> states,String issue){
         synchronized(replay){haveDashboard=true;lastRaw=raw;lastSpec=spec;lastStates=states;lastIssue=issue;live=true;for(Listener l:listeners)l.onDashboard(raw,spec,states,issue);}
@@ -140,13 +140,13 @@ final class HaDashboardClient {
         JSONObject next(int seconds) throws Exception {
             long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(seconds);
             while(!stopped&&System.nanoTime()<until){
-                if(failed)throw new IOException("Połączenie z HA przerwane");
+                if(failed)throw new IOException(I18n.t("Połączenie z HA przerwane"));
                 JSONObject message=queue.poll(200,TimeUnit.MILLISECONDS);if(message!=null)return message;
             }
             if(stopped)throw new InterruptedException();
             return null;
         }
-        JSONObject required() throws Exception {JSONObject m=next(15);if(m==null)throw new IOException("HA nie odpowiada");return m;}
+        JSONObject required() throws Exception {JSONObject m=next(15);if(m==null)throw new IOException(I18n.t("HA nie odpowiada"));return m;}
     }
     private void loop(){
         int delay=2;
@@ -154,8 +154,8 @@ final class HaDashboardClient {
             boolean reload=false;
             try{reload=session();delay=2;}
             catch(InterruptedException e){Thread.currentThread().interrupt();break;}
-            catch(Exception e){if(!stopped)emitUnavailable("HA niedostępny - dane nieaktualne");}
-            finally{if(authenticated)delay=2;authenticated=false;live=false;Socket old=socket;socket=null;if(old!=null)old.close();failPending("Połączenie z HA przerwane");} // a session that authenticated resets the backoff: the next attempt is 2 s away, not the tail of an old handshake storm
+            catch(Exception e){if(!stopped)emitUnavailable(I18n.t("HA niedostępny - dane nieaktualne"));}
+            finally{if(authenticated)delay=2;authenticated=false;live=false;Socket old=socket;socket=null;if(old!=null)old.close();failPending(I18n.t("Połączenie z HA przerwane"));} // a session that authenticated resets the backoff: the next attempt is 2 s away, not the tail of an old handshake storm
             if(!stopped&&!reload)try{Thread.sleep(delay*1000L);delay=Math.min(30,delay*2);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
         }
     }
@@ -167,7 +167,7 @@ final class HaDashboardClient {
         if(!s.required().optString("type").equals("auth_required"))throw new IOException("HA handshake");
         s.send(new JSONObject().put("type","auth").put("access_token",connection.getString("token")).toString());
         JSONObject auth=s.required();String authType=auth.optString("type");
-        if(authType.equals("auth_invalid")){stopped=true;emitUnavailable("HA odrzucił token - sparuj ponownie");for(Listener l:listeners)l.onAuthInvalid();return false;} // permanent: no retry until a new token is stored
+        if(authType.equals("auth_invalid")){stopped=true;emitUnavailable(I18n.t("HA odrzucił token - sparuj ponownie"));for(Listener l:listeners)l.onAuthInvalid();return false;} // permanent: no retry until a new token is stored
         if(!authType.equals("auth_ok"))throw new IOException("HA authentication"); // anything else is a transient handshake failure and retries as before
         String path=connection.optString("dashboard_path","helios-clock");
         int updatesId=send(s,new JSONObject().put("type","subscribe_events").put("event_type","lovelace_updated"));
@@ -190,11 +190,11 @@ final class HaDashboardClient {
                     continue;
                 }
                 if(!m.optBoolean("success")){
-                    if(id!=configId)throw new IOException("Subskrypcja odrzucona");
-                    issue="Panel Helios nie jest dostępny w HA";
+                    if(id!=configId)throw new IOException(I18n.t("Subskrypcja odrzucona"));
+                    issue=I18n.t("Panel Helios nie jest dostępny w HA");
                 }else if(id==configId){
                     try{raw=m.getJSONObject("result").getJSONObject("helios");spec=DashboardSpec.parse(raw);lastGood=spec;lastGoodRaw=raw;}
-                    catch(Exception e){issue="Błąd konfiguracji w HA: "+e.getMessage();spec=null;raw=null;}
+                    catch(Exception e){issue=I18n.t("Błąd konfiguracji w HA: ")+e.getMessage();spec=null;raw=null;}
                 }
                 if(id==configId){
                     // A broken or missing document never removes the last good layout; its entities stay live.
@@ -208,7 +208,7 @@ final class HaDashboardClient {
             }else if(type.equals("event")){
                 JSONObject event=m.getJSONObject("event");
                 if(id==updatesId){
-                    if(path.equals(event.optJSONObject("data")==null?null:event.getJSONObject("data").optString("url_path"))){emitUnavailable("Odświeżam konfigurację z HA…");return true;}
+                    if(path.equals(event.optJSONObject("data")==null?null:event.getJSONObject("data").optString("url_path"))){emitUnavailable(I18n.t("Odświeżam konfigurację z HA…"));return true;}
                 }else if(id==entitiesId&&spec!=null){
                     states.apply(event);
                     if(!initial){initial=true;emitDashboard(raw,spec,states.snapshot(),issue);}

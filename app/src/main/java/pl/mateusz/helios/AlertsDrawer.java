@@ -43,14 +43,15 @@ final class AlertsDrawer {
         Dialog confirm(String question,Runnable ok);
     }
     static final long IDLE_MS=120_000;
-    /** Window below the 52-unit bar; list from y=124 on screen (72 inside the window). */
-    static final int WIN_Y=52,WIN_W=800,WIN_H=428,LIST_Y=72,ROW_MIN=100,ROW_GAP=8,BUTTON_COLUMN=112;
+    /** Window below the 52-unit bar, as wide as the screen (800 units on the clock); list from y=124 on screen (72 inside the window). */
+    static final int WIN_Y=52,LIST_Y=72,ROW_MIN=100,ROW_GAP=8,BUTTON_COLUMN=112;
 
     final Dialog dialog;
     Runnable onUserClose;
     private final Activity activity;private final DashboardSpec.Item item;private final Host host;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final float s;
+    private final int winW,winH;
     private final android.graphics.Typeface sans;
     private final FrameLayout root;
     private final IconView headIcon;private final TextView headCount;
@@ -69,7 +70,7 @@ final class AlertsDrawer {
         sans=android.graphics.Typeface.createFromAsset(activity.getAssets(),"Geist.ttf");
         View decor=activity.getWindow().getDecorView();
         int sw=decor.getWidth()>0?decor.getWidth():activity.getResources().getDisplayMetrics().widthPixels,sh=decor.getHeight()>0?decor.getHeight():activity.getResources().getDisplayMetrics().heightPixels;
-        s=Math.min(sw/800f,sh/480f);
+        s=DashboardView.scale(sw,sh);winW=DashboardView.units(sw,sw,sh);winH=DashboardView.units(sh,sw,sh)-WIN_Y;
         Theme t=Theme.current();
         root=new FrameLayout(activity){
             @Override public boolean dispatchTouchEvent(MotionEvent e){
@@ -104,14 +105,14 @@ final class AlertsDrawer {
         headIcon=new IconView(activity);head.addView(headIcon,new LinearLayout.LayoutParams(px(34),px(34)));
         TextView title=text(26,t.text,1);title.setText(CardBodies.defaultLabel(item));title.setPadding(px(10),0,0,0);head.addView(title,new LinearLayout.LayoutParams(-2,-2));
         headCount=text(18,t.muted,1);headCount.setPadding(px(16),0,0,0);head.addView(headCount,new LinearLayout.LayoutParams(0,-2,1));
-        root.addView(head,box(16,15,700,34));
-        MusicOverlay.IconButton close=new MusicOverlay.IconButton(activity,"mdi:close","Zamknij");root.addView(close,box(728,0,64,64));close.style(t.raised,t.text,s);
+        root.addView(head,box(16,15,winW-100,34));
+        MusicOverlay.IconButton close=new MusicOverlay.IconButton(activity,"mdi:close",I18n.t("Zamknij"));root.addView(close,box(winW-72,0,64,64));close.style(t.raised,t.text,s);
         // "Wycisz lampkę": only while the lamp blinks; one tap, no question - it silences, it does not dismiss the warning
         silence=new LinearLayout(activity);silence.setOrientation(LinearLayout.HORIZONTAL);silence.setGravity(Gravity.CENTER);
-        silence.setBackground(Theme.card(t.raised,32*s));silence.setClickable(true);silence.setFocusable(true);silence.setContentDescription("Wycisz miganie lampki");
+        silence.setBackground(Theme.card(t.raised,32*s));silence.setClickable(true);silence.setFocusable(true);silence.setContentDescription(I18n.t("Wycisz miganie lampki"));
         IconView bulb=new IconView(activity);bulb.set("mdi:lightbulb-off",Theme.ATTENTION);silence.addView(bulb,new LinearLayout.LayoutParams(px(26),px(26)));
-        TextView silenceText=text(18,t.text,1);silenceText.setText("Wycisz lampkę");silenceText.setPadding(px(8),0,0,0);silence.addView(silenceText,new LinearLayout.LayoutParams(-2,-2));
-        silence.setVisibility(View.GONE);root.addView(silence,box(536,0,184,64));
+        TextView silenceText=text(18,t.text,1);silenceText.setText(I18n.t("Wycisz lampkę"));silenceText.setPadding(px(8),0,0,0);silence.addView(silenceText,new LinearLayout.LayoutParams(-2,-2));
+        silence.setVisibility(View.GONE);root.addView(silence,box(winW-264,0,184,64));
         silence.setOnClickListener(v->{if(closed)return;host.silenceBlink();refresh();});
         close.setOnClickListener(v->closeByUser());
         scroll=new ScrollView(activity){
@@ -120,14 +121,14 @@ final class AlertsDrawer {
         scroll.setVerticalScrollBarEnabled(false);scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         list=new LinearLayout(activity);list.setOrientation(LinearLayout.VERTICAL);list.setPadding(px(8),0,px(8),px(8));
         scroll.addView(list,new FrameLayout.LayoutParams(-1,-2));
-        root.addView(scroll,box(0,LIST_Y,WIN_W,WIN_H-LIST_Y));
+        root.addView(scroll,box(0,LIST_Y,winW,winH-LIST_Y));
         dialog=new Dialog(activity);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(px(WIN_W),px(WIN_H)));
+        dialog.setContentView(root,new android.view.ViewGroup.LayoutParams(px(winW),px(winH)));
         Window win=dialog.getWindow();
         if(win!=null){
             win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             win.setGravity(Gravity.TOP|Gravity.START);win.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            WindowManager.LayoutParams lp=win.getAttributes();lp.x=0;lp.y=px(WIN_Y);lp.width=px(WIN_W);lp.height=px(WIN_H);win.setAttributes(lp);
+            WindowManager.LayoutParams lp=win.getAttributes();lp.x=0;lp.y=px(WIN_Y);lp.width=px(winW);lp.height=px(winH);win.setAttributes(lp);
         }
         dialog.setCanceledOnTouchOutside(false);
         dialog.setOnCancelListener(d->closeByUser()); // back: a confirmation first (its own dialog), then this
@@ -135,7 +136,7 @@ final class AlertsDrawer {
         refresh();
     }
     void show(){
-        root.setTranslationX(px(WIN_W));
+        root.setTranslationX(px(winW));
         dialog.show();touched();
         root.animate().translationX(0).setDuration(200).start();
     }
@@ -159,7 +160,7 @@ final class AlertsDrawer {
         AlertsModel m=new AlertsModel(item.sources,states,live);
         Theme t=Theme.current();
         headIcon.set(m.a()>0&&live?"mdi:bell-alert":"mdi:bell",m.a()>0&&live?Theme.ATTENTION:t.muted);
-        headCount.setText(m.a()+(m.a()==1?" aktywna":m.a()>=2&&m.a()<=4?" aktywne":" aktywnych"));
+        headCount.setText(m.a()+(m.a()==1?I18n.t(" aktywna"):m.a()>=2&&m.a()<=4?I18n.t(" aktywne"):I18n.t(" aktywnych")));
         silence.setVisibility(host.blinking()?View.VISIBLE:View.GONE);
         List<AlertsModel.Row> all=new ArrayList<>(m.active);all.addAll(m.unknown);
         List<String> keys=new ArrayList<>();for(AlertsModel.Row r:all)keys.add(slot(r));
@@ -221,8 +222,8 @@ final class AlertsDrawer {
         Map<String,RowView> keep=new HashMap<>(rows);
         rows.clear();list.removeAllViews();
         if(all.isEmpty()){
-            TextView none=text(22,Theme.current().muted,1);none.setText("Brak uwag");none.setGravity(Gravity.CENTER);
-            list.addView(none,new LinearLayout.LayoutParams(-1,px(WIN_H-LIST_Y-8)));
+            TextView none=text(22,Theme.current().muted,1);none.setText(I18n.t("Brak uwag"));none.setGravity(Gravity.CENTER);
+            list.addView(none,new LinearLayout.LayoutParams(-1,px(winH-LIST_Y-8)));
         }
         for(AlertsModel.Row r:all){
             RowView v=keep.get(slot(r));
@@ -243,7 +244,7 @@ final class AlertsDrawer {
             Theme t=Theme.current();
             key=r.key();AlertsModel.Action action=AlertsModel.action(r.source);withButton=r.cond==AlertsModel.Cond.ACTIVE&&action!=null;
             view=new FrameLayout(activity);view.setBackground(Theme.card(t.surface,16*s));view.setMinimumHeight(px(ROW_MIN));
-            int right=withButton?BUTTON_COLUMN:16,width=WIN_W-16;
+            int right=withButton?BUTTON_COLUMN:16,width=winW-16;
             icon=new IconView(activity);view.addView(icon,box(16,16,28,28));
             LinearLayout top=new LinearLayout(activity);top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);
             title=text(22,t.text,1);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));
@@ -268,7 +269,7 @@ final class AlertsDrawer {
             Theme t=Theme.current();
             boolean active=r.cond==AlertsModel.Cond.ACTIVE;
             icon.set(r.icon(),active?Theme.ATTENTION:t.muted);
-            title.setText(active?r.source.title:r.source.title+" - brak danych");title.setTextColor(active?t.text:t.muted);
+            title.setText(active?r.source.title:r.source.title+I18n.t(" - brak danych"));title.setTextColor(active?t.text:t.muted);
             String when=active&&r.source.showSince?AlertsModel.since(r.since,now,TimeZone.getDefault()):null;
             since.setText(when==null?"":when);since.setVisibility(when==null?View.GONE:View.VISIBLE);
             String sig=r.cond+"|"+r.text;
@@ -279,7 +280,7 @@ final class AlertsDrawer {
                 showingMessage=true;text.setText(msg);text.setTextColor(Theme.ATTENTION);text.setMaxLines(1);
             }else{
                 if(showingMessage){showingMessage=false;text.setMinHeight(0);}
-                text.setText(active?(r.text==null?"Brak treści":r.text):"");text.setTextColor(t.muted);if(!frozen)text.setMaxLines(3);
+                text.setText(active?(r.text==null?I18n.t("Brak treści"):r.text):"");text.setTextColor(t.muted);if(!frozen)text.setMaxLines(3);
             }
             text.setVisibility(active?View.VISIBLE:View.GONE);
             if(button!=null){

@@ -160,11 +160,11 @@ final class SendspinClient {
     }
     private void session() throws Exception {
         Socket s=new Socket(new URI(url));socket=s;
-        if(!s.connectBlocking(10,TimeUnit.SECONDS))throw new java.io.IOException("Sendspin: brak połączenia");
+        if(!s.connectBlocking(10,TimeUnit.SECONDS))throw new java.io.IOException(I18n.t("Sendspin: brak połączenia"));
         s.send(hello().toString());
         long nextSync=0;syncBurst=5;
         while(!stopped){
-            if(s.failed)throw new java.io.IOException("Sendspin: połączenie przerwane");
+            if(s.failed)throw new java.io.IOException(I18n.t("Sendspin: połączenie przerwane"));
             long now=System.currentTimeMillis();
             if(s.helloDone&&(now>=nextSync||syncBurst>0&&now>=nextSync-SYNC_INTERVAL_MS+200)){
                 s.send(new JSONObject().put("type","client/time").put("payload",new JSONObject().put("client_transmitted",micros())).toString());
@@ -196,7 +196,7 @@ final class SendspinClient {
                 JSONArray roles=payload.optJSONArray("active_roles");List<String> active=new ArrayList<>();
                 if(roles!=null)for(int i=0;i<roles.length();i++)active.add(roles.getString(i));
                 s.helloDone=true;clock.reset();metadataState.reset();
-                listener.onConnection(true,active.contains("player@v1")?"connected":"MA nie aktywował roli odtwarzacza");
+                listener.onConnection(true,active.contains("player@v1")?"connected":I18n.t("MA nie aktywował roli odtwarzacza"));
                 break;}
             case "server/time":{
                 long t4=micros();
@@ -274,7 +274,7 @@ final class SendspinClient {
         try{sink.open(newFormat[0],Integer.parseInt(newFormat[1]),Integer.parseInt(newFormat[2]),Integer.parseInt(newFormat[3]));format=newFormat;streamOpen=true;endRequested=false;streamOpenedMicros=micros();lastWriteMicros=-1;}
         catch(Exception e){
             streamOpen=false;format=null;pendingFormat=null;sessionActive=false;refreshState();
-            listener.onStreamFailed("Nie można otworzyć wyjścia audio: "+e.getMessage());
+            listener.onStreamFailed(I18n.t("Nie można otworzyć wyjścia audio: ")+e.getMessage());
         }
     }
     private synchronized void closeStream(){

@@ -1,6 +1,14 @@
 Helios - a Home Assistant face for the Lenovo Smart Clock 2
 Copyright 2026 Mateusz Sych
 
+English interface translations adapted from Mark Graham's Helios fork,
+https://github.com/markgraham924/helios/commit/995ec6b4be6b51629a505d0d94d053f4943786d1.
+
+Spotify and Assist shortcut cards, Predbat status card, and the initial light
+reading on connection adapted from Mark Graham's Helios fork:
+https://github.com/markgraham924/helios/commit/c61dcafc2ee75bdca99914c785a6545a80d60eeb
+https://github.com/markgraham924/helios/commit/20a1b92912bbd3f7c9091f32235ba01edf57361c
+
 This product includes software developed as part of the Home Assistant Android
 companion app (https://github.com/home-assistant/android), licensed under the
 Apache License, Version 2.0:

@@ -43,6 +43,7 @@ final class ToolsBridge {
      * trust the user granted to the old one.
      */
     static ToolsTrust.Installed installed(Context context) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return null; // no SigningInfo before Android 9; the tool lives only on the Android 10 clock
         try {
             PackageManager pm = context.getPackageManager();
             PackageInfo info = pm.getPackageInfo(ToolsTrust.TOOL_PACKAGE, PackageManager.GET_SIGNING_CERTIFICATES);
@@ -65,6 +66,7 @@ final class ToolsBridge {
     }
 
     /** The certificate the package is signed with today, which is the last entry of its history. */
+    @android.annotation.TargetApi(28) // called only past the SDK check in installed()
     private static Signature current(SigningInfo signing) {
         Signature[] history = signing.getSigningCertificateHistory();
         if (history == null || history.length == 0) return null;

@@ -31,7 +31,7 @@ final class Forecast {
         return when.state.equals(expected)?Mode.TOMORROW:Mode.TODAY;
     }
     /** "maks. 18°C" / "min. -3°C": whole degrees, unit from HA. */
-    String max(){return "maks. "+degrees(temperature);}
+    String max(){return I18n.t("maks. ")+degrees(temperature);}
     String min(){return templow==null?null:"min. "+degrees(templow);}
     /** "18°C / 9°C" for the detail row, where there is no room for words; just the high when HA sends no low. */
     String range(){return templow==null?degrees(temperature):degrees(temperature)+" / "+degrees(templow);}

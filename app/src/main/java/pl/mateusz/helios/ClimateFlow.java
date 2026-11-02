@@ -24,10 +24,10 @@ final class ClimateFlow {
     }
     /** The neutral line under the setpoint. */
     String status(){
-        if(draft!=null)return "Zmieniasz…";
-        if("set_temperature".equals(sentService))return "Ustawianie…";
+        if(draft!=null)return I18n.t("Zmieniasz…");
+        if("set_temperature".equals(sentService))return I18n.t("Ustawianie…");
         if(!"set_temperature".equals(failed))return null;
-        return "Brak potwierdzenia".equals(message)?message:"Nie udało się ustawić";
+        return I18n.t("Brak potwierdzenia").equals(message)?message:I18n.t("Nie udało się ustawić");
     }
     /** Which service is in flight, for its button's spinner; null when none. */
     String inFlight(){return sentService;}
@@ -55,7 +55,7 @@ final class ClimateFlow {
     /** The service answered: success waits for HA's state, a failure ends the call at once. */
     void result(int call,String error){
         if(call!=generation||sentService==null||error==null)return;
-        failed=sentService;clearSent();message="Nie wykonano: "+error;
+        failed=sentService;clearSent();message=I18n.t("Nie wykonano: ")+error;
     }
     /** Host.send refused before anything went out (stale state, no connection): the reason goes to the header. */
     void refused(String service,String reason){failed=service;message=reason;}
@@ -63,7 +63,7 @@ final class ClimateFlow {
     void observe(ClimateModel m,long now){
         if(sentService==null)return;
         if(observed(m)){clearSent();message=null;failed=null;}
-        else if(now-sentAt>=CONFIRM_MS){failed=sentService;clearSent();message="Brak potwierdzenia";}
+        else if(now-sentAt>=CONFIRM_MS){failed=sentService;clearSent();message=I18n.t("Brak potwierdzenia");}
     }
     long confirmDue(){return sentAt+CONFIRM_MS;}
     /** Connection lost, a new document, the app going away: an unsent draft is dropped, nothing is sent. */

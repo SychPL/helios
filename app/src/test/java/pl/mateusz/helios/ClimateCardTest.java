@@ -151,13 +151,20 @@ public class ClimateCardTest {
         assertTrue("absent: the default",new ClimateModel(entity("heat","supported_features","1","temperature","20","min_temp","14","max_temp","25"),false).editable());
     }
     @Test public void theGridStaysInTheWindowWithoutOverlapsAndFingerSized(){
-        Box w=ClimatePanelGeometry.WINDOW;
-        for(Box b:ClimatePanelGeometry.CARDS)assertTrue(b.x+","+b.y,w.contains(b));
-        for(int i=0;i<ClimatePanelGeometry.CARDS.length;i++)for(int j=i+1;j<ClimatePanelGeometry.CARDS.length;j++)
-            assertFalse(i+"/"+j,ClimatePanelGeometry.CARDS[i].overlaps(ClimatePanelGeometry.CARDS[j]));
-        for(Box b:ClimatePanelGeometry.TOUCH)assertTrue(b.h>=64&&b.w>=64);
+        for(int[] screen:new int[][]{{800,480},{480,480},{854,480}}){ // the clock, a square panel, 16:9
+            ClimatePanelGeometry g=new ClimatePanelGeometry(screen[0],screen[1]);Box w=g.window;String at=screen[0]+"x"+screen[1]+" ";
+            for(Box b:g.cards)assertTrue(at+b.x+","+b.y,w.contains(b));
+            for(int i=0;i<g.cards.length;i++)for(int j=i+1;j<g.cards.length;j++)assertFalse(at+i+"/"+j,g.cards[i].overlaps(g.cards[j]));
+            for(Box b:g.touch)assertTrue(at,b.h>=64&&b.w>=64);
+            for(Box b:new Box[]{g.nowLabel,g.nowValue,g.activity})assertTrue(at+b.x,g.nowCard.contains(b));
+            for(Box b:new Box[]{g.setLabel,g.setStatus,g.minus,g.setValue,g.plus})assertTrue(at+b.x,g.setCard.contains(b));
+            assertFalse(at,g.minus.overlaps(g.setValue));assertFalse(at,g.setValue.overlaps(g.plus));assertTrue(at,g.setValue.w>=150); // "21.5Â°" fits between the buttons
+            assertTrue(at,new Box(0,0,screen[0],screen[1]).contains(g.picker));
+            Box six=ClimatePanelGeometry.cell(g.modes,6,5);assertEquals(at,screen[0]-8,six.x+six.w);
+        }
+        ClimatePanelGeometry clock=new ClimatePanelGeometry(800,480); // the agreed 800x480 grid is unchanged
+        assertEquals(403,clock.setCard.w);assertEquals(493,clock.setValue.x);assertEquals(195,clock.setValue.w);assertEquals(696,clock.plus.x);assertEquals(176,clock.picker.x);
         assertTrue(ClimatePanelGeometry.PICKER_CLOSE.h>=64&&ClimatePanelGeometry.ROW>=64);
-        Box six=ClimatePanelGeometry.cell(ClimatePanelGeometry.MODES,6,5);assertEquals(792,six.x+six.w);
         int visible=ClimatePanelGeometry.PICKER_LIST.h;assertEquals("four rows and half a fifth",4*ClimatePanelGeometry.ROW_STEP+ClimatePanelGeometry.ROW/2,visible);
     }
 }

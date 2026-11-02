@@ -73,9 +73,9 @@ final class ScreensaverPolicy {
      */
     String environmentBlock(){
         switch(mode){
-            case OFF:return "tryb off";
+            case OFF:return I18n.t("tryb off");
             case ALWAYS:return null;
-            default:return !luxKnown?"brak odczytu swiatla":dark?null:"jasno ("+lastLux+" lx, wchodzi ponizej "+enter+")";
+            default:return !luxKnown?I18n.t("brak odczytu swiatla"):dark?null:I18n.t("jasno (")+lastLux+I18n.t(" lx, wchodzi ponizej ")+enter+")";
         }
     }
     private boolean environmentAllows(){return environmentBlock()==null;}

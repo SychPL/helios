@@ -54,7 +54,7 @@ public final class HeliosService extends Service {
     private final AudioManager.OnAudioFocusChangeListener musicFocus=change->{
         synchronized(focusLock){if(change==AudioManager.AUDIOFOCUS_LOSS)musicFocusHeld=false;else if(change==AudioManager.AUDIOFOCUS_GAIN)musicFocusHeld=true;}
         main.post(()->{
-            diag("music_focus","change="+change+(session==null?" (brak sesji)":""));
+            diag("music_focus","change="+change+(session==null?I18n.t(" (brak sesji)"):""));
             if(session!=null){session.onFocusChange(change);publishMusic();}});
     };
     /** Pause = MA stopped the stream and keeps the queue paused (SPEC 0.11 pkt 4); the card stays until the queue says otherwise. Main thread only. */
@@ -95,7 +95,7 @@ public final class HeliosService extends Service {
         MdiIcons.install(this); // before any dashboard parse: a version-6 layout names its icons by mdi: catalogue
         NotificationManager manager=(NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL,"Helios",NotificationManager.IMPORTANCE_MIN));
-        Notification notification=new Notification.Builder(this,CHANNEL).setContentTitle("Helios działa").setSmallIcon(R.drawable.ic_helios).setOngoing(true).build();
+        Notification notification=new Notification.Builder(this,CHANNEL).setContentTitle(I18n.t("Helios działa")).setSmallIcon(R.drawable.ic_helios).setOngoing(true).build();
         startForeground(1,notification);
         installationId=getSharedPreferences("helios",MODE_PRIVATE).getString("installation_id",null);
         if(installationId==null){installationId=UUID.randomUUID().toString();getSharedPreferences("helios",MODE_PRIVATE).edit().putString("installation_id",installationId).apply();}
@@ -271,11 +271,11 @@ public final class HeliosService extends Service {
     private boolean queuePaused(){return session!=null&&session.ui()==MusicSession.Ui.NONE&&queuePause.paused(SystemClock.elapsedRealtime());}
     /** Local overlay controls. Transport commands go over Sendspin when the server advertises them, else through the MA API; volume always through the MA API to this player. */
     void musicCommand(String command,Consumer<String> done){
-        Consumer<String> report=issue("Muzyka",done);
+        Consumer<String> report=issue(I18n.t("Muzyka"),done);
         boolean queuePaused=queuePaused(); // no transport session: play/stop go to the MA queue, focus is asked for on the next stream/start
-        if(command.equals("play")&&!queuePaused&&session!=null&&!session.onUserPlay(this::requestMusicFocus)){report.accept("Głośnik jest zajęty przez inną aplikację");return;}
+        if(command.equals("play")&&!queuePaused&&session!=null&&!session.onUserPlay(this::requestMusicFocus)){report.accept(I18n.t("Głośnik jest zajęty przez inną aplikację"));return;}
         if(!queuePaused&&sendspin!=null&&sendspin.command(command)){report.accept(null);return;}
-        if(ma==null||lenovoPlayerId==null){report.accept("Brak połączenia z Music Assistant");return;}
+        if(ma==null||lenovoPlayerId==null){report.accept(I18n.t("Brak połączenia z Music Assistant"));return;}
         final long token=queueCheckToken; // a late stop answer must not end a newer pause
         ma.playerCommand(lenovoPlayerId,command,r->main.post(()->{
             if(command.equals("stop")&&token==queueCheckToken&&queuePaused()){queueCheckToken++;endQueuePause("stopped");}
@@ -283,14 +283,14 @@ public final class HeliosService extends Service {
         }),e->main.post(()->report.accept(e)));
     }
     void musicVolume(int level,Consumer<String> done){
-        Consumer<String> report=issue("Głośność",done);
-        if(ma==null||lenovoPlayerId==null){report.accept("Brak połączenia z Music Assistant");return;}
+        Consumer<String> report=issue(I18n.t("Głośność"),done);
+        if(ma==null||lenovoPlayerId==null){report.accept(I18n.t("Brak połączenia z Music Assistant"));return;}
         ma.volume(lenovoPlayerId,level,r->main.post(()->report.accept(null)),e->main.post(()->report.accept(e)));
     }
     /** Track position from the panel's seek bar: one MA queue command per release; the server's next progress update confirms it. */
     void musicSeek(int seconds,Consumer<String> done){
-        Consumer<String> report=issue("Przewijanie",done);
-        if(ma==null||lenovoPlayerId==null){report.accept("Brak połączenia z Music Assistant");return;}
+        Consumer<String> report=issue(I18n.t("Przewijanie"),done);
+        if(ma==null||lenovoPlayerId==null){report.accept(I18n.t("Brak połączenia z Music Assistant"));return;}
         musicProgressMs=seconds*1000L;musicProgressAt=android.os.SystemClock.elapsedRealtime();publishMusic();
         ma.seek(lenovoPlayerId,seconds,r->main.post(()->report.accept(null)),e->main.post(()->report.accept(e)));
     }
@@ -299,8 +299,8 @@ public final class HeliosService extends Service {
         return error->{if(error!=null){musicIssue=prefix+": "+error;publishMusic();}done.accept(error);};
     }
     void musicMute(boolean muted,Consumer<String> done){
-        Consumer<String> report=issue("Muzyka",done);
-        if(ma==null||lenovoPlayerId==null){if(sink!=null){sink.setMuted(muted);musicMuted=muted;reportPlayerState();publishMusic();report.accept(null);}else report.accept("Brak odtwarzacza");return;}
+        Consumer<String> report=issue(I18n.t("Muzyka"),done);
+        if(ma==null||lenovoPlayerId==null){if(sink!=null){sink.setMuted(muted);musicMuted=muted;reportPlayerState();publishMusic();report.accept(null);}else report.accept(I18n.t("Brak odtwarzacza"));return;}
         ma.mute(lenovoPlayerId,muted,r->main.post(()->report.accept(null)),e->main.post(()->report.accept(e)));
     }
     private void startMusic(){
@@ -337,7 +337,7 @@ public final class HeliosService extends Service {
                         }
                         return true;
                     }
-                    main.post(()->{musicIssue="Głośnik jest zajęty przez inną aplikację";publishMusic();});return false;
+                    main.post(()->{musicIssue=I18n.t("Głośnik jest zajęty przez inną aplikację");publishMusic();});return false;
                 }
                 public void onStreamFailed(String reason){abandonMusicFocus();main.post(()->{musicIssue=reason;publishMusic();});}
                 public void onStreamRefused(boolean pausedViaController){if(!pausedViaController)main.post(()->{if(ma!=null&&lenovoPlayerId!=null)ma.playerCommand(lenovoPlayerId,"pause",r->{},e->{if(diagnostics!=null)diagnostics.accept("music_queue","error="+e);});});}
@@ -421,7 +421,7 @@ public final class HeliosService extends Service {
             publishMusic();publish();
         }),e->main.post(()->{
             if(token!=queueCheckToken||"superseded".equals(e))return;
-            if(!"Brak kolejki".equals(e))musicIssue="Muzyka: "+e;
+            if(!I18n.t("Brak kolejki").equals(e))musicIssue=I18n.t("Muzyka: ")+e;
             endQueuePause("error="+e);
         }));
     }
@@ -492,7 +492,7 @@ public final class HeliosService extends Service {
         boolean lenovo=sendspinPlayer&&sendspinClientId!=null&&sendspinClientId.equals(player.optString("player_id"));
         if(!lenovo&&sendspinPlayer&&lenovoPlayerId==null&&playerName.equals(player.optString("name"))){lenovo=true;if(diagnostics!=null)diagnostics.accept("music_player","match=name");}
         if(lenovo){
-            lenovoPlayerId=player.optString("player_id",lenovoPlayerId);if(musicIssue!=null&&(musicIssue.startsWith("Głośność: ")||musicIssue.startsWith("Muzyka: ")||musicIssue.startsWith("Przewijanie: ")))musicIssue=null;
+            lenovoPlayerId=player.optString("player_id",lenovoPlayerId);if(musicIssue!=null&&(musicIssue.startsWith(I18n.t("Głośność: "))||musicIssue.startsWith(I18n.t("Muzyka: "))||musicIssue.startsWith(I18n.t("Przewijanie: "))))musicIssue=null;
             if(queuePaused()){queuePause.onPlayerUpdate(player.optString("playback_state"),SystemClock.elapsedRealtime());scheduleQueueExpiry();}
         }
         else if("playing".equals(player.optString("playback_state"))&&!player.optBoolean("hide_in_ui",false)){
@@ -608,7 +608,7 @@ public final class HeliosService extends Service {
                 JSONObject body=new JSONObject().put("installation_id",installationId).put("code",code).put("app_version",BuildConfig.VERSION_NAME).put("version_code",BuildConfig.VERSION_CODE);
                 PairingClient.Result r=PairingClient.pair(url,body);
                 error=r.status!=200||r.json==null?PairingClient.message(r.status):connections.pairedWith(r.json,url);
-            }catch(Exception e){error="Błąd przygotowania żądania";}
+            }catch(Exception e){error=I18n.t("Błąd przygotowania żądania");}
             final String result=error;main.post(()->{if(result==null)channelIssue=null;done.accept(result);});
         });
     }

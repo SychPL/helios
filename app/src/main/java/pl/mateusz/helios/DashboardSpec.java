@@ -55,6 +55,8 @@ final class DashboardSpec {
         final String id,type,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirmText,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity;
         /** energy (SPEC 0.17): the house load, required, and the battery charge, optional; null for every other type. */
         String loadEntity,batteryEntity;
+        /** Read-only day plan sources; todo is optional. */
+        String calendarEntity,todoEntity;
         /** alerts (SPEC 0.20): the warnings in config order, and the card shown in their place while none applies (null = none). */
         List<Source> sources=Collections.emptyList();Item empty;
         final int column,row,width,height;
@@ -93,45 +95,45 @@ final class DashboardSpec {
     }
 
     static DashboardSpec parse(JSONObject root) throws Exception {
-        if(!(root.opt("version") instanceof Integer)||root.getInt("version")<2||root.getInt("version")>MAX_VERSION)throw new IllegalArgumentException(VERSION_ERROR);
+        if(!(root.opt("version") instanceof Integer)||root.getInt("version")<2||root.getInt("version")>MAX_VERSION)throw new IllegalArgumentException(I18n.t(VERSION_ERROR));
         int version=root.getInt("version");
-        if(root.toString().length()>MAX_BYTES)throw new IllegalArgumentException("Sekcja helios przekracza 64 KiB");
+        if(root.toString().length()>MAX_BYTES)throw new IllegalArgumentException(I18n.t("Sekcja helios przekracza 64 KiB"));
         List<Page> pages=new ArrayList<>();Set<String> ids=new HashSet<>();
         if(version>=6){
-            keys(root,Arrays.asList("version","pages"),"konfiguracji");
+            keys(root,Arrays.asList("version","pages"),I18n.t("konfiguracji"));
             JSONArray list=root.optJSONArray("pages");
-            if(list==null||list.length()==0)throw new IllegalArgumentException("Wymagane pole pages");
-            if(list.length()>MAX_PAGES)throw new IllegalArgumentException("pages: najwyżej "+MAX_PAGES+" stron");
+            if(list==null||list.length()==0)throw new IllegalArgumentException(I18n.t("Wymagane pole pages"));
+            if(list.length()>MAX_PAGES)throw new IllegalArgumentException(I18n.t("pages: najwyżej ")+MAX_PAGES+I18n.t(" stron"));
             Set<String> pageIds=new HashSet<>();
             for(int i=0;i<list.length();i++){
-                JSONObject p=list.optJSONObject(i);if(p==null)throw new IllegalArgumentException("pages: pozycja musi być obiektem");
-                keys(p,Arrays.asList("id","title","items"),"strony");
+                JSONObject p=list.optJSONObject(i);if(p==null)throw new IllegalArgumentException(I18n.t("pages: pozycja musi być obiektem"));
+                keys(p,Arrays.asList("id","title","items"),I18n.t("strony"));
                 String id=string(p,"id",true,40);
-                if(!id.matches(ID))throw new IllegalArgumentException("Nieprawidłowy id strony: "+id);
-                if(!pageIds.add(id))throw new IllegalArgumentException("Powtórzony id strony: "+id);
+                if(!id.matches(ID))throw new IllegalArgumentException(I18n.t("Nieprawidłowy id strony: ")+id);
+                if(!pageIds.add(id))throw new IllegalArgumentException(I18n.t("Powtórzony id strony: ")+id);
                 pages.add(new Page(id,p.has("title")?string(p,"title",true,40):null,items(p.optJSONArray("items"),version,ids)));
             }
         }else{
-            keys(root,Arrays.asList("version","grid","items"),"konfiguracji");
+            keys(root,Arrays.asList("version","grid","items"),I18n.t("konfiguracji"));
             JSONObject grid=root.optJSONObject("grid");
-            if(grid==null)throw new IllegalArgumentException("Wymagane pole grid");
+            if(grid==null)throw new IllegalArgumentException(I18n.t("Wymagane pole grid"));
             keys(grid,Arrays.asList("columns","rows"),"grid");
-            if(integer(grid,"columns",1,COLUMNS)!=COLUMNS||integer(grid,"rows",1,ROWS)!=ROWS)throw new IllegalArgumentException("W 0.5 siatka ma dokładnie 4 kolumny i 3 wiersze");
+            if(integer(grid,"columns",1,COLUMNS)!=COLUMNS||integer(grid,"rows",1,ROWS)!=ROWS)throw new IllegalArgumentException(I18n.t("W 0.5 siatka ma dokładnie 4 kolumny i 3 wiersze"));
             pages.add(new Page("main",null,items(root.optJSONArray("items"),version,ids)));
         }
         return new DashboardSpec(version,pages);
     }
     /** One page's items: at most 12, no overlap, one of each singleton type; ids unique across the whole document (pending calls and visibility are keyed by id). */
     private static List<Item> items(JSONArray rows,int version,Set<String> ids) throws Exception {
-        if(rows==null)throw new IllegalArgumentException("Wymagane pole items");
-        if(rows.length()>MAX_ITEMS)throw new IllegalArgumentException("items: najwyżej "+MAX_ITEMS+" elementów");
+        if(rows==null)throw new IllegalArgumentException(I18n.t("Wymagane pole items"));
+        if(rows.length()>MAX_ITEMS)throw new IllegalArgumentException(I18n.t("items: najwyżej ")+MAX_ITEMS+I18n.t(" elementów"));
         List<Item> result=new ArrayList<>();Set<String> singles=new HashSet<>();boolean[][] used=new boolean[ROWS][COLUMNS];
         for(int i=0;i<rows.length();i++){
             Item item=item(rows.getJSONObject(i),version);
-            if(CardDefinition.of(item.type).singleton&&!singles.add(item.type))throw new IllegalArgumentException("Dozwolony jest jeden kafelek "+item.type);
-            if(!ids.add(item.id))throw new IllegalArgumentException("Powtórzony id: "+item.id);
+            if(CardDefinition.of(item.type).singleton&&!singles.add(item.type))throw new IllegalArgumentException(I18n.t("Dozwolony jest jeden kafelek ")+item.type);
+            if(!ids.add(item.id))throw new IllegalArgumentException(I18n.t("Powtórzony id: ")+item.id);
             for(int r=item.row;r<item.row+item.height;r++)for(int c=item.column;c<item.column+item.width;c++){
-                if(used[r-1][c-1])throw new IllegalArgumentException("Element "+item.id+" nakłada się na inny element");
+                if(used[r-1][c-1])throw new IllegalArgumentException(I18n.t("Element ")+item.id+I18n.t(" nakłada się na inny element"));
                 used[r-1][c-1]=true;
             }
             result.add(item);
@@ -142,48 +144,48 @@ final class DashboardSpec {
     private static Item item(JSONObject o,int version) throws Exception {
         String type=string(o,"type",true,16);
         CardDefinition def=CardDefinition.of(type);
-        if(def==null)throw new IllegalArgumentException("Nieobsługiwany typ elementu: "+type);
-        if(version<def.minVersion)throw new IllegalArgumentException("Typ "+type+" wymaga version: "+def.minVersion);
+        if(def==null)throw new IllegalArgumentException(I18n.t("Nieobsługiwany typ elementu: ")+type);
+        if(version<def.minVersion)throw new IllegalArgumentException(I18n.t("Typ ")+type+I18n.t(" wymaga version: ")+def.minVersion);
         Set<String> allowed=new LinkedHashSet<>(BASE);allowed.addAll(def.fieldsAt(version));
         boolean tappable=def.intentDriven||(def.action!=null&&(def.actionRequires==null||o.has(def.actionRequires)));
         if(tappable&&def.tapConfigurable)allowed.addAll(Arrays.asList("tap_action","confirmation"));
         for(Iterator<String> k=o.keys();k.hasNext();){
             String key=k.next();
-            if(!allowed.contains(key))throw new IllegalArgumentException((COMMON.contains(key)||CardDefinition.KNOWN_FIELDS.contains(key)?"Pole niedozwolone dla typu "+type+": ":"Nieznane pole elementu: ")+key);
+            if(!allowed.contains(key))throw new IllegalArgumentException((COMMON.contains(key)||CardDefinition.KNOWN_FIELDS.contains(key)?I18n.t("Pole niedozwolone dla typu ")+type+": ":I18n.t("Nieznane pole elementu: "))+key);
         }
         String id=string(o,"id",true,40);
-        if(!id.matches(ID))throw new IllegalArgumentException("Nieprawidłowy id: "+id);
+        if(!id.matches(ID))throw new IllegalArgumentException(I18n.t("Nieprawidłowy id: ")+id);
         int column=integer(o,"column",1,COLUMNS),row=integer(o,"row",1,ROWS),width=integer(o,"width",1,COLUMNS),height=integer(o,"height",1,ROWS);
-        if(column+width-1>COLUMNS||row+height-1>ROWS)throw new IllegalArgumentException("Element "+id+" wychodzi poza siatkę");
+        if(column+width-1>COLUMNS||row+height-1>ROWS)throw new IllegalArgumentException(I18n.t("Element ")+id+I18n.t(" wychodzi poza siatkę"));
         String entity=null,temperatureEntity=null,attribute=null,offEntity=null;
         if(o.has("off_entity")){
             offEntity=string(o,"off_entity",true,128);
-            if(!offEntity.matches("light\\.[a-z0-9_]+"))throw new IllegalArgumentException("off_entity wymaga encji z domeny light");
+            if(!offEntity.matches("light\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("off_entity wymaga encji z domeny light"));
         }
         if(allowed.contains("entity")){
             entity=string(o,"entity",true,128);
-            if(!entity.matches(ENTITY)||(!def.entityDomain.isEmpty()&&!entity.startsWith(def.entityDomain+".")))throw new IllegalArgumentException("Element "+id+" wymaga encji z domeny "+def.domainLabel());
+            if(!entity.matches(ENTITY)||(!def.entityDomain.isEmpty()&&!entity.startsWith(def.entityDomain+".")))throw new IllegalArgumentException(I18n.t("Element ")+id+I18n.t(" wymaga encji z domeny ")+def.domainLabel());
         }
-        if(o.has("temperature_entity")){temperatureEntity=string(o,"temperature_entity",true,128);if(!temperatureEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("temperature_entity wymaga encji sensor");}
-        if(o.has("attribute")){attribute=string(o,"attribute",true,64);if(!attribute.matches("[a-z0-9_]{1,64}"))throw new IllegalArgumentException("Nieprawidłowy attribute");}
+        if(o.has("temperature_entity")){temperatureEntity=string(o,"temperature_entity",true,128);if(!temperatureEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("temperature_entity wymaga encji sensor"));}
+        if(o.has("attribute")){attribute=string(o,"attribute",true,64);if(!attribute.matches("[a-z0-9_]{1,64}"))throw new IllegalArgumentException(I18n.t("Nieprawidłowy attribute"));}
         List<Cover> covers=new ArrayList<>();
         if(allowed.contains("covers")){
             JSONArray list=o.optJSONArray("covers");
-            if(list==null||list.length()!=2)throw new IllegalArgumentException("cover_group wymaga dokładnie dwóch pozycji covers");
+            if(list==null||list.length()!=2)throw new IllegalArgumentException(I18n.t("cover_group wymaga dokładnie dwóch pozycji covers"));
             for(int n=0;n<2;n++){
-                JSONObject c=list.optJSONObject(n);if(c==null)throw new IllegalArgumentException("covers: pozycja musi być obiektem");
+                JSONObject c=list.optJSONObject(n);if(c==null)throw new IllegalArgumentException(I18n.t("covers: pozycja musi być obiektem"));
                 keys(c,Arrays.asList("entity","title"),"covers");
                 String coverEntity=string(c,"entity",true,128),coverTitle=string(c,"title",true,40);
-                if(!coverEntity.matches("cover\\.[a-z0-9_]+"))throw new IllegalArgumentException("covers wymaga encji z domeny cover");
+                if(!coverEntity.matches("cover\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("covers wymaga encji z domeny cover"));
                 covers.add(new Cover(coverEntity,coverTitle));
             }
-            if(covers.get(0).entity.equals(covers.get(1).entity))throw new IllegalArgumentException("covers: ta sama roleta dwa razy");
+            if(covers.get(0).entity.equals(covers.get(1).entity))throw new IllegalArgumentException(I18n.t("covers: ta sama roleta dwa razy"));
         }
         String forecastEntity=null,forecastWhenEntity=null,forecastWhenState=null;
         if(o.has("forecast_entity")||o.has("forecast_when")){
-            if(!(o.has("forecast_entity")&&o.has("forecast_when")))throw new IllegalArgumentException("weather: forecast_entity i forecast_when występują razem");
+            if(!(o.has("forecast_entity")&&o.has("forecast_when")))throw new IllegalArgumentException(I18n.t("weather: forecast_entity i forecast_when występują razem"));
             forecastEntity=string(o,"forecast_entity",true,128);
-            if(!forecastEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("forecast_entity wymaga encji sensor");
+            if(!forecastEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("forecast_entity wymaga encji sensor"));
             String[] when=when(o,"forecast_when");forecastWhenEntity=when[0];forecastWhenState=when[1];
         }
         String title=o.has("title")?string(o,"title",true,40):null;
@@ -193,18 +195,18 @@ final class DashboardSpec {
             String domain=entity.substring(0,entity.indexOf('.'));
             intent=ActionPolicy.defaultIntent(domain);
             if(o.has("tap_action")){
-                JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException("tap_action musi być obiektem");
+                JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException(I18n.t("tap_action musi być obiektem"));
                 keys(tap,Collections.singletonList("action"),"tap_action");
                 String name=string(tap,"action",true,16);intent=ActionPolicy.intent(name);
-                if(intent==null||!ActionPolicy.allowed(domain).contains(intent))throw new IllegalArgumentException("Encja "+entity+" nie obsługuje akcji "+name);
+                if(intent==null||!ActionPolicy.allowed(domain).contains(intent))throw new IllegalArgumentException(I18n.t("Encja ")+entity+I18n.t(" nie obsługuje akcji ")+name);
             }
             action=intent==ActionPolicy.Intent.NONE?null:ActionPolicy.name(intent);
         }else{
             action=tappable?def.action:null;
             if(o.has("tap_action")){
-                JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException("tap_action musi być obiektem");
+                JSONObject tap=o.optJSONObject("tap_action");if(tap==null)throw new IllegalArgumentException(I18n.t("tap_action musi być obiektem"));
                 keys(tap,Collections.singletonList("action"),"tap_action");
-                if(!string(tap,"action",true,16).equals(action))throw new IllegalArgumentException("Typ "+type+" dopuszcza wyłącznie tap_action.action: "+action);
+                if(!string(tap,"action",true,16).equals(action))throw new IllegalArgumentException(I18n.t("Typ ")+type+I18n.t(" dopuszcza wyłącznie tap_action.action: ")+action);
             }
         }
         boolean ownIcon=o.has("icon");
@@ -214,32 +216,40 @@ final class DashboardSpec {
         boolean forced=intent!=null&&ActionPolicy.forcedConfirm(intent);
         boolean confirm=forced||(tappable&&def.confirmByDefault);String confirmText=null;
         if(o.has("confirmation")){
-            JSONObject c=o.optJSONObject("confirmation");if(c==null)throw new IllegalArgumentException("confirmation musi być obiektem");
+            JSONObject c=o.optJSONObject("confirmation");if(c==null)throw new IllegalArgumentException(I18n.t("confirmation musi być obiektem"));
             keys(c,Arrays.asList("enabled","text"),"confirmation");
-            if(!(c.opt("enabled") instanceof Boolean))throw new IllegalArgumentException("confirmation.enabled musi być boolean");
+            if(!(c.opt("enabled") instanceof Boolean))throw new IllegalArgumentException(I18n.t("confirmation.enabled musi być boolean"));
             confirm=c.getBoolean("enabled");
-            if(forced&&!confirm)throw new IllegalArgumentException("Akcja "+action+" wymaga potwierdzenia");
+            if(forced&&!confirm)throw new IllegalArgumentException(I18n.t("Akcja ")+action+I18n.t(" wymaga potwierdzenia"));
             if(c.has("text"))confirmText=string(c,"text",true,80);
         }
         List<Entry> entries=allowed.contains("entries")?entries(o):Collections.emptyList();
         Item out=new Item(id,type,column,row,width,height,title,icon,entity,temperatureEntity,attribute,action,visibleEntity,visibleState,confirm,confirmText,covers,forecastEntity,forecastWhenEntity,forecastWhenState,offEntity,ownIcon,entries);
         if(allowed.contains("load_entity")){
             out.loadEntity=string(o,"load_entity",true,128);
-            if(!out.loadEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("load_entity wymaga encji sensor");
-            if(o.has("battery_entity")){out.batteryEntity=string(o,"battery_entity",true,128);if(!out.batteryEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException("battery_entity wymaga encji sensor");}
+            if(!out.loadEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("load_entity wymaga encji sensor"));
+            if(o.has("battery_entity")){out.batteryEntity=string(o,"battery_entity",true,128);if(!out.batteryEntity.matches("sensor\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("battery_entity wymaga encji sensor"));}
+        }
+        if(allowed.contains("calendar_entity")){
+            out.calendarEntity=string(o,"calendar_entity",true,128);
+            if(!out.calendarEntity.matches("calendar\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("calendar_entity wymaga encji calendar"));
+            if(o.has("todo_entity")){
+                out.todoEntity=string(o,"todo_entity",true,128);
+                if(!out.todoEntity.matches("todo\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("todo_entity wymaga encji todo"));
+            }
         }
         if(allowed.contains("sources"))alerts(o,out,version);
         return out;
     }
     private static List<Entry> entries(JSONObject o) throws Exception {
         JSONArray list=o.optJSONArray("entries");
-        if(list==null||list.length()<1||list.length()>3)throw new IllegalArgumentException("entities wymaga od 1 do 3 pozycji entries");
+        if(list==null||list.length()<1||list.length()>3)throw new IllegalArgumentException(I18n.t("entities wymaga od 1 do 3 pozycji entries"));
         List<Entry> entries=new ArrayList<>();
         for(int n=0;n<list.length();n++){
-            JSONObject row=list.optJSONObject(n);if(row==null)throw new IllegalArgumentException("entries: pozycja musi być obiektem");
+            JSONObject row=list.optJSONObject(n);if(row==null)throw new IllegalArgumentException(I18n.t("entries: pozycja musi być obiektem"));
             keys(row,Arrays.asList("entity","title"),"entries");
             String entity=string(row,"entity",true,128),title=row.has("title")?string(row,"title",true,40):null;
-            if(!entity.matches(ENTITY))throw new IllegalArgumentException("entries: nieprawidłowa encja "+entity);
+            if(!entity.matches(ENTITY))throw new IllegalArgumentException(I18n.t("entries: nieprawidłowa encja ")+entity);
             entries.add(new Entry(entity,title));
         }
         return entries;
@@ -248,38 +258,38 @@ final class DashboardSpec {
     /** The `alerts` parts: 1-12 sources with distinct conditions, and an optional stand-in card of a plain type. */
     private static void alerts(JSONObject o,Item out,int version) throws Exception {
         boolean size=(out.width==1&&out.height==1)||(out.width==1&&out.height==2)||(out.width==2&&out.height==1);
-        if(!size)throw new IllegalArgumentException("Kafelek alerts ma rozmiar 1x1, 1x2 albo 2x1");
+        if(!size)throw new IllegalArgumentException(I18n.t("Kafelek alerts ma rozmiar 1x1, 1x2 albo 2x1"));
         JSONArray list=o.optJSONArray("sources");
-        if(list==null||list.length()==0||list.length()>MAX_ITEMS)throw new IllegalArgumentException("alerts wymaga od 1 do "+MAX_ITEMS+" pozycji sources");
+        if(list==null||list.length()==0||list.length()>MAX_ITEMS)throw new IllegalArgumentException(I18n.t("alerts wymaga od 1 do ")+MAX_ITEMS+I18n.t(" pozycji sources"));
         List<Source> sources=new ArrayList<>();Set<String> conditions=new HashSet<>();
         for(int n=0;n<list.length();n++){
-            JSONObject src=list.optJSONObject(n);if(src==null)throw new IllegalArgumentException("sources: pozycja musi być obiektem");
+            JSONObject src=list.optJSONObject(n);if(src==null)throw new IllegalArgumentException(I18n.t("sources: pozycja musi być obiektem"));
             keys(src,new ArrayList<>(SOURCE_KEYS),"sources");
             String title=string(src,"title",true,40),entity=string(src,"entity",true,128);
-            if(!entity.matches(ENTITY))throw new IllegalArgumentException("sources: nieprawidłowa encja "+entity);
+            if(!entity.matches(ENTITY))throw new IllegalArgumentException(I18n.t("sources: nieprawidłowa encja ")+entity);
             String[] when=when(src,"when");
-            if(!conditions.add(when[0]+"="+when[1]))throw new IllegalArgumentException("sources: powtórzony warunek "+when[0]+" = "+when[1]);
+            if(!conditions.add(when[0]+"="+when[1]))throw new IllegalArgumentException(I18n.t("sources: powtórzony warunek ")+when[0]+" = "+when[1]);
             String off=null;
-            if(src.has("off_entity")){off=string(src,"off_entity",true,128);if(!off.matches("light\\.[a-z0-9_]+"))throw new IllegalArgumentException("off_entity wymaga encji z domeny light");}
+            if(src.has("off_entity")){off=string(src,"off_entity",true,128);if(!off.matches("light\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("off_entity wymaga encji z domeny light"));}
             Object since=src.opt("show_since");
-            if(since!=null&&!(since instanceof Boolean))throw new IllegalArgumentException("show_since musi być boolean");
+            if(since!=null&&!(since instanceof Boolean))throw new IllegalArgumentException(I18n.t("show_since musi być boolean"));
             String icon=src.has("icon")?icon(string(src,"icon",true,40),version):null;
             String done=null,doneLabel=null;
-            if(src.has("done_entity")){done=string(src,"done_entity",true,128);if(!done.matches("(script|input_boolean|input_button|button)\\.[a-z0-9_]+"))throw new IllegalArgumentException("done_entity wymaga encji script, input_boolean, input_button albo button");}
-            if(src.has("done_label")){if(done==null)throw new IllegalArgumentException("done_label wymaga done_entity");doneLabel=string(src,"done_label",true,12);}
-            if(off!=null&&done!=null)throw new IllegalArgumentException("sources: off_entity i done_entity wykluczają się");
+            if(src.has("done_entity")){done=string(src,"done_entity",true,128);if(!done.matches("(script|input_boolean|input_button|button)\\.[a-z0-9_]+"))throw new IllegalArgumentException(I18n.t("done_entity wymaga encji script, input_boolean, input_button albo button"));}
+            if(src.has("done_label")){if(done==null)throw new IllegalArgumentException(I18n.t("done_label wymaga done_entity"));doneLabel=string(src,"done_label",true,12);}
+            if(off!=null&&done!=null)throw new IllegalArgumentException(I18n.t("sources: off_entity i done_entity wykluczają się"));
             Object blink=src.opt("blink");
-            if(blink!=null&&!(blink instanceof Boolean))throw new IllegalArgumentException("blink musi być boolean");
+            if(blink!=null&&!(blink instanceof Boolean))throw new IllegalArgumentException(I18n.t("blink musi być boolean"));
             Source source=new Source(title,entity,icon,when[0],when[1],off,since==null||(Boolean)since,done,doneLabel);
             source.blink=Boolean.TRUE.equals(blink);
             sources.add(source);
         }
         out.sources=Collections.unmodifiableList(sources);
         if(o.has("empty")){
-            JSONObject e=o.optJSONObject("empty");if(e==null)throw new IllegalArgumentException("empty musi być obiektem");
-            for(String k:Arrays.asList("id","column","row","width","height","visible_when"))if(e.has(k))throw new IllegalArgumentException("empty: pole "+k+" bierze się z kafelka alerts");
+            JSONObject e=o.optJSONObject("empty");if(e==null)throw new IllegalArgumentException(I18n.t("empty musi być obiektem"));
+            for(String k:Arrays.asList("id","column","row","width","height","visible_when"))if(e.has(k))throw new IllegalArgumentException(I18n.t("empty: pole ")+k+I18n.t(" bierze się z kafelka alerts"));
             String type=string(e,"type",true,16);
-            if(!EMPTY_TYPES.contains(type))throw new IllegalArgumentException("empty: dozwolone typy "+String.join(", ",EMPTY_TYPES));
+            if(!EMPTY_TYPES.contains(type))throw new IllegalArgumentException(I18n.t("empty: dozwolone typy ")+String.join(", ",EMPTY_TYPES));
             JSONObject copy=new JSONObject(e.toString()).put("id",out.id).put("column",out.column).put("row",out.row).put("width",out.width).put("height",out.height);
             out.empty=item(copy,version);
         }
@@ -287,36 +297,36 @@ final class DashboardSpec {
     /** Versions 2-5: one of six drawn names. Version 6: `mdi:<name>` from the bundled catalogue, the six old names normalised to it. */
     private static String icon(String icon,int version){
         if(icon==null)return null;
-        if(version<6){if(!ICONS.contains(icon))throw new IllegalArgumentException("Nieznana ikona: "+icon);return icon;}
+        if(version<6){if(!ICONS.contains(icon))throw new IllegalArgumentException(I18n.t("Nieznana ikona: ")+icon);return icon;}
         String name=icon.startsWith("mdi:")?icon.substring(4):ICONS.contains(icon)?icon:null;
-        if(name==null)throw new IllegalArgumentException("Nieznana ikona: "+icon);
+        if(name==null)throw new IllegalArgumentException(I18n.t("Nieznana ikona: ")+icon);
         MdiIcons mdi=MdiIcons.installed();
-        if(mdi==null)throw new IllegalArgumentException("Ikony mdi niezaładowane");
-        if(!mdi.has(name))throw new IllegalArgumentException("Nieznana ikona: "+icon);
+        if(mdi==null)throw new IllegalArgumentException(I18n.t("Ikony mdi niezaładowane"));
+        if(!mdi.has(name))throw new IllegalArgumentException(I18n.t("Nieznana ikona: ")+icon);
         return "mdi:"+name;
     }
     /** {entity, state} condition shared by visible_when and forecast_when: a live state only, never unknown/unavailable. */
     private static String[] when(JSONObject o,String key) throws Exception {
-        JSONObject when=o.optJSONObject(key);if(when==null)throw new IllegalArgumentException(key+" musi być obiektem");
+        JSONObject when=o.optJSONObject(key);if(when==null)throw new IllegalArgumentException(key+I18n.t(" musi być obiektem"));
         keys(when,Arrays.asList("entity","state"),key);
         String entity=string(when,"entity",true,128),state=string(when,"state",true,64);
-        if(!entity.matches(ENTITY))throw new IllegalArgumentException("Nieprawidłowa encja "+key);
-        if(state.equals("unknown")||state.equals("unavailable"))throw new IllegalArgumentException("Brak danych nie może oznaczać "+(key.equals("visible_when")?"widoczności":key.equals("when")?"ostrzeżenia":"trybu prognozy"));
+        if(!entity.matches(ENTITY))throw new IllegalArgumentException(I18n.t("Nieprawidłowa encja ")+key);
+        if(state.equals("unknown")||state.equals("unavailable"))throw new IllegalArgumentException(I18n.t("Brak danych nie może oznaczać ")+(key.equals("visible_when")?I18n.t("widoczności"):key.equals("when")?I18n.t("ostrzeżenia"):I18n.t("trybu prognozy")));
         return new String[]{entity,state};
     }
 
     private static void keys(JSONObject o,List<String> allowed,String where) throws Exception {
-        for(Iterator<String> k=o.keys();k.hasNext();){String key=k.next();if(!allowed.contains(key))throw new IllegalArgumentException("Nieznane pole "+where+": "+key);}
+        for(Iterator<String> k=o.keys();k.hasNext();){String key=k.next();if(!allowed.contains(key))throw new IllegalArgumentException(I18n.t("Nieznane pole ")+where+": "+key);}
     }
     private static String string(JSONObject o,String key,boolean required,int max) throws Exception {
         Object value=o.opt(key);
-        if(value==null){if(required)throw new IllegalArgumentException("Wymagane pole "+key);return null;}
-        if(!(value instanceof String)||((String)value).trim().isEmpty()||((String)value).length()>max)throw new IllegalArgumentException("Nieprawidłowe pole "+key);
+        if(value==null){if(required)throw new IllegalArgumentException(I18n.t("Wymagane pole ")+key);return null;}
+        if(!(value instanceof String)||((String)value).trim().isEmpty()||((String)value).length()>max)throw new IllegalArgumentException(I18n.t("Nieprawidłowe pole ")+key);
         return (String)value;
     }
     private static int integer(JSONObject o,String key,int min,int max) throws Exception {
         Object value=o.opt(key);
-        if(!(value instanceof Integer)||(Integer)value<min||(Integer)value>max)throw new IllegalArgumentException("Pole "+key+" musi być liczbą od "+min+" do "+max);
+        if(!(value instanceof Integer)||(Integer)value<min||(Integer)value>max)throw new IllegalArgumentException(I18n.t("Pole ")+key+I18n.t(" musi być liczbą od ")+min+I18n.t(" do ")+max);
         return (Integer)value;
     }
 
@@ -334,6 +344,7 @@ final class DashboardSpec {
             if(i.entity!=null)out.add(i.entity);for(Cover c:i.covers)out.add(c.entity);if(i.temperatureEntity!=null)out.add(i.temperatureEntity);
             for(Entry e:i.entries)out.add(e.entity);
             out.add(i.loadEntity);out.add(i.batteryEntity); // energy; nulls go with out.remove(null) below
+            out.add(i.calendarEntity);out.add(i.todoEntity);
             if(i.forecastWhenEntity!=null)out.add(i.forecastWhenEntity); // a forecast entity may stand without a mode entity; a null here would be sent to HA and take the whole subscription down
             if(i.forecastEntity!=null)out.add(i.forecastEntity);
             if(i.visibleEntity!=null)out.add(i.visibleEntity);

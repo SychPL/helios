@@ -10,6 +10,24 @@ ask it to, and talks to nothing but your own Home Assistant.
 
 ![The dashboard on the clock](docs/images/dashboard.png)
 
+## Languages
+
+The clock interface supports Polish, English and German. It follows Android's
+language by default; for other system languages it falls back to Polish. Open
+the Helios menu and tap **Language** to cycle through Automatic, Polski,
+English and Deutsch. The choice is saved on the clock and the interface reloads
+immediately. Dates and numeric readings use the selected language's formatting.
+Names and text supplied by Home Assistant remain as configured there.
+
+The Polish text in the Java source is the fallback. English and German entries
+live in `app/src/main/assets/i18n/en.json` and `de.json`. When adding interface
+text, wrap the Polish source string with `I18n.t(...)` and add the same key to
+both catalogues. Keep protocol identifiers and action keys untranslated.
+
+The English translations were adapted from Mark Graham's
+[English interface fork](https://github.com/markgraham924/helios/commit/995ec6b4be6b51629a505d0d94d053f4943786d1).
+The application keeps its own update source and package identity.
+
 ## What it does
 
 - **Dashboard from Home Assistant.** A 4x3 grid of tiles - a clock, weather, a
@@ -25,6 +43,20 @@ ask it to, and talks to nothing but your own Home Assistant.
   domain reject the whole document and the previous layout stays on screen. See
   [docs/ha-dashboard.md](docs/ha-dashboard.md) and
   [docs/SPEC-0.15-dashboard-cards.md](docs/SPEC-0.15-dashboard-cards.md).
+- **Extra cards.** `spotify` opens the installed Spotify app, `assistant` starts
+  a conversation with Home Assistant Assist, and `predbat` displays the current
+  Predbat state and its active `detail` attribute. The last card is read-only.
+  All three require clock version 0.20 or newer and dashboard schema 6. Add them
+  through the visual editor in `ha-helios` 0.21 or newer, or use the examples in
+  [docs/ha-dashboard.md](docs/ha-dashboard.md). These cards were adapted from
+  Mark Graham's [shortcut cards](https://github.com/markgraham924/helios/commit/c61dcafc2ee75bdca99914c785a6545a80d60eeb)
+  and [Predbat card](https://github.com/markgraham924/helios/commit/20a1b92912bbd3f7c9091f32235ba01edf57361c).
+- **Today at a glance.** The read-only `day_plan` card shows the next remaining
+  event from a selected HA calendar and up to two open items from an optional
+  HA to-do list. It refreshes every five minutes over the existing authenticated
+  WebSocket connection. Add it in the companion editor or follow the YAML
+  example in [docs/ha-dashboard.md](docs/ha-dashboard.md). The clock needs
+  version 0.21 or newer; the editor needs `ha-helios` 0.21 or newer.
 - **Screensaver.** After a quiet minute the clock can fall back to a dim clock
   face - always, only in a dark room, or never. The mode, the timings and the
   light thresholds come from Home Assistant, the darkness from the built-in
@@ -99,19 +131,29 @@ export JAVA_HOME="/path/to/jbr"        # the JDK that ships with Android Studio
 
 `local.properties` points at your Android SDK; platform 35 and build-tools
 36.0.0 are needed. The result is `app/build/outputs/apk/debug/app-debug.apk`.
-Java 8 language level, minSdk and targetSdk 29, no AndroidX - the clock runs
+Java 8 language level, minSdk 27 and targetSdk 29, no AndroidX - the clock runs
 Android 10 and the app is deliberately small and old-fashioned.
 
 The wake-word model, the ARMv7 engine and the fonts are vendored with their
 licenses and SHA-256 provenance under `app/src/main/assets/` and
 `app/src/main/jniLibs/`.
 
+## Version compatibility
+
+Starting with 0.21, the app and `ha-helios` use the same major and minor number
+for a feature release: Helios 0.21.x pairs with `ha-helios` 0.21.x. Patch
+numbers can advance independently. The editor shows each paired clock's app
+version and the minimum app version required by the dashboard. It refuses to
+save if any clock using that dashboard is older or its version is unknown.
+Update those clocks first, or give the newer clock its own dashboard. Older
+cards can still run on older app versions; the editor checks the actual cards.
+The device WebSocket protocol has its own version number.
+
 ## Status and scope
 
 This is a personal project that happens to be useful. It is verified on exactly
 one clock, one Home Assistant (2026.8.3) and one Music Assistant (2.10.3). The
-protocol between the app and the integration is versioned and both sides refuse
-mismatched versions, but there is no compatibility promise across releases yet.
+device protocol between the app and the integration is versioned separately.
 
 Documentation is mostly in Polish: the specifications under `docs/` (`SPEC-*`)
 are the authoritative description of every feature, and `docs/INSTALL.md` plus

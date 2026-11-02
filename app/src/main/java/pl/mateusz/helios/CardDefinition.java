@@ -51,6 +51,10 @@ final class CardDefinition {
             new CardDefinition("alerts",6,fields("sources",6,"empty",6),null,"alerts",null,false,false,false,false,false,null,"Uwagi",NONE,Layout.FIT,Gate.NONE,Feed.ENTITIES),
             new CardDefinition("energy",6,fields("entity",6,"load_entity",6,"battery_entity",6,"icon",6),"sensor",null,null,false,false,false,false,false,"mdi:solar-power","PV",DashboardSpec.UNIT_ATTRIBUTES,Layout.BIG_FIT,Gate.NONE,Feed.ENTITIES),
             new CardDefinition("entities",6,fields("entries",6,"icon",6),null,null,null,false,false,false,false,false,"mdi:format-list-bulleted","Odczyty",DashboardSpec.TILE_ATTRIBUTES,Layout.ROWS,Gate.NONE,Feed.ENTITIES),
+            new CardDefinition("spotify",6,fields("icon",6),null,"spotify",null,false,false,false,false,false,"mdi:spotify","Spotify",NONE,Layout.FIT,Gate.NONE,Feed.ENTITIES),
+            new CardDefinition("assistant",6,fields("entity",6,"icon",6),"sensor","assistant",null,false,false,false,false,false,"mdi:microphone","Asystent",NONE,Layout.FIT,Gate.NONE,Feed.ENTITIES),
+            new CardDefinition("predbat",6,fields("entity",6,"icon",6),"predbat",null,null,false,false,false,false,false,"mdi:battery-sync","Predbat",Arrays.asList("detail"),Layout.FIT,Gate.NONE,Feed.ENTITIES),
+            new CardDefinition("day_plan",6,fields("calendar_entity",6,"todo_entity",6,"icon",6),null,null,null,false,false,false,false,false,"mdi:calendar-check","Plan dnia",NONE,Layout.ROWS,Gate.NONE,Feed.ENTITIES),
         })all.put(d.type,d);
         ALL=Collections.unmodifiableMap(all);
         Set<String> known=new HashSet<>();for(CardDefinition d:all.values())known.addAll(d.fields.keySet());
